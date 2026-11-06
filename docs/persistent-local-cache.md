@@ -66,3 +66,12 @@ npm run build
 DAKIA_READING_FULL=1 DAKIA_READING_PORT=4202 npm exec --workspace @dakia/web playwright -- test --config playwright.reading.config.ts persistent-mail.spec.ts persistent-speed.spec.ts reading-prefetch.spec.ts
 DAKIA_READING_FULL=1 DAKIA_READING_PORT=4202 npm exec --workspace @dakia/web playwright -- test --config playwright.reading.config.ts --workers=4
 ```
+
+## Controlled measurements
+
+Three runs against public main and the candidate used fixed 600 ms list/body
+response delays, live fixture session/account checks and identical keyboard steps.
+The medians are recorded in [the raw measurements](benchmarks/persistent-cache/measurements.json).
+These timings include automation waits and are not production percentiles. More
+importantly, the held-response tests prove saved rows and bodies render before
+their server responses are released.

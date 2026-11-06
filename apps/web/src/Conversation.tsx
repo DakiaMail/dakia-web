@@ -3,6 +3,7 @@ import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { ChevronDown, CornerUpRight, FileText, RefreshCw, Reply, ReplyAll } from "lucide-react";
 import type { Account, Draft, Message, MessageContent } from "@dakia/api-types";
 import { api, ApiFailure } from "./api";
+import { KeyHint } from "./KeyboardHints";
 import { ErrorNotice } from "./ui";
 import { Translation } from "./Translation";
 import { Unsubscribe } from "./Unsubscribe";
@@ -144,9 +145,9 @@ function ConversationMessage({ message, initiallyOpen, multiple, ...props }: Pro
         <Translation message={message} html={content.data.html} text={content.data.text} detectedLanguage={content.data.detected_language} dark={props.dark} alwaysLoadImages={props.alwaysLoadImages} blockHiddenImages={props.blockHiddenImages} />
         <div className="attachments">{content.data.attachments.map(a => <a title={`Download ${a.filename}`} className="attachment" href={api.download(message.account_id, a.id)} key={a.id} download={a.filename}><FileText size={18} />{a.filename}<small>{Math.ceil(a.size_bytes / 1024)} KB</small></a>)}</div>
         <div className="reply-actions" aria-label={multiple ? `Actions for ${sender}’s message` : "Message actions"}>
-          <button title="Reply" onClick={() => props.onReply("reply", { ...content.data!, message })}><Reply size={17} />Reply</button>
-          <button title="Reply all" onClick={() => props.onReply("all", { ...content.data!, message })}><ReplyAll size={17} />Reply all</button>
-          <button title="Forward" onClick={() => props.onReply("forward", { ...content.data!, message })}><CornerUpRight size={17} />Forward</button>
+          <button title="Reply" onClick={() => props.onReply("reply", { ...content.data!, message })}><Reply size={17} />Reply{message.id === props.selected.id && <KeyHint keys="R" />}</button>
+          <button title="Reply all" onClick={() => props.onReply("all", { ...content.data!, message })}><ReplyAll size={17} />Reply all{message.id === props.selected.id && <KeyHint keys="Shift+R" />}</button>
+          <button title="Forward" onClick={() => props.onReply("forward", { ...content.data!, message })}><CornerUpRight size={17} />Forward{message.id === props.selected.id && <KeyHint keys="F" />}</button>
         </div>
       </>}
     </div>

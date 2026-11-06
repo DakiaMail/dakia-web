@@ -9,6 +9,8 @@ import {
 import { measureElement, useVirtualizer } from "@tanstack/react-virtual";
 import {
   Archive,
+  ArrowUp,
+  ArrowDown,
   ArrowLeft,
   ChevronDown,
   Clock,
@@ -60,7 +62,9 @@ import { MessageActions } from "./MessageActions";
 import { MoveMessages } from "./MoveMessages";
 import { submissionLabel } from "./scheduled";
 import { useImagePrivacy } from "./useImagePrivacy";
-import { canDismissMail, plainKey } from "./keyboard";
+import { canDismissMail, canUseMailShortcut, plainKey } from "./keyboard";
+
+import { KeyboardHints, KeyHint, mailShortcuts, useKeyboardPreferences } from "./KeyboardHints";
 
 import { Conversation } from "./Conversation";
 import { useCleanupProjection } from "./cleanupJobs";
@@ -115,6 +119,8 @@ export function App() {
     enabled: !!session.data,
   });
   const { alwaysLoadImages, setAlwaysLoadImages, blockHiddenImages, setBlockHiddenImages } = useImagePrivacy(session.data?.user_id);
+  const keyboardPreferences = useKeyboardPreferences(session.data?.user_id);
+  const [shortcutHelp, setShortcutHelp] = useState(false);
   const [account, setAccount] = useState("all");
   const [nav, setNav] = useState<Nav>("INBOX");
   const [view, setView] = useState<"smart" | "list">("smart");
@@ -168,6 +174,8 @@ export function App() {
     setSelected(next.selected); setWorkspace(next.workspace); setSidebar(false);
   }, !!session.data);
   useBackLayer(() => setSidebar(false), sidebar);
+  const replyIntent = useRef(0);
+  useEffect(() => { replyIntent.current++; }, [account, nav, q, selected, workspace, compose]);
   const mutationTokens = useRef(new Map<string, symbol>());
   const settledTokens = useRef(new Map<string, symbol>());
   const ready = (accounts.data || []).filter(
@@ -430,12 +438,48 @@ export function App() {
 
   useEffect(() => {
     const keyboard = (e: KeyboardEvent) => {
-      // Leave character keys, browser chords and scrolling to the browser.
-      // All actions remain available through focusable, named controls.
-      if (compose || setup || workspace || !canDismissMail(e)) return;
-      if (selected) closeReader();
-      setSidebar(false);
-      clearSelection();
+      if (compose || setup || workspace || !session.data) return;
+      if (canDismissMail(e)) {
+        if (selected) closeReader();
+        setSidebar(false);
+        clearSelection();
+        return;
+      }
+      if (!keyboardPreferences.shortcuts || !canUseMailShortcut(e)) return;
+      const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+      const focusedId = (e.target as Element).closest<HTMLElement>("[data-message-id]")?.dataset.messageId;
+      const focused = rows.find(message => identity(message) === focusedId);
+      const target = focused || active;
+      const targets = checked.size ? rows.filter(message => checked.has(identity(message))) : target ? [target] : [];
+      const pending = targets.some(message => pendingTargets[identity(message)] > 0 || !!cleanupRows[identity(message)]);
+      const consume = (action: () => void) => { e.preventDefault(); action(); };
+      if (key === "?") return consume(() => setShortcutHelp(true));
+      if (key === "c" && !e.shiftKey) return consume(startCompose);
+      if (key === "/" && !e.shiftKey) return consume(() => {
+        setSidebar(true);
+        setSearchFocused(true);
+        requestAnimationFrame(() => document.querySelector<HTMLInputElement>('.sidebar .search input')?.focus());
+      });
+      if ((key === "j" || key === "k") && !e.shiftKey) return consume(() => navigateMessage(key === "j" ? 1 : -1, target));
+      if (!targets.length || pending) return;
+      if (key === "x" && !e.shiftKey && target) return consume(() => selectMessage(target, false, !checked.has(identity(target))));
+      if ((key === "r" || (key === "f" && !e.shiftKey)) && !checked.size && target) {
+        // Use the focused message's own loaded content, never another email's body.
+        consume(() => { void shortcutReply(target, key === "f" ? "forward" : e.shiftKey ? "all" : "reply"); });
+        return;
+      }
+      const change: Change | undefined = key === "e" && !e.shiftKey ? { kind: "archive" }
+        : key === "Delete" && !e.shiftKey ? { kind: "trash" }
+        : key === "u" && !e.shiftKey ? { kind: "read", value: false }
+        : key === "u" && e.shiftKey ? { kind: "read", value: true }
+        : key === "s" && !e.shiftKey ? { kind: "star", value: targets.some(message => !message.starred) }
+        : key === "!" ? { kind: "spam" } : undefined;
+      if (change) return consume(() => {
+        void act(targets, change);
+        if (["archive", "trash", "spam"].includes(change.kind) && active && targets.some(message => identity(message) === identity(active))) closeReader();
+      });
+      if (key === "m" && !e.shiftKey) return consume(() => setMove([...targets]));
+      if (key === "b" && !e.shiftKey) return consume(() => setSnooze([...targets]));
     };
     window.addEventListener("keydown", keyboard);
     return () => window.removeEventListener("keydown", keyboard);
@@ -533,8 +577,18 @@ export function App() {
       });
     } catch (error) { if (!quiet) setError(error); }
   }
+  function navigateMessage(direction: number, from: Message | null = active) {
+    const visible = items.flatMap(item => item.kind === "mail" ? [item.message] : []);
+    const index = from ? visible.findIndex(message => identity(message) === identity(from)) : -1;
+    const next = index < 0 ? (direction > 0 ? visible[0] : visible.at(-1)) : visible[index + direction];
+    if (!next) return;
+    virtual.scrollToIndex(items.findIndex(item => item.kind === "mail" && identity(item.message) === identity(next)), { align: "auto" });
+    void open(next);
+    requestAnimationFrame(() => document.querySelector<HTMLElement>(".reader")?.focus());
+  }
   function closeReader() {
     navigation.backTo(previous => !previous.selected && !previous.workspace);
+    requestAnimationFrame(() => listRef.current?.focus());
   }
   function removeFromReader(kind: "archive" | "trash" | "spam") {
     // Snapshot the existing toolbar targets before closing. Checkbox/bulk
@@ -571,6 +625,14 @@ export function App() {
     );
     if (a) setCompose({ draft: newDraft(a.id) });
     else setSetup(true);
+  }
+  async function shortcutReply(target: Message, mode: "reply" | "all" | "forward") {
+    const intent = ++replyIntent.current;
+    try {
+      const key = ["content", target.account_id, target.id];
+      const metadata = client.getQueryData<MessageContent>(key) || await client.fetchQuery<MessageContent>({ queryKey: key, queryFn: () => api.content(target) });
+      if (intent === replyIntent.current) reply(mode, metadata);
+    } catch (error) { if (intent === replyIntent.current) setError(error); }
   }
   function reply(mode: "reply" | "all" | "forward", metadata: MessageContent) {
     const active = metadata.message;
@@ -627,6 +689,7 @@ export function App() {
       autoFocus={searchFocused}
       onChange={event => { setSearch(event.target.value); setSearchFocused(true); }}
     />
+    <KeyHint keys="/" />
     {q && <button title="Search" type="submit" aria-label="Search"><Search size={18} /></button>}
     {searchFocused && <SearchSuggestions value={search} ids={ids} onOpen={message => { setSearchFocused(false); setSidebar(false); void open(message, message.account_id); }} />}
   </form>;
@@ -697,6 +760,7 @@ export function App() {
       </div>
     );
   return (
+    <KeyboardHints.Provider value={keyboardPreferences.hints && keyboardPreferences.shortcuts}>
     <div
       className={`app ${selected ? "reading" : ""} ${sidebar ? "nav-open" : ""} ${workspace ? "workspace-view" : ""}`}
 
@@ -800,7 +864,7 @@ export function App() {
           onClick={() => setSidebar(false)}
         />
       )}
-      {workspace && <Workspace userId={session.data?.user_id} accounts={accounts.data || []} blockHiddenImages={blockHiddenImages} onHiddenImagesChange={setBlockHiddenImages} alwaysLoadImages={alwaysLoadImages} onImagePrivacyChange={setAlwaysLoadImages} onBack={() => { navigation.backTo(previous => !previous.workspace); requestAnimationFrame(() => { if (matchMedia("(max-width: 600px)").matches) document.querySelector<HTMLButtonElement>('[aria-label="Open navigation"]')?.focus(); else document.querySelector<HTMLButtonElement>('[aria-label="Manage workspace"]')?.focus(); }); }} onConnect={() => setSetup(true)} onSettings={setSettingsAccount} onRemove={setRemovingAccount} onReconnect={(account) => { setReconnect(account); setSetup(true); }} notificationStatus={notificationStatus} onNotifications={() => {
+      {workspace && <Workspace userId={session.data?.user_id} accounts={accounts.data || []} blockHiddenImages={blockHiddenImages} onHiddenImagesChange={setBlockHiddenImages} keyboardHints={keyboardPreferences.hints} onKeyboardHintsChange={keyboardPreferences.setHints} keyboardShortcuts={keyboardPreferences.shortcuts} onKeyboardShortcutsChange={keyboardPreferences.setShortcuts} onShortcutHelp={() => setShortcutHelp(true)} alwaysLoadImages={alwaysLoadImages} onImagePrivacyChange={setAlwaysLoadImages} onBack={() => { navigation.backTo(previous => !previous.workspace); requestAnimationFrame(() => { if (matchMedia("(max-width: 600px)").matches) document.querySelector<HTMLButtonElement>('[aria-label="Open navigation"]')?.focus(); else document.querySelector<HTMLButtonElement>('[aria-label="Manage workspace"]')?.focus(); }); }} onConnect={() => setSetup(true)} onSettings={setSettingsAccount} onRemove={setRemovingAccount} onReconnect={(account) => { setReconnect(account); setSetup(true); }} notificationStatus={notificationStatus} onNotifications={() => {
         setNotificationStatus("Enabling…");
         void enableNotifications().then(() => setNotificationStatus("Notifications enabled")).catch((error) => setNotificationStatus(error instanceof Error ? error.message : "Could not enable notifications. Try again."));
       }} />}
@@ -1052,6 +1116,7 @@ export function App() {
                       </button>
                     ) : (
                       <div
+                        data-message-id={identity(item.message)}
                         className={`message-row ${selected && identity(item.message) === identity(selected) ? "selected" : ""} ${item.message.unread ? "unread" : ""} ${heldReadSections[identity(item.message)]?.leaving ? "leaving-section" : ""}`}
                       >
                         <label className="message-select" onClick={(e) => {
@@ -1179,10 +1244,14 @@ export function App() {
           </div>
         )}
         <div className="keyboard-hints">
-          <kbd>Tab</kbd> Navigate controls <kbd>Enter</kbd> Activate
+          <span><kbd>Tab</kbd> Navigate controls</span><span><kbd>Enter</kbd> Activate</span>
+          {keyboardPreferences.hints && keyboardPreferences.shortcuts && <>
+            <span><kbd>J</kbd> / <kbd>K</kbd> Next / previous</span><span><kbd>E</kbd> Archive</span><span><kbd>R</kbd> Reply</span>
+            <button title="Keyboard shortcuts" onClick={() => setShortcutHelp(true)} aria-label="Keyboard shortcuts"><kbd>?</kbd> All shortcuts</button>
+          </>}
         </div>
       </main>
-      <section className="reader" aria-label="Reading pane">
+      <section className="reader" aria-label="Reading pane" tabIndex={-1}>
         <header className="pane-header">
           <button title="Back to inbox"
             className="reader-back"
@@ -1191,6 +1260,8 @@ export function App() {
           >
             <ArrowLeft size={18} />
           </button>
+          <button title="Previous email" aria-label="Previous email" disabled={!active || selectionOrder.indexOf(identity(active)) <= 0} onClick={() => navigateMessage(-1)}><ArrowUp size={16} /><KeyHint keys="K" /></button>
+          <button title="Next email" aria-label="Next email" disabled={!active || selectionOrder.indexOf(identity(active)) < 0 || selectionOrder.indexOf(identity(active)) >= selectionOrder.length - 1} onClick={() => navigateMessage(1)}><ArrowDown size={16} /><KeyHint keys="J" /></button>
           <span>
             {active
               ? accounts.data?.find((a) => a.id === active.account_id)?.email
@@ -1198,7 +1269,7 @@ export function App() {
           </span>
           <button title="Compose" className="primary" onClick={startCompose}>
             <Pencil size={15} />
-            Compose
+            Compose <KeyHint keys="C" />
           </button>
         </header>
         {connectionNotice}
@@ -1278,6 +1349,12 @@ export function App() {
       {move && <MoveMessages messages={move} accounts={accounts.data || []}
         onMove={(messages, destinations) => void act(messages, { kind: "move", folder_id: "" }, destinations)}
         onClose={() => setMove(null)} />}
+      {shortcutHelp && <Modal title="Keyboard shortcuts" onClose={() => setShortcutHelp(false)}>
+        <p>Use Tab and Shift+Tab to move between controls and message fields. Enter or Space activates buttons.</p>
+        <dl className="shortcut-list">{mailShortcuts.map(([keys, label]) => <div key={keys}><dt><kbd>{keys}</kbd></dt><dd>{label}</dd></div>)}</dl>
+        <p>{keyboardPreferences.shortcuts ? "Mail shortcuts pause while typing, selecting text, or using a dialog." : "Mail shortcuts are turned off. Enable them in Workspace settings."}</p>
+      </Modal>}
     </div>
+    </KeyboardHints.Provider>
   );
 }

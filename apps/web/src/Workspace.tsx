@@ -4,8 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { Invitations } from "./Invitations";
 import { InstallApp } from "./InstallApp";
 
-export function Workspace({ userId, accounts, onBack, onConnect, onSettings, onRemove, onReconnect, onNotifications, notificationStatus, alwaysLoadImages, onImagePrivacyChange, blockHiddenImages, onHiddenImagesChange }: {
+export function Workspace({ userId, accounts, onBack, onConnect, onSettings, onRemove, onReconnect, onNotifications, notificationStatus, alwaysLoadImages, onImagePrivacyChange, blockHiddenImages, onHiddenImagesChange, keyboardHints, onKeyboardHintsChange, keyboardShortcuts, onKeyboardShortcutsChange, onShortcutHelp }: {
   userId?: string;
+  keyboardHints: boolean;
+  onKeyboardHintsChange: (enabled: boolean) => void;
+  keyboardShortcuts: boolean;
+  onKeyboardShortcutsChange: (enabled: boolean) => void;
+  onShortcutHelp: () => void;
   accounts: Account[];
   onBack: () => void;
   onConnect: () => void;
@@ -41,6 +46,13 @@ export function Workspace({ userId, accounts, onBack, onConnect, onSettings, onR
         <span className="workspace-account-icon"><Shield size={20} /></span><div><h2 id="workspace-privacy">Email privacy</h2><label className="privacy-toggle"><input type="checkbox" checked={!alwaysLoadImages} onChange={(event) => { try { onImagePrivacyChange(!event.target.checked); setPrivacyError(""); } catch { setPrivacyError("Could not save this preference. Check browser storage permissions."); } }} />Block external images by default</label><p>Off by default. Loading external images can tell senders when you open mail. Turn on to load images only when you choose.</p><label className="privacy-toggle"><input type="checkbox" checked={blockHiddenImages} onChange={(event) => { try { onHiddenImagesChange(event.target.checked); setPrivacyError(""); } catch { setPrivacyError("Could not save this preference. Check browser storage permissions."); } }} />Block hidden images and tracking pixels</label><p>Off by default. Skips explicitly hidden and zero/one-pixel images, including some legitimate assets. This cannot detect every tracker. Applies even when you choose Load images.</p><p>Saved separately for your signed-in user, for all your accounts on this browser. Existing image-loading choices are preserved. Network isolation and message sandboxing are always enforced.</p>{privacyError && <p role="alert">{privacyError}</p>}</div>
       </section>
       {userId && <Invitations key={userId} userId={userId} />}
+      <section aria-labelledby="workspace-keyboard">
+        <h2 id="workspace-keyboard">Keyboard</h2>
+        <label className="privacy-toggle"><input type="checkbox" checked={keyboardShortcuts} onChange={event => { try { onKeyboardShortcutsChange(event.target.checked); setPrivacyError(""); } catch { setPrivacyError("Could not save this preference. Check browser storage permissions."); } }} />Enable mail keyboard shortcuts</label>
+        <label className="privacy-toggle"><input type="checkbox" checked={keyboardHints} onChange={event => { try { onKeyboardHintsChange(event.target.checked); setPrivacyError(""); } catch { setPrivacyError("Could not save this preference. Check browser storage permissions."); } }} />Show extra keyboard hints</label>
+        <p>Show shortcut keys beside actions and below your inbox. Preferences apply on this browser.</p>
+        <button title="Keyboard shortcuts" onClick={onShortcutHelp}>Keyboard shortcuts</button>
+      </section>
       <InstallApp />
       <section className="workspace-notifications" aria-labelledby="workspace-notifications">
         <span className="workspace-account-icon"><Bell size={20} /></span><div><h2 id="workspace-notifications">Notifications</h2><p>Get new-mail notifications on this browser.</p><button title="Enable notifications" onClick={onNotifications} disabled={notificationStatus === "Enabling…"}>Enable notifications</button>{notificationStatus && <p role="status">{notificationStatus}</p>}</div>

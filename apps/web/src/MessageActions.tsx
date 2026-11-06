@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Archive, Clock, FolderInput, Mail, MoreHorizontal, ShieldAlert, Star, Trash2 } from "lucide-react";
+import { KeyHint } from "./KeyboardHints";
 import { plainKey } from "./keyboard";
 
 interface Props {
@@ -43,20 +44,20 @@ export function MessageActions(props: Props) {
     };
   }, [open]);
   const extras = <>
-    <button aria-label="Move" title="Move" disabled={props.pending} onClick={() => { close(true); props.move(); }}><FolderInput size={18} />Move</button>
-    <button aria-label="Mark as spam" title="Mark as spam" disabled={props.pending} onClick={() => { close(true); props.spam(); }}><ShieldAlert size={18} />Mark as spam</button>
+    <button aria-label="Move" title="Move" disabled={props.pending} onClick={() => { close(true); props.move(); }}><FolderInput size={18} />Move<KeyHint keys="M" /></button>
+    <button aria-label="Mark as spam" title="Mark as spam" disabled={props.pending} onClick={() => { close(true); props.spam(); }}><ShieldAlert size={18} />Mark as spam<KeyHint keys="!" /></button>
     {props.category !== undefined && <label>Category <select aria-label="Category" title="Change category" value={props.category} disabled={props.pending} onChange={event => { props.setCategory(event.target.value); close(true); }}>
       <option value="" disabled>Category</option>
       {props.categories.map(category => <option key={category}>{category}</option>)}
     </select></label>}
-    <button aria-label="Mark read" title="Mark read" disabled={props.pending} onClick={() => { close(true); props.read(); }}><Mail size={18} />Mark read</button>
-    <button aria-label={props.starred ? "Unstar selected messages" : "Star selected messages"} title={props.starred ? "Unstar" : "Star"} disabled={props.pending} onClick={() => { close(true); props.toggleStar(); }}><Star size={18} fill={props.starred ? "currentColor" : "none"} />{props.starred ? "Unstar" : "Star"}</button>
+    <button aria-label="Mark read" title="Mark read" disabled={props.pending} onClick={() => { close(true); props.read(); }}><Mail size={18} />Mark read<KeyHint keys="Shift+U" /></button>
+    <button aria-label={props.starred ? "Unstar selected messages" : "Star selected messages"} title={props.starred ? "Unstar" : "Star"} disabled={props.pending} onClick={() => { close(true); props.toggleStar(); }}><Star size={18} fill={props.starred ? "currentColor" : "none"} />{props.starred ? "Unstar" : "Star"}<KeyHint keys="S" /></button>
   </>;
   return <div className="reader-toolbar" aria-label="Message actions">
-    <button aria-label="Archive" title="Archive" disabled={props.pending} onClick={props.archive}><Archive size={18} /><span className="message-action-label">Archive</span></button>
-    <button aria-label="Mark unread" title="Mark unread" disabled={props.pending} onClick={props.unread}><Mail size={18} /><span className="message-action-label">Mark unread</span></button>
-    <button aria-label="Move to trash" title="Move to trash" disabled={props.pending} onClick={props.trash}><Trash2 size={18} /><span className="message-action-label">Delete</span></button>
-    <button aria-label="Snooze" title="Snooze" disabled={props.pending} onClick={props.snooze}><Clock size={18} /><span className="message-action-label">Snooze</span></button>
+    <button aria-label="Archive" title="Archive" disabled={props.pending} onClick={props.archive}><Archive size={18} /><span className="message-action-label">Archive</span><KeyHint keys="E" /></button>
+    <button aria-label="Mark unread" title="Mark unread" disabled={props.pending} onClick={props.unread}><Mail size={18} /><span className="message-action-label">Mark unread</span><KeyHint keys="U" /></button>
+    <button aria-label="Move to trash" title="Move to trash" disabled={props.pending} onClick={props.trash}><Trash2 size={18} /><span className="message-action-label">Delete</span><KeyHint keys="Delete" /></button>
+    <button aria-label="Snooze" title="Snooze" disabled={props.pending} onClick={props.snooze}><Clock size={18} /><span className="message-action-label">Snooze</span><KeyHint keys="B" /></button>
     <div className="message-actions-more" ref={root} onBlur={event => {
       if (!event.currentTarget.contains(event.relatedTarget as Node)) close();
     }} onKeyDown={event => {

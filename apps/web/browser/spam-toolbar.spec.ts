@@ -77,7 +77,7 @@ for (const width of [320, 390, 768, 901, 1024, 1480]) for (const theme of ["ligh
       const bounds = await page.getByRole("group", { name: "More message actions" }).boundingBox();
       expect(bounds!.x).toBeGreaterThanOrEqual(8);
       expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width - 8);
-      await page.locator(".reader .pane-header").click({ position: { x: 80, y: 10 } });
+      await page.locator(".reader .pane-header > span").click();
       await expect(trigger).toHaveAttribute("aria-expanded", "false");
       // Tab exits normally, no focus trap or document-wide key listener.
       await trigger.click(); await page.keyboard.press("End");

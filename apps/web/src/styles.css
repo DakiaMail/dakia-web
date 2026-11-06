@@ -664,7 +664,9 @@ kbd {
   .row-quick-actions, .message-row .account-label { transition: none; transform: none; }
 }
 .keyboard-hints {
-  height: 35px;
+  min-height: 35px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
   display: flex;
   gap: 7px;
   align-items: center;
@@ -1676,3 +1678,25 @@ body {
 .invitation-link input { display: block; width: 100%; margin-top: 8px; min-width: 0; padding: 10px; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-surface); color: inherit; font: inherit; }
 .invitation-list { list-style: none; padding: 0; }
 .invitation-list li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; align-items: center; padding: 12px 0; border-top: 1px solid var(--color-border); }
+
+.key-hint {
+  margin-left: 5px;
+  padding: 1px 4px;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  color: var(--color-secondary);
+  font-family: inherit;
+  font-size: 10px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.keyboard-hints > span { white-space: nowrap; }
+.keyboard-hints > button { font: inherit; color: inherit; padding: 3px; }
+.shortcut-list { display: grid; gap: 9px; }
+.shortcut-list > div { display: grid; grid-template-columns: 100px 1fr; gap: 12px; }
+.shortcut-list dd { margin: 0; }
+/* Shortcut hints need more room before the full toolbar labels fit. */
+.reader-toolbar:has(.key-hint) .message-action-label { display: none; }
+@container (min-width: 760px) {
+  .reader-toolbar:has(.key-hint) .message-action-label { display: inline; }
+}

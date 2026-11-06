@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { canDismissMail, plainKey } from "./keyboard";
+import { canDismissMail, canUseMailShortcut, plainKey } from "./keyboard";
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -46,5 +46,31 @@ describe("keyboard boundaries", () => {
     const range = document.createRange(); range.selectNodeContents(document.body);
     window.getSelection()!.addRange(range);
     expect(canDismissMail(escape(document.body))).toBe(false);
+  });
+});
+
+
+describe("mail shortcut boundaries", () => {
+  it("accepts mail buttons but leaves native widgets, editors and popovers alone", () => {
+    document.body.innerHTML = '<button>Archive</button>';
+    expect(canUseMailShortcut(escape(document.querySelector("button")!))).toBe(true);
+    for (const html of ['<input type="checkbox">', '<input>', '<textarea></textarea>', '<select></select>', '<div contenteditable><span>x</span></div>', '<div role="textbox"></div>', '<div role="combobox"></div>', '<div class="message-actions-popover"><button>x</button></div>']) {
+      document.body.innerHTML = html;
+      expect(canUseMailShortcut(escape(document.querySelector("button,span") || document.body.firstElementChild!))).toBe(false);
+    }
+  });
+  it("ignores repeats, composition, OS chords, prevented events, selections and dialogs", () => {
+    for (const init of [{ repeat: true }, { ctrlKey: true }, { metaKey: true }, { altKey: true }, { isComposing: true }, { keyCode: 229 }]) {
+      expect(canUseMailShortcut(escape(document.body, init))).toBe(false);
+    }
+    expect(canUseMailShortcut(escape(document.body, { shiftKey: true }))).toBe(true);
+    const prevented = escape(document.body); prevented.preventDefault();
+    expect(canUseMailShortcut(prevented)).toBe(false);
+    document.body.innerHTML = '<dialog open></dialog>';
+    expect(canUseMailShortcut(escape(document.body))).toBe(false);
+    document.body.textContent = 'Selected';
+    const range = document.createRange(); range.selectNodeContents(document.body);
+    window.getSelection()!.addRange(range);
+    expect(canUseMailShortcut(escape(document.body))).toBe(false);
   });
 });

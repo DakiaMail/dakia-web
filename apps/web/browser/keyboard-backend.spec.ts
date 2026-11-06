@@ -59,8 +59,11 @@ test("keyboard journey persists drafts and mail changes through the real backend
   await page.keyboard.press("/"); await expect(page.getByRole("textbox", { name: "Search all mail" })).toBeFocused();
   await page.keyboard.press("Escape"); await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeFocused();
   const order = await page.locator(".message-row .subject").allTextContents();
-  await page.keyboard.press("j");
-  await expect(page.locator(".conversation-title h2")).toHaveText(order[order.indexOf("Synthetic 0") + 1] || "Synthetic 0");
+  const index = order.indexOf("Synthetic 0");
+  // Fixture IDs break equal-date ties and can place Synthetic 0 last.
+  const direction = index < order.length - 1 ? "j" : "k";
+  await page.keyboard.press(direction);
+  await expect(page.locator(".conversation-title h2")).toHaveText(order[index + (direction === "j" ? 1 : -1)]);
   await expect(page.getByRole("region", { name: "Reading pane" })).toBeFocused();
   await row(1).focus(); await page.keyboard.press("Enter");
   await expect(page.locator(".conversation-title h2")).toHaveText("Synthetic 1");

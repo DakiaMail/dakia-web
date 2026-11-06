@@ -1,0 +1,9 @@
+{
+  "name": "@dakia/api-types",
+  "version": "0.1.0",
+  "license": "MPL-2.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "generate": "cargo test --manifest-path ../../Cargo.toml -p dakia-domain" }
+}

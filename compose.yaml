@@ -1,0 +1,24 @@
+name: dakia
+services:
+  dakia:
+    image: ${DAKIA_IMAGE:-dakia:local}
+    build: .
+    restart: unless-stopped
+    environment:
+      DAKIA_ORIGIN: ${DAKIA_ORIGIN:?Set the external HTTPS address in .env}
+    ports:
+      - "127.0.0.1:${DAKIA_PORT:-3025}:3025"
+    volumes:
+      - data:/data
+      - secrets:/secrets
+    read_only: true
+    tmpfs:
+      - /tmp:size=128m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 30s
+volumes:
+  data:
+  secrets:

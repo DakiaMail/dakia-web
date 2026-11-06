@@ -1,0 +1,57 @@
+// Real browser -> HTTP/CSRF -> atomic SQLite outbox -> TLS SMTP receiver.
+// No API interception. The Rust fixture checks actual SMTP envelope and MIME.
+import { test, expect } from "@playwright/test";
+test("one click sends the exact header email once, reload and repeated clicks only read back", async ({ page, context }) => {
+  await context.addCookies([{ name: "__Host-dakia", value: "release-browser-fixture", url: "https://127.0.0.1:4327/", secure: true, sameSite: "Lax" }]);
+  await page.setViewportSize({ width: 390, height: 900 });
+  await page.addInitScript(() => localStorage.setItem("dakia-theme", "dark"));
+  const posts: string[] = [];
+  page.on("request", r => { if (r.method() === "POST" && r.url().endsWith("/unsubscribe")) posts.push(r.url()); });
+  await page.goto("/");
+  const accounts = await (await page.request.get("/api/accounts")).json();
+  const account = accounts[0].id;
+  const path = `/api/accounts/${account}/messages/one-click-email/unsubscribe`;
+  await page.goto(`/?account=${account}&message=one-click-email`);
+  const trigger = page.getByRole("button", { name: "Unsubscribe", exact: true });
+  await expect(trigger).toBeVisible();
+  expect(posts).toHaveLength(0);
+  await page.screenshot({ path: "artifacts/one-click-unsubscribe/mobile-reader-before.png" });
+  const receipt = page.waitForResponse(r => r.url().endsWith("/unsubscribe") && r.request().method() === "POST");
+  await trigger.evaluate((b: HTMLButtonElement) => { b.click(); b.click(); });
+  expect((await receipt).status()).toBe(202);
+  await expect(page.getByRole("heading", { name: "Unsubscribe request sent" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Confirm unsubscribe|Review email$/ })).toHaveCount(0);
+  await expect(page.getByLabel("To", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("listunsubscribe-synthetic@email.example.org", { exact: false })).toHaveCount(0);
+  expect((await (await page.request.get(path)).json()).attempt_status).toBe("request_accepted");
+  const submissions = await (await page.request.get(`/api/accounts/${account}/submissions`)).json();
+  expect(submissions).toHaveLength(1);
+  expect(submissions[0].state).toBe("accepted");
+  await page.screenshot({ path: "artifacts/one-click-unsubscribe/mobile-request-sent.png" });
+  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await page.reload();
+  await expect(trigger).toBeVisible();
+  await trigger.click();
+  await expect(page.getByRole("heading", { name: "Unsubscribe request sent" })).toBeVisible();
+  expect(posts).toHaveLength(1);
+  await page.setViewportSize({ width: 1480, height: 980 });
+  await page.screenshot({ path: "artifacts/one-click-unsubscribe/desktop-request-sent.png" });
+  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.screenshot({ path: "artifacts/one-click-unsubscribe/desktop-reader-after.png" });
+  const after = await (await page.request.get(`/api/accounts/${account}/submissions`)).json();
+  expect(after).toHaveLength(1); expect(after[0].id).toBe(submissions[0].id);
+  // Same one-click experience, real backend and controlled HTTP receiver.
+  await page.goto(`/?account=${account}&message=one-click-http`);
+  await expect(trigger).toBeVisible();
+  await trigger.evaluate((b: HTMLButtonElement) => { b.click(); b.click(); });
+  await expect(page.getByRole("heading", { name: "Unsubscribe request sent" })).toBeVisible();
+  const httpPath = `/api/accounts/${account}/messages/one-click-http/unsubscribe`;
+  expect((await (await page.request.get(httpPath)).json()).attempt_status).toBe("request_accepted");
+  await page.getByRole("button", { name: "Done", exact: true }).click();
+  await page.reload(); await trigger.click();
+  await expect(page.getByRole("heading", { name: "Unsubscribe request sent" })).toBeVisible();
+  expect(posts.filter(p => p.endsWith("/one-click-email/unsubscribe"))).toHaveLength(1);
+  expect(posts.filter(p => p.endsWith("/one-click-http/unsubscribe"))).toHaveLength(1);
+  await expect.poll(async () => (await page.request.get("/fixture-receipts")).json()).toEqual({ smtp_verified: true, smtp_sends: 1, http_requests: 1 });
+});

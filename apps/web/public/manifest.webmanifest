@@ -1,0 +1,17 @@
+{
+  "id": "/",
+  "name": "Dakia Mail",
+  "short_name": "Dakia",
+  "description": "Your mail, in one place. An internet connection is required.",
+  "lang": "en",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#FFFFFF",
+  "theme_color": "#B7432B",
+  "icons": [
+    { "src": "/dakia-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/dakia-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/dakia-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

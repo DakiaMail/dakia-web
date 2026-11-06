@@ -1,0 +1,15 @@
+CREATE TABLE drafts (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, document TEXT NOT NULL);
+CREATE TABLE messages (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, document TEXT NOT NULL, category_override TEXT);
+CREATE TABLE operations (id TEXT PRIMARY KEY, request TEXT NOT NULL, document TEXT NOT NULL);
+CREATE TABLE submissions (id TEXT PRIMARY KEY, operation_id TEXT NOT NULL UNIQUE, request TEXT NOT NULL, draft_id TEXT NOT NULL, draft_revision INTEGER NOT NULL, snapshot TEXT NOT NULL, document TEXT NOT NULL, state TEXT NOT NULL, due_at TEXT NOT NULL, lease_until TEXT, filing_status TEXT NOT NULL);
+CREATE INDEX submissions_due ON submissions(state, due_at);
+CREATE TABLE outbox (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, target_id TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'pending', lease_until TEXT, UNIQUE(kind,target_id));
+CREATE TABLE events (cursor INTEGER PRIMARY KEY AUTOINCREMENT, revision INTEGER NOT NULL, kind TEXT NOT NULL, target_id TEXT NOT NULL);
+CREATE TABLE sync_cursors (folder_id TEXT PRIMARY KEY, cursor TEXT NOT NULL, initial_boundary TEXT);
+CREATE TABLE blobs (id TEXT PRIMARY KEY, size_bytes INTEGER NOT NULL, pinned INTEGER NOT NULL CHECK(pinned IN (0,1)), last_access TEXT NOT NULL);
+CREATE TABLE draft_blobs (draft_id TEXT NOT NULL, blob_id TEXT NOT NULL REFERENCES blobs(id), PRIMARY KEY(draft_id,blob_id));
+CREATE TABLE snoozes (thread_id TEXT PRIMARY KEY, until TEXT NOT NULL, arrival_boundary TEXT NOT NULL);
+CREATE TABLE model_jobs (id TEXT PRIMARY KEY, document TEXT NOT NULL, state TEXT NOT NULL);
+CREATE TABLE push_subscriptions (id TEXT PRIMARY KEY, document TEXT NOT NULL);
+CREATE TABLE notification_dedup (message_id TEXT PRIMARY KEY);
+CREATE TABLE recipients (email TEXT PRIMARY KEY, name TEXT, evidence TEXT NOT NULL CHECK(evidence IN ('sent','deliberate')), score INTEGER NOT NULL);

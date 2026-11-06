@@ -1,0 +1,1 @@
+{"name":"@dakia/translation-worker","version":"0.1.0","license":"MPL-2.0","private":true,"type":"module","engines":{"node":">=18.19"},"scripts":{"test":"node --test test/*.test.mjs","test:models":"node --test test/models.test.mjs","start":"node main.mjs"},"dependencies":{"parse5":"7.3.0","sanitize-html":"2.18.1"}}

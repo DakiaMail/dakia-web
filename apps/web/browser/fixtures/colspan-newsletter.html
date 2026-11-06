@@ -1,0 +1,40 @@
+<!-- Minimal, fictional regression derived from the reported email's layout.
+     A leading colspan row, outer gutters, nested tables and 600px images must
+     not become three equal-width columns under the narrow reader stylesheet.
+     No private text, recipient data, sender links or artwork is included. -->
+<table width="100%" style="width:100%;background-color:#fff">
+  <tr><td colspan="3" height="8" style="line-height:8px">&nbsp;</td></tr>
+  <tr>
+    <td width="10">&nbsp;</td>
+    <td>
+      <table style="max-width:600px">
+        <tr><td width="600" style="padding-top:20px;padding-bottom:20px">
+          <table width="600" style="width:100%;max-width:600px">
+            <tr><td width="600"><img src="https://images.example.org/logo.png" width="600" height="108" style="width:100%;max-width:600px;height:auto" alt="Newsletter logo"></td></tr>
+          </table>
+          <table style="max-width:600px">
+            <tr><td width="600" style="font-size:16px;line-height:24px">
+              <img src="https://images.example.org/banner.png" width="600" height="250" style="width:100%;max-width:600px;height:auto" alt="Full newsletter banner">
+              <h1>Hello, reader</h1><p>Thank you for staying with us!</p>
+            </td></tr>
+          </table>
+          <table style="max-width:600px">
+            <tr><td width="20" style="background-color:#ffecff;padding:20px 0">&nbsp;</td>
+              <td width="560" style="background-color:#ffecff;padding:20px 0">
+                <h2>Your entries</h2>
+                <table width="560" style="width:100%"><tr>
+                  <td width="12" style="min-width:12px;padding-top:8px">•</td>
+                  <td width="12" style="min-width:12px">&nbsp;</td>
+                  <td width="576"><p>Your full entry details appear here.</p></td>
+                </tr></table>
+              </td>
+              <td width="20" style="background-color:#ffecff;padding:20px 0">&nbsp;</td>
+            </tr>
+          </table>
+          <p>End of newsletter</p>
+        </td></tr>
+      </table>
+    </td>
+    <td width="10">&nbsp;</td>
+  </tr>
+</table>

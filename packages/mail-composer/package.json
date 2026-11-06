@@ -1,0 +1,12 @@
+{
+  "name": "@dakia/mail-composer",
+  "version": "0.1.0",
+  "license": "MPL-2.0",
+  "type": "module",
+  "exports": "./src/index.tsx",
+  "peerDependencies": {
+    "react": "^19.1.1",
+    "dompurify": "^3.4.17",
+    "squire-rte": "2.4.10"
+  }
+}

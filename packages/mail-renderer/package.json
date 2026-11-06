@@ -1,0 +1,17 @@
+{
+  "name": "@dakia/mail-renderer",
+  "version": "0.1.0",
+  "license": "MPL-2.0",
+  "type": "module",
+  "exports": "./src/index.tsx",
+  "peerDependencies": {
+    "dompurify": "^3.4.17",
+    "react": "^19.1.1"
+  },
+  "dependencies": {
+    "css-tree": "3.1.0"
+  },
+  "devDependencies": {
+    "@types/css-tree": "2.3.11"
+  }
+}

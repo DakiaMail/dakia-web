@@ -19,6 +19,7 @@ export class MessagePrefetch {
   private visible: Target[] = [];
   private intent?: Target;
   private next?: Target;
+  private paused = false;
   constructor(private client: QueryClient) {}
   request(target: Target) { this.intent = target; this.schedule(); }
   clearIntent() { this.intent = undefined; this.schedule(); }
@@ -31,7 +32,7 @@ export class MessagePrefetch {
   private targets() { return [...(this.intent ? [this.intent] : []), ...(this.next ? [this.next] : []), ...this.visible]; }
   private schedule(delay = 150) { clearTimeout(this.timer); this.timer = setTimeout(() => this.start(), delay); }
   private start() {
-    if (!allowed() || this.running) return;
+    if (this.paused || !allowed() || this.running) return;
     if (this.client.isFetching({ queryKey: ["content"] })) { this.schedule(100); return; }
     const target = this.targets().find(target => {
       const state = this.client.getQueryState(messageContent(target.account_id, target.id).queryKey);
@@ -61,17 +62,28 @@ export class MessagePrefetch {
     const query = this.client.getQueryCache().find({ queryKey, exact: true });
     if (query && query.getObserversCount() === 0) void this.client.cancelQueries({ queryKey, exact: true });
   }
-  cancel() { clearTimeout(this.timer); this.visible = []; this.intent = this.next = undefined; this.cancelInactive(); }
+  pause() { this.paused = true; clearTimeout(this.timer); this.cancelInactive(); }
+  resume() { this.paused = false; this.schedule(); }
+  cancel() { this.pause(); this.visible = []; this.intent = this.next = undefined; }
 }
 
 export function useMessagePrefetch(scope: string, next?: Message, root?: RefObject<HTMLDivElement | null>, rows: Message[] = []) {
   const client = useQueryClient();
   const prefetch = useMemo(() => new MessagePrefetch(client), [client, scope]);
   useEffect(() => {
-    const cancel = () => prefetch.cancel();
-    document.addEventListener("visibilitychange", cancel);
-    window.addEventListener("offline", cancel);
-    return () => { cancel(); document.removeEventListener("visibilitychange", cancel); window.removeEventListener("offline", cancel); };
+    const visibility = () => document.visibilityState === "visible" ? prefetch.resume() : prefetch.pause();
+    const offline = () => prefetch.pause();
+    const online = () => prefetch.resume();
+    prefetch.resume();
+    document.addEventListener("visibilitychange", visibility);
+    window.addEventListener("offline", offline);
+    window.addEventListener("online", online);
+    return () => {
+      prefetch.cancel();
+      document.removeEventListener("visibilitychange", visibility);
+      window.removeEventListener("offline", offline);
+      window.removeEventListener("online", online);
+    };
   }, [prefetch]);
   useEffect(() => { prefetch.setNext(next); }, [prefetch, next?.account_id, next?.id]);
   useEffect(() => {

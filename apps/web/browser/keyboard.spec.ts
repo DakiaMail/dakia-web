@@ -201,6 +201,7 @@ test("reply, reply all, forward, compose and field navigation work without a poi
     const extraFields = dialog.getByRole("button", { name: "Cc / Bcc", exact: true });
     if (await extraFields.count()) {
       await extraFields.focus(); await page.keyboard.press("Enter");
+      await expect(dialog.getByRole("textbox", { name: "Cc", exact: true })).toBeFocused();
     }
     await to.focus();
     if (await to.getAttribute("aria-expanded") === "true") await page.keyboard.press("Escape");
@@ -234,7 +235,7 @@ test("keyboard hints and shortcut opt-out persist, and the shortcut reference is
   await expect(page.locator(".keyboard-hints")).toContainText("Next / previous");
   await expect(page.getByRole("button", { name: "Archive", exact: true }).locator("kbd")).toHaveText("E");
   await page.locator("h1").click(); await page.keyboard.press("?");
-  await expect(page.getByRole("dialog", { name: "Keyboard shortcuts" })).toContainText("Shift+R");
+  await expect(page.getByRole("dialog", { name: "Keyboard shortcuts" }).getByLabel("Shift+R", { exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
   await page.reload();
   await page.getByRole("button", { name: "Manage workspace" }).click();
@@ -277,4 +278,66 @@ for (const width of [390, 1280, 1480]) test(`extra keyboard hints fit the reader
   await expect(toolbar.locator("kbd")).toHaveCount(4);
   expect(await toolbar.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath("keyboard-hints.png"), fullPage: true });
+});
+
+test("help returns focus to its opener and search Escape returns to the list", async ({ page }) => {
+  await fixture(page);
+  const settings = page.getByRole("button", { name: "Manage workspace", exact: true });
+  await settings.focus(); await page.keyboard.press("Enter");
+  const help = page.getByRole("button", { name: "Keyboard shortcuts", exact: true });
+  await help.focus(); await page.keyboard.press("Enter");
+  await expect(page.getByRole("dialog", { name: "Keyboard shortcuts" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(help).toBeFocused();
+  await page.getByRole("button", { name: "Back to mail", exact: true }).focus(); await page.keyboard.press("Enter");
+  await page.keyboard.press("/");
+  const search = page.getByRole("textbox", { name: "Search all mail" }).filter({ visible: true });
+  await expect(search).toBeFocused();
+  await page.keyboard.type("Synthetic");
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeFocused();
+  await page.keyboard.press("j");
+  await expect(search).not.toHaveValue(/j$/);
+});
+
+test("reply starts in the editor, compose in To, and filing preserves row focus", async ({ page }) => {
+  await fixture(page);
+  await page.locator(".message-open").first().focus();
+  await page.keyboard.press("r");
+  const reply = page.getByRole("dialog");
+  await expect(reply.getByRole("textbox", { name: "Message", exact: true })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(reply).toHaveCount(0);
+  await expect(page.locator(".message-open").first()).toBeFocused();
+  await page.keyboard.press("c");
+  await expect(page.getByRole("dialog").getByRole("textbox", { name: "To", exact: true })).toBeFocused();
+  await page.getByRole("dialog").getByRole("button", { name: "Close", exact: true }).focus();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.locator(".message-open").first()).toBeFocused();
+  // Focus a different row than the open reader so removing it keeps the reader.
+  const next = page.locator(".message-open").nth(2);
+  const title = await next.getAttribute("title");
+  await page.locator(".message-open").nth(1).focus(); await page.keyboard.press("Delete");
+  await expect(page.locator(`.message-open[title=${JSON.stringify(title)}]`)).toBeFocused();
+});
+
+for (const width of [320, 390, 720, 1440]) for (const theme of ["light", "dark"]) test(`shortcut reference reflows with readable spacing ${width} ${theme}`, async ({ page }, testInfo) => {
+  await page.setViewportSize({ width, height: 800 });
+  await page.addInitScript(theme => localStorage.setItem("dakia-theme", theme), theme);
+  await fixture(page);
+  await page.getByRole("region", { name: "Reading pane" }).focus();
+  await page.keyboard.press("?");
+  const dialog = page.getByRole("dialog", { name: "Keyboard shortcuts" });
+  await expect(dialog).toBeVisible();
+  const geometry = await dialog.evaluate(el => {
+    const r = el.getBoundingClientRect(), content = el.querySelector(".shortcut-help")!;
+    return { x: r.x, y: r.y, right: r.right, bottom: r.bottom, pad: parseFloat(getComputedStyle(content).paddingLeft), overflow: el.scrollWidth > el.clientWidth || content.scrollWidth > content.clientWidth };
+  });
+  expect(geometry.x).toBeGreaterThanOrEqual(10); expect(geometry.y).toBeGreaterThanOrEqual(10);
+  expect(geometry.right).toBeLessThanOrEqual(width - 10); expect(geometry.bottom).toBeLessThanOrEqual(790);
+  expect(geometry.pad).toBeGreaterThanOrEqual(18); expect(geometry.overflow).toBe(false);
+  await dialog.locator(".shortcut-basics").scrollIntoViewIfNeeded();
+  await expect(dialog.getByRole("button", { name: "Close", exact: true })).toBeInViewport();
+  await page.screenshot({ path: testInfo.outputPath("shortcut-reference.png") });
 });

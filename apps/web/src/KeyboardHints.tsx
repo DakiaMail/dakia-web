@@ -5,16 +5,19 @@ export function KeyHint({ keys }: { keys: string }) {
   return useContext(KeyboardHints) ? <kbd className="key-hint" aria-hidden="true">{keys}</kbd> : null;
 }
 
-export const mailShortcuts = [
-  ["J / K", "Next / previous email"],
-  ["C", "Compose"], ["/", "Search"],
-  ["R", "Reply"], ["Shift+R", "Reply all"], ["F", "Forward"],
-  ["E", "Archive"], ["Delete", "Move to trash"],
-  ["U", "Mark unread"], ["Shift+U", "Mark read"],
-  ["S", "Star / unstar"], ["X", "Select / deselect email"],
-  ["M", "Move"], ["B", "Snooze"], ["!", "Mark as spam"],
-  ["Escape", "Back / clear selection"], ["?", "Keyboard shortcuts"],
+export const shortcutGroups = [
+  { title: "Navigate", shortcuts: [["J / K", "Next / previous email"], ["/", "Search"], ["Escape", "Back / clear selection"], ["?", "Keyboard shortcuts"]] },
+  { title: "Write", shortcuts: [["C", "Compose"], ["R", "Reply"], ["Shift+R", "Reply all"], ["F", "Forward"]] },
+  { title: "Manage mail", shortcuts: [["E", "Archive"], ["Delete", "Move to trash"], ["U", "Mark unread"], ["Shift+U", "Mark read"], ["S", "Star / unstar"], ["X", "Select / deselect"], ["M", "Move"], ["B", "Snooze"], ["!", "Mark as spam"]] },
 ] as const;
+export const mailShortcuts = shortcutGroups.flatMap<readonly [string, string]>(group => group.shortcuts);
+
+export function ShortcutKeys({ keys }: { keys: string }) {
+  return <span className="shortcut-keys" aria-label={keys}>{keys.split(" / ").map((alternative, index) => <span key={alternative} aria-hidden="true">
+    {index > 0 && <span className="key-separator">/</span>}
+    {alternative.split("+").map((key, part) => <span key={key}>{part > 0 && <span className="key-separator">+</span>}<kbd>{key}</kbd></span>)}
+  </span>)}</span>;
+}
 
 export function useKeyboardPreferences(userId?: string) {
   const [saved, setSaved] = useState<{ user: string; hints: boolean; shortcuts: boolean }>();

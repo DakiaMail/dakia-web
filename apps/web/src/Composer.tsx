@@ -268,6 +268,7 @@ export function Composer({
   return (
     <Modal
       title={initial.in_reply_to ? "Reply" : "New message"}
+      initialFocus={initial.to.length ? '[aria-label="Message"]' : '[aria-label="To"]'}
       onClose={close}
       wide
     >
@@ -369,7 +370,11 @@ export function Composer({
               }}
             />
             {name === "to" && !extras && (
-              <button title="Cc / Bcc" onClick={() => setExtras(true)}>Cc / Bcc</button>
+              <button title="Cc / Bcc" onClick={event => {
+                const composer = event.currentTarget.closest(".compose");
+                setExtras(true);
+                requestAnimationFrame(() => composer?.querySelector<HTMLInputElement>('[aria-label="Cc"]')?.focus());
+              }}>Cc / Bcc</button>
             )}
           </label>
         ))}

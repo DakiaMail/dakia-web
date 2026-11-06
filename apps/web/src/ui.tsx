@@ -1,6 +1,6 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { plainKey } from "./keyboard";
 import { useReloadGuard } from "./AppUpdate";
 import { useBackLayer } from "./appHistory";
@@ -9,12 +9,18 @@ export function Modal({
   children,
   onClose,
   wide = false,
+  className = "",
+  initialFocus,
 }: {
   title: string;
   children: ReactNode;
   onClose: () => void | boolean | Promise<void | boolean>;
   wide?: boolean;
+  className?: string;
+  initialFocus?: string;
 }) {
+  const content = useRef<HTMLDivElement>(null);
+  const returnFocus = useRef(document.activeElement as HTMLElement | null);
   useReloadGuard();
   useBackLayer(onClose);
   return (
@@ -27,7 +33,21 @@ export function Modal({
       <Dialog.Portal>
         <Dialog.Overlay className="overlay" />
         <Dialog.Content
-          className={`dialog ${wide ? "wide" : ""}`}
+          ref={content}
+          className={`dialog ${wide ? "wide" : ""} ${className}`}
+          onOpenAutoFocus={event => {
+            const target = initialFocus ? content.current?.querySelector<HTMLElement>(initialFocus) : null;
+            if (target && !target.matches(":disabled")) { event.preventDefault(); target.focus(); }
+          }}
+          onCloseAutoFocus={event => {
+            event.preventDefault();
+            requestAnimationFrame(() => {
+              const original = returnFocus.current;
+              const bounds = original?.getBoundingClientRect();
+              if (original && original !== document.body && original.isConnected && bounds && bounds.width > 0 && bounds.height > 0 && bounds.right > 0 && bounds.left < innerWidth && bounds.bottom > 0 && bounds.top < innerHeight && !original.matches(":disabled,[inert]")) original.focus();
+              else document.querySelector<HTMLElement>('.workspace-view .workspace-content > h1, .app.reading .reader, .mailbox .message-list[tabindex], .mailbox')?.focus();
+            });
+          }}
           onInteractOutside={(e) => e.preventDefault()}
           onEscapeKeyDown={(event) => {
             // Radix listens in document capture, before recipient input handlers.

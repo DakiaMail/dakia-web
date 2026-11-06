@@ -59,7 +59,7 @@ def stages(profile: str, channel: str, dovecot_ssh: str | None = None) -> list[S
         Stage("workers", ("node", "--test", *map(str, sorted(Path("workers").glob("*/test/*.test.mjs"))))),
     ]
     if profile == "full":
-        for name, config in [("browser", "release"), ("browser-backend", "backend"), ("browser-full-text", "full-text"), ("browser-translation", "translation"), ("browser-images", "images"), ("browser-unsubscribe", "unsubscribe-backend"), ("browser-cleanup", "silent-cleanup"), ("pwa", "pwa"), ("pwa-lifecycle", "lifecycle")]:
+        for name, config in [("browser", "release"), ("browser-backend", "backend"), ("browser-keyboard", "keyboard-backend"), ("browser-full-text", "full-text"), ("browser-translation", "translation"), ("browser-images", "images"), ("browser-unsubscribe", "unsubscribe-backend"), ("browser-cleanup", "silent-cleanup"), ("pwa", "pwa"), ("pwa-lifecycle", "lifecycle")]:
             result.append(Stage(name, ("npm", "run", "test:browser", "--workspace", "@dakia/web", "--", "--config", f"playwright.{config}.config.ts"), 1500, ("web-build",)))
         result.append(Stage("dovecot", (sys.executable, "crates/mail-provider/fixtures/run_dovecot.py", *(("--ssh-host", dovecot_ssh) if dovecot_ssh else ())), 900))
         result.append(Stage("translation-models", ("node", "--test", "workers/translation/test/models.test.mjs"), 900))

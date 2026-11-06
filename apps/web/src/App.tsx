@@ -64,7 +64,7 @@ import { submissionLabel } from "./scheduled";
 import { useImagePrivacy } from "./useImagePrivacy";
 import { canDismissMail, canUseMailShortcut, plainKey } from "./keyboard";
 
-import { KeyboardHints, KeyHint, mailShortcuts, useKeyboardPreferences } from "./KeyboardHints";
+import { KeyboardHints, KeyHint, ShortcutKeys, shortcutGroups, useKeyboardPreferences } from "./KeyboardHints";
 
 import { Conversation } from "./Conversation";
 import { useCleanupProjection } from "./cleanupJobs";
@@ -506,6 +506,20 @@ export function App() {
     const failures: string[] = [];
     setError(undefined);
     const removing = ["archive", "trash", "spam", "move", "snooze"].includes(change.kind);
+    if (removing && document.activeElement instanceof Element) {
+      const focused = document.activeElement.closest<HTMLElement>("[data-message-id]")?.dataset.messageId;
+      const removedIds = new Set(messages.map(identity));
+      if (focused && removedIds.has(focused)) {
+        const index = selectionOrder.indexOf(focused);
+        const next = selectionOrder.slice(index + 1).find(id => !removedIds.has(id))
+          || selectionOrder.slice(0, index).reverse().find(id => !removedIds.has(id));
+        requestAnimationFrame(() => {
+          if (document.activeElement !== document.body) return;
+          const row = Array.from(document.querySelectorAll<HTMLElement>("[data-message-id]")).find(el => el.dataset.messageId === next);
+          (row?.querySelector<HTMLButtonElement>(".message-open") || listRef.current)?.focus();
+        });
+      }
+    }
     const selectedTargets = new Set(messages.filter(m => checked.has(identity(m))).map(identity));
     if (removing) setSelection(old => ({ ...old, checked: new Set([...old.checked].filter(id => !selectedTargets.has(id))) }));
     setPendingTargets(old => {
@@ -673,7 +687,12 @@ export function App() {
     role="search"
     onFocus={() => setSearchFocused(true)}
     onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setSearchFocused(false); }}
-    onKeyDown={event => { if (event.key === "Escape") setSearchFocused(false); }}
+    onKeyDown={event => {
+      if (event.key !== "Escape" || !plainKey(event.nativeEvent) || event.repeat) return;
+      event.preventDefault(); event.stopPropagation();
+      setSearchFocused(false); setSidebar(false);
+      requestAnimationFrame(() => (listRef.current?.matches("[tabindex]") ? listRef.current : document.querySelector<HTMLElement>(".mailbox"))?.focus());
+    }}
     onSubmit={event => {
       event.preventDefault();
       applySearch(search.trim());
@@ -868,7 +887,7 @@ export function App() {
         setNotificationStatus("Enabling…");
         void enableNotifications().then(() => setNotificationStatus("Notifications enabled")).catch((error) => setNotificationStatus(error instanceof Error ? error.message : "Could not enable notifications. Try again."));
       }} />}
-      <main className={`mailbox ${nav === "INBOX" && !q ? "compact-inbox" : ""} ${checked.size ? "has-selection" : ""}`}>
+      <main tabIndex={-1} className={`mailbox ${nav === "INBOX" && !q ? "compact-inbox" : ""} ${checked.size ? "has-selection" : ""}`}>
         <header className="pane-header">
           <button title="Open navigation"
             className="mobile"
@@ -1317,7 +1336,7 @@ export function App() {
         />
       )}
       {snooze && (
-        <Modal title="Snooze until" onClose={() => setSnooze(null)}>
+        <Modal title="Snooze until" initialFocus='input[type="datetime-local"]' onClose={() => setSnooze(null)}>
           <form
             className="setup"
             onSubmit={(e) => {
@@ -1349,10 +1368,17 @@ export function App() {
       {move && <MoveMessages messages={move} accounts={accounts.data || []}
         onMove={(messages, destinations) => void act(messages, { kind: "move", folder_id: "" }, destinations)}
         onClose={() => setMove(null)} />}
-      {shortcutHelp && <Modal title="Keyboard shortcuts" onClose={() => setShortcutHelp(false)}>
-        <p>Use Tab and Shift+Tab to move between controls and message fields. Enter or Space activates buttons.</p>
-        <dl className="shortcut-list">{mailShortcuts.map(([keys, label]) => <div key={keys}><dt><kbd>{keys}</kbd></dt><dd>{label}</dd></div>)}</dl>
-        <p>{keyboardPreferences.shortcuts ? "Mail shortcuts pause while typing, selecting text, or using a dialog." : "Mail shortcuts are turned off. Enable them in Workspace settings."}</p>
+      {shortcutHelp && <Modal title="Keyboard shortcuts" className="keyboard-dialog" onClose={() => setShortcutHelp(false)}>
+        <div className="shortcut-help">
+          <p className="shortcut-intro">{keyboardPreferences.shortcuts ? "Use these keys when you’re not typing or selecting text." : "Mail shortcuts are off. Enable them in Workspace settings."}</p>
+          <div className="shortcut-groups">
+            <div>{shortcutGroups.slice(0, 2).map(group => <section key={group.title} aria-label={group.title}>
+              <h3>{group.title}</h3><dl className="shortcut-list">{group.shortcuts.map(([keys, label]) => <div key={keys}><dt>{label}</dt><dd><ShortcutKeys keys={keys} /></dd></div>)}</dl>
+            </section>)}</div>
+            <section aria-label={shortcutGroups[2].title}><h3>{shortcutGroups[2].title}</h3><dl className="shortcut-list">{shortcutGroups[2].shortcuts.map(([keys, label]) => <div key={keys}><dt>{label}</dt><dd><ShortcutKeys keys={keys} /></dd></div>)}</dl></section>
+          </div>
+          <div className="shortcut-basics"><p><ShortcutKeys keys="Tab / Shift+Tab" /> Move between controls and fields</p><p><ShortcutKeys keys="Enter / Space" /> Activate buttons</p></div>
+        </div>
       </Modal>}
     </div>
     </KeyboardHints.Provider>

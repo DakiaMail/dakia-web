@@ -1,4 +1,4 @@
-import { ArrowLeft, Bell, Mail, Plus, Settings2, Shield } from "lucide-react";
+import { ArrowLeft, Bell, Keyboard, Mail, Plus, Settings2, Shield } from "lucide-react";
 import type { Account } from "@dakia/api-types";
 import { useEffect, useRef, useState } from "react";
 import { Invitations } from "./Invitations";
@@ -26,6 +26,7 @@ export function Workspace({ userId, accounts, onBack, onConnect, onSettings, onR
 }) {
   const heading = useRef<HTMLHeadingElement>(null);
   const [privacyError, setPrivacyError] = useState("");
+  const [keyboardError, setKeyboardError] = useState("");
   useEffect(() => { heading.current?.focus(); }, []);
   return <main className="workspace-page" aria-label="Workspace management">
     <header className="workspace-header"><button title="Back to mail" onClick={onBack}><ArrowLeft size={18} />Back to mail</button></header>
@@ -46,12 +47,16 @@ export function Workspace({ userId, accounts, onBack, onConnect, onSettings, onR
         <span className="workspace-account-icon"><Shield size={20} /></span><div><h2 id="workspace-privacy">Email privacy</h2><label className="privacy-toggle"><input type="checkbox" checked={!alwaysLoadImages} onChange={(event) => { try { onImagePrivacyChange(!event.target.checked); setPrivacyError(""); } catch { setPrivacyError("Could not save this preference. Check browser storage permissions."); } }} />Block external images by default</label><p>Off by default. Loading external images can tell senders when you open mail. Turn on to load images only when you choose.</p><label className="privacy-toggle"><input type="checkbox" checked={blockHiddenImages} onChange={(event) => { try { onHiddenImagesChange(event.target.checked); setPrivacyError(""); } catch { setPrivacyError("Could not save this preference. Check browser storage permissions."); } }} />Block hidden images and tracking pixels</label><p>Off by default. Skips explicitly hidden and zero/one-pixel images, including some legitimate assets. This cannot detect every tracker. Applies even when you choose Load images.</p><p>Saved separately for your signed-in user, for all your accounts on this browser. Existing image-loading choices are preserved. Network isolation and message sandboxing are always enforced.</p>{privacyError && <p role="alert">{privacyError}</p>}</div>
       </section>
       {userId && <Invitations key={userId} userId={userId} />}
-      <section aria-labelledby="workspace-keyboard">
-        <h2 id="workspace-keyboard">Keyboard</h2>
-        <label className="privacy-toggle"><input type="checkbox" checked={keyboardShortcuts} onChange={event => { try { onKeyboardShortcutsChange(event.target.checked); setPrivacyError(""); } catch { setPrivacyError("Could not save this preference. Check browser storage permissions."); } }} />Enable mail keyboard shortcuts</label>
-        <label className="privacy-toggle"><input type="checkbox" checked={keyboardHints} onChange={event => { try { onKeyboardHintsChange(event.target.checked); setPrivacyError(""); } catch { setPrivacyError("Could not save this preference. Check browser storage permissions."); } }} />Show extra keyboard hints</label>
-        <p>Show shortcut keys beside actions and below your inbox. Preferences apply on this browser.</p>
-        <button title="Keyboard shortcuts" onClick={onShortcutHelp}>Keyboard shortcuts</button>
+      <section className="workspace-notifications workspace-keyboard" aria-labelledby="workspace-keyboard">
+        <span className="workspace-account-icon"><Keyboard size={20} /></span>
+        <div><h2 id="workspace-keyboard">Keyboard</h2>
+          <div className="keyboard-settings-options">
+            <label className="privacy-toggle"><input type="checkbox" aria-label="Enable mail keyboard shortcuts" aria-describedby="keyboard-shortcuts-note" checked={keyboardShortcuts} onChange={event => { try { onKeyboardShortcutsChange(event.target.checked); setKeyboardError(""); } catch { setKeyboardError("Could not save this preference. Check browser storage permissions."); } }} /><span>Enable mail keyboard shortcuts<small id="keyboard-shortcuts-note">Tab and Enter always work.</small></span></label>
+            <label className="privacy-toggle"><input type="checkbox" aria-label="Show extra keyboard hints" aria-describedby="keyboard-hints-note" checked={keyboardHints} onChange={event => { try { onKeyboardHintsChange(event.target.checked); setKeyboardError(""); } catch { setKeyboardError("Could not save this preference. Check browser storage permissions."); } }} /><span>Show extra keyboard hints<small id="keyboard-hints-note">Show keys beside actions and below the inbox.</small></span></label>
+          </div>
+          <button title="Keyboard shortcuts" onClick={onShortcutHelp}>Keyboard shortcuts</button>
+          {keyboardError && <p role="alert">{keyboardError}</p>}
+        </div>
       </section>
       <InstallApp />
       <section className="workspace-notifications" aria-labelledby="workspace-notifications">

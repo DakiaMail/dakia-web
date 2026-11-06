@@ -10,7 +10,11 @@ Separate Dakia logins have separate mailbox connections and mail access. The loc
 
 Remote images are allowed by default. In Workspace, turn on **Block external images by default** to load them only when you choose, or **Block hidden images and tracking pixels** to skip explicitly hidden or tiny images. These preferences are saved for your signed-in user on that browser; set them separately on other devices. Remote images can contact sender-controlled services through Dakia's proxy when allowed. Proxying hides the browser's direct connection but does not eliminate tracking: unique image URLs can still identify a message or recipient.
 
-The current service worker uses network-only app behavior and removes old Dakia shell caches. Installing the PWA does not provide an offline mailbox.
+Recent folder headers and message bodies are also saved on this browser for faster reopening and folder switching, within a 64 MiB serialized-mail budget and seven-day retention. A fresh session and account check is required before saved mail is shown on a cold launch. Signing out, an authentication failure, or account removal clears saved mail; other updated tabs reauthorize. Someone with access to your browser profile may be able to read this cache. Drafts, outgoing actions, credentials, session tokens, attachments and remote-image responses are not saved in this browser mail cache. See [cache limits and behavior](persistent-local-cache.md).
+
+The service worker caches only build-owned static app assets. It does not cache navigation, API/auth responses, mail, remote images or notification links. An already-authorized mounted session can read saved folders and bodies offline; a cold offline launch cannot unlock saved mail. Installing Dakia does not download a full offline mailbox.
+
+Background prefetching covers messages visible in the mail list without marking them read, loading remote images or discovering conversations.
 
 Optional Web Push uses browser push infrastructure. The push payload does not contain sender, subject, or message body text. A signed-in browser can fetch an authorized message summary from Dakia and display the sender, subject, account, and a preview in the notification. If that fetch is unavailable, it shows a generic notification. Notification text may be visible on a shared or locked screen; control notification display through your browser and device settings.
 

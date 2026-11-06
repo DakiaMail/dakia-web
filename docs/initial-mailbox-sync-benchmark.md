@@ -164,3 +164,7 @@ Generated certificates, private keys, runtime database files and binaries are
 not stored with the report. The manifest records the benchmark source hashes;
 the recorded macOS binary hash identifies the measured executable and is not
 an assertion about a later Linux deployment artifact.
+
+## Deployment verification
+
+The changes were [deployed and functionally verified](initial-sync-deployment-2026-11-06.md) on Linux amd64 after the benchmark.

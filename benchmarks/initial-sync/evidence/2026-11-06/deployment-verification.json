@@ -1,0 +1,75 @@
+{
+  "revision": "92ceb20cf8710c6f89adc44fe098f949bf72eca7",
+  "image": "sha256:b7ba3508cb9cfb1f222e20bdfd2a75fe0c92ff528eb96451ed3a29384ca96c33",
+  "previous_image": "sha256:67201f87ab3df86f7f69cdc354d673755101dd42b71f0152ca463173075e13dc",
+  "healthy": true,
+  "binary_sha256": {
+    "dakia-server": "7cf6f06340b0c38ecc85e270c9b6778bb00e03b32a318662fe1eb20c472e0012",
+    "dakia-admin": "5c146c051fd84154a0f53e7c073f4219cee0e6e95a4e772c0ad5a4f56d7878b1",
+    "dakia-healthcheck": "b6bd8e075795687aaad73a05972154c4e847af0b29b7fb5f5c281840a12935d3"
+  },
+  "web_workers_models_licenses_unchanged": true,
+  "backup_files_verified": 11419,
+  "backup": "/opt/dakia/backups/initial-sync-92ceb20cf871-retry1/data",
+  "records_preserved": true,
+  "schema_unchanged": true,
+  "configuration_preserved": true,
+  "environment_order_changed": true,
+  "identity_provider_unchanged": true,
+  "https": {
+    "/healthz": 200,
+    "/api/accounts": 401,
+    "/app-version.json": 200,
+    "/sw.js": 200,
+    "/": 200
+  },
+  "owner_mail_test_mutations": 0,
+  "coverage_before": {
+    "account_databases": 2,
+    "headers": 45744,
+    "ready": 45534,
+    "pending": 0,
+    "gaps": 210
+  },
+  "coverage_after": {
+    "account_databases": 2,
+    "headers": 45744,
+    "ready": 45534,
+    "pending": 0,
+    "gaps": 210
+  },
+  "authenticated_readonly": {
+    "account_count": 2,
+    "accounts_status": 200,
+    "coverage_states": [],
+    "indexed_search_status": 200,
+    "mailboxes": [
+      {
+        "folders_rows": 20,
+        "folders_status": 200,
+        "messages_rows": 50,
+        "messages_status": 200
+      },
+      {
+        "folders_rows": 22,
+        "folders_status": 200,
+        "messages_rows": 50,
+        "messages_status": 200
+      }
+    ],
+    "search_matches": 0,
+    "visible_alerts": 0,
+    "visible_mail_rows": 21
+  },
+  "mailbox_restored": {
+    "alerts": 0,
+    "mailRows": 21,
+    "returnedToMailbox": true,
+    "searchEmpty": true
+  },
+  "runtime_log_summary": {
+    "panic_lines": 0,
+    "error_lines": 0
+  },
+  "observed_container_restarts": 0
+}

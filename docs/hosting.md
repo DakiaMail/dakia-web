@@ -10,6 +10,12 @@ The application requires HTTPS and uses Secure cookies. Plain HTTP on a LAN IP i
 
 The `data` volume contains SQLite, messages, attachments, and model caches. The `secrets` volume contains the credential key and initial claim code. Both must survive container recreation. Never use `docker compose down -v` on an installation you want to keep. Back up data and secrets together, with restricted access and encrypted off-host copies. Keep live SQLite off SMB/NFS shares.
 
+## More than one person
+
+After owner setup, open Workspace and choose Create invitation. Share the link privately. Each link works once and expires after 24 hours. The owner can revoke an unused link from Workspace. The recipient chooses their own username and password, then connects their own email accounts. Invitation management does not grant access to another person’s mail.
+
+Existing local owners retain their login, mailbox ownership, and sessions when upgrading. OIDC deployments continue managing users through their identity provider; local invitations are disabled in OIDC mode.
+
 ## Proxmox
 
 Create a Debian or Ubuntu VM, install Docker Engine and Compose, and use the same package. Do not install Dakia on the hypervisor. A ready-made cloud-init flow is planned. LXC nesting is not part of the initial tested path.

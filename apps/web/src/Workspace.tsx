@@ -1,9 +1,11 @@
 import { ArrowLeft, Bell, Mail, Plus, Settings2, Shield } from "lucide-react";
 import type { Account } from "@dakia/api-types";
 import { useEffect, useRef, useState } from "react";
+import { Invitations } from "./Invitations";
 import { InstallApp } from "./InstallApp";
 
-export function Workspace({ accounts, onBack, onConnect, onSettings, onRemove, onReconnect, onNotifications, notificationStatus, alwaysLoadImages, onImagePrivacyChange, blockHiddenImages, onHiddenImagesChange }: {
+export function Workspace({ userId, accounts, onBack, onConnect, onSettings, onRemove, onReconnect, onNotifications, notificationStatus, alwaysLoadImages, onImagePrivacyChange, blockHiddenImages, onHiddenImagesChange }: {
+  userId?: string;
   accounts: Account[];
   onBack: () => void;
   onConnect: () => void;
@@ -38,6 +40,7 @@ export function Workspace({ accounts, onBack, onConnect, onSettings, onRemove, o
       <section className="workspace-notifications" aria-labelledby="workspace-privacy">
         <span className="workspace-account-icon"><Shield size={20} /></span><div><h2 id="workspace-privacy">Email privacy</h2><label className="privacy-toggle"><input type="checkbox" checked={!alwaysLoadImages} onChange={(event) => { try { onImagePrivacyChange(!event.target.checked); setPrivacyError(""); } catch { setPrivacyError("Could not save this preference. Check browser storage permissions."); } }} />Block external images by default</label><p>Off by default. Loading external images can tell senders when you open mail. Turn on to load images only when you choose.</p><label className="privacy-toggle"><input type="checkbox" checked={blockHiddenImages} onChange={(event) => { try { onHiddenImagesChange(event.target.checked); setPrivacyError(""); } catch { setPrivacyError("Could not save this preference. Check browser storage permissions."); } }} />Block hidden images and tracking pixels</label><p>Off by default. Skips explicitly hidden and zero/one-pixel images, including some legitimate assets. This cannot detect every tracker. Applies even when you choose Load images.</p><p>Saved separately for your signed-in user, for all your accounts on this browser. Existing image-loading choices are preserved. Network isolation and message sandboxing are always enforced.</p>{privacyError && <p role="alert">{privacyError}</p>}</div>
       </section>
+      {userId && <Invitations key={userId} userId={userId} />}
       <InstallApp />
       <section className="workspace-notifications" aria-labelledby="workspace-notifications">
         <span className="workspace-account-icon"><Bell size={20} /></span><div><h2 id="workspace-notifications">Notifications</h2><p>Get new-mail notifications on this browser.</p><button title="Enable notifications" onClick={onNotifications} disabled={notificationStatus === "Enabling…"}>Enable notifications</button>{notificationStatus && <p role="status">{notificationStatus}</p>}</div>

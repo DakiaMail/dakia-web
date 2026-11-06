@@ -5,6 +5,7 @@ pub mod idle;
 mod images;
 mod language;
 mod local_auth;
+mod local_users;
 pub mod mail;
 pub mod models;
 mod mutations;
@@ -207,6 +208,15 @@ pub fn router_with_shutdown(app: App, shutdown: tokio::sync::watch::Sender<bool>
     let api = Router::new()
         .route("/session", get(session))
         .route("/logout", post(logout))
+        .route("/local-access", get(local_users::access))
+        .route(
+            "/invitations",
+            get(local_users::list).post(local_users::create),
+        )
+        .route(
+            "/invitations/{id}",
+            axum::routing::delete(local_users::revoke),
+        )
         .route("/accounts", get(accounts).post(connect))
         .route("/accounts/discover", post(discovery::discover))
         .route("/push/public-key", get(push::public_key))
@@ -290,6 +300,12 @@ pub fn router_with_shutdown(app: App, shutdown: tokio::sync::watch::Sender<bool>
                 .post(local_auth::submit)
                 .layer(axum::extract::DefaultBodyLimit::max(4096)),
         )
+        .route(
+            "/auth/join",
+            get(local_auth::join_page)
+                .post(local_auth::join_submit)
+                .layer(axum::extract::DefaultBodyLimit::max(4096)),
+        )
         .route("/auth/callback", get(callback))
         .nest("/api", api)
         .fallback_service(
@@ -298,7 +314,7 @@ pub fn router_with_shutdown(app: App, shutdown: tokio::sync::watch::Sender<bool>
         .layer(axum::extract::DefaultBodyLimit::max(22 * 1024 * 1024))
         .layer(Extension(shutdown))
         .layer(middleware::from_fn(|req: Request, next: Next| async move {
-            let login_form = req.uri().path() == "/auth/login";
+            let login_form = matches!(req.uri().path(), "/auth/login" | "/auth/join");
             let mut r = next.run(req).await;
             r.headers_mut()
                 .insert(header::CACHE_CONTROL, "no-store".parse().unwrap());

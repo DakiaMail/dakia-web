@@ -10,7 +10,9 @@ The viewport prefetch queue covers every message intersecting the list, includin
 partially visible rows. Virtualizer overscan does not count. Scrolling replaces
 queued work; one speculative body runs at a time. Focus and the next reading target
 have priority. A foreground open cancels an unrelated unused speculative request.
-Hidden/offline/Save-Data/2G sessions skip speculation. Prefetching never mounts a
+Hidden/offline/Save-Data/2G sessions skip speculation. Pausing preserves the
+current viewport queue, and tab return or network restoration resumes it even
+when no rows or geometry changed. Prefetching never mounts a
 reader, loads remote images, marks mail read or discovers conversations.
 
 ## Storage and correctness
@@ -58,6 +60,8 @@ authorization, another owner, cross-tab sign-out and mounted offline reading.
 `persistent-speed.spec.ts` measures reopen/folder/body latency with 600 ms list and
 body delays. `reading-prefetch.spec.ts` checks viewport coverage and overscan,
 scroll replacement, no image/action/discovery requests and offline suppression.
+`persistent-resume.spec.ts` simulates visibility/connectivity transition events
+in Chrome to cover resuming an unchanged viewport.
 
 ```
 npm ci

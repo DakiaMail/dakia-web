@@ -88,3 +88,10 @@ test("warms every viewport body serially, then replaces the offscreen queue", as
   expect(api.contentById).toHaveBeenCalledTimes(13);
   expect(client.getQueryCache().findAll({ queryKey: ["content"] })).toHaveLength(4);
 });
+test("pause preserves viewport intent and resume restarts it without new geometry", async () => {
+  prefetch.pause(); prefetch.setVisible([{ ...target, id: "visible-one" }, { ...target, id: "visible-two" }]);
+  await vi.advanceTimersByTimeAsync(300);
+  expect(api.contentById).not.toHaveBeenCalled();
+  prefetch.resume(); await vi.advanceTimersByTimeAsync(200);
+  expect(api.contentById).toHaveBeenCalledTimes(2);
+});

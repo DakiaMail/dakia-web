@@ -26,6 +26,8 @@ test("measures reopening, saved-folder switching and saved body opening with fix
   await page.locator(".message-open").first().focus(); await page.keyboard.press("Enter");
   await expect(page.frameLocator(".conversation iframe").locator("body")).toContainText("Reopen speed body");
   await page.locator(".reader").focus(); await page.keyboard.press("Escape");
+  await expect(page.locator(".conversation")).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeFocused();
   await page.getByRole("button", { name: "Sent", exact: true }).focus(); await page.keyboard.press("Enter");
   await expect(page.getByText(sent.subject, { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Unified inbox", exact: true }).focus(); await page.keyboard.press("Enter");

@@ -40,7 +40,7 @@ async function workspace(page: Page) {
   await page.getByRole("button", { name: "Open navigation", exact: true }).click();
   await page.getByRole("button", { name: "Manage workspace", exact: true }).click();
 }
-test("production manifest, real worker, installability and no browser mail caches", async ({ page, context }) => {
+test("production manifest, real worker, installability and static-only Cache Storage", async ({ page, context }) => {
   // Seed the old cache before the new worker activates.
   await page.goto("/manifest.webmanifest");
   await page.evaluate(async () => { await caches.open("dakia-shell-v1"); await caches.open("unrelated-app"); });
@@ -60,11 +60,14 @@ test("production manifest, real worker, installability and no browser mail cache
     expect(r.headers()["content-type"]).toContain("image/png");
   }
   // Activation cleanup removes only this app's obsolete shell caches.
-  await expect.poll(() => page.evaluate(() => caches.keys())).toEqual(["unrelated-app"]);
+  await expect.poll(() => page.evaluate(() => caches.keys())).toEqual(["unrelated-app", "dakia-static-v1"]);
   await page.evaluate(() => fetch("/api/private-sentinel").then(r => r.json()));
   await page.reload();
   await expect(page.getByRole("tab", { name: "List", exact: true })).toBeVisible();
-  expect(await page.evaluate(() => caches.keys())).toEqual(["unrelated-app"]);
+  expect(await page.evaluate(() => caches.keys())).toEqual(["unrelated-app", "dakia-static-v1"]);
+  const cached = await page.evaluate(async () => (await (await caches.open("dakia-static-v1")).keys()).map(r => new URL(r.url).pathname));
+  expect(cached.length).toBeGreaterThan(0);
+  expect(cached.every(path => path.startsWith("/assets/"))).toBe(true);
   await screenshot(page, "chromium-mobile-inbox");
   // Exercise a real installation in this disposable Chromium profile only.
   const manifestId = "http://127.0.0.1:4186/";

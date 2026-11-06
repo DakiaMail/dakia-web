@@ -52,6 +52,7 @@ export async function request<T>(
     throw new TypeError("Can’t reach Dakia. Check your internet connection or VPN.");
   }
   if (!response.ok) {
+    if (response.status === 401) window.dispatchEvent(new CustomEvent("dakia-auth-expired", { detail: path }));
     const error = (await response.json().catch(() => ({
       code: "http_error",
       message: response.status >= 500

@@ -21,7 +21,10 @@ async function selected(page: Page, ids: number[]) {
 async function fixture(page: Page, source = initial) {
   let rows = source.map(m => ({ ...m }));
   const operations: Operation[] = [];
-  const reads: string[] = [];
+  const discoveries: string[] = [];
+  // Visible bodies may now be prefetched. Selection must still never open a
+  // reader, discover a conversation or submit a read-marking operation.
+  const bodyReads: string[] = [];
   await page.route("**/api/**", route => {
     const url = new URL(route.request().url()), path = url.pathname;
     const respond = (value: unknown) => route.fulfill({ contentType: "application/json", body: JSON.stringify(value) });
@@ -41,19 +44,19 @@ async function fixture(page: Page, source = initial) {
       return respond({ ...mail, rows: matches });
     }
     if (path.endsWith("/conversation")) {
-      reads.push(path);
+      discoveries.push(path);
       const m = rows.find(m => path.includes(`/messages/${m.id}/`)) || rows[0];
       return respond({ rows: [m], continuation: null, complete: true });
     }
     if (path.includes("/messages/")) {
-      reads.push(path);
+      bodyReads.push(path);
       return respond({ ...content, message: rows.find(m => path.endsWith(m.id)) || rows[0] });
     }
     return respond([]);
   });
   await page.goto("/");
   await expect(page.locator(".message-row").first()).toBeVisible();
-  return { operations, reads, replace: (next: Message[]) => { rows = next; } };
+  return { operations, discoveries, bodyReads, replace: (next: Message[]) => { rows = next; } };
 }
 async function list(page: Page) { await page.getByRole("tab", { name: "List", exact: true }).click(); }
 
@@ -69,7 +72,8 @@ test("inclusive forward range, stable anchor, reverse range and deselection", as
   await checkbox(page, 7).click();
   await checkbox(page, 5).click({ modifiers: ["Shift"] });
   await selected(page, [0, 1]);
-  expect(state.operations).toEqual([]); expect(state.reads).toEqual([]);
+  expect(state.operations).toEqual([]); expect(state.discoveries).toEqual([]);
+  await expect(page.locator(".conversation")).toHaveCount(0);
 });
 
 test("first Shift-click and clear reset have no stale anchor", async ({ page }) => {
@@ -97,19 +101,20 @@ test("checkbox label hit area preserves Shift and leaves star/open separate", as
   await row(page, 1).locator(".message-select").click({ position: { x: 2, y: 2 } });
   await row(page, 4).locator(".message-select").click({ position: { x: 2, y: 2 }, modifiers: ["Shift"] });
   await selected(page, [1, 2, 3, 4]);
-  expect(state.reads).toEqual([]); expect(state.operations).toEqual([]);
+  expect(state.discoveries).toEqual([]);
+  await expect(page.locator(".conversation")).toHaveCount(0); expect(state.operations).toEqual([]);
   await row(page, 6).getByRole("button", { name: "Star message", exact: true }).click({ modifiers: ["Shift"] });
   await expect.poll(() => state.operations.length).toBe(1);
   await selected(page, [1, 2, 3, 4]);
 });
 
-test("ordinary open anchors Shift-row selection without further content loads or read writes", async ({ page }) => {
+test("ordinary open anchors Shift-row selection without opening another reader or marking mail read", async ({ page }) => {
   const state = await fixture(page, initial.map((m, i) => ({ ...m, unread: i === 4 }))); await list(page);
   await row(page, 1).locator(".message-open").click();
   await expect(page.locator(".conversation-message")).toHaveCount(1);
   await row(page, 4).locator(".message-open").click({ modifiers: ["Shift"] });
   await selected(page, [1, 2, 3, 4]);
-  expect(state.reads.some(path => path.includes("/messages/range-4"))).toBe(false);
+  expect(state.discoveries.some(path => path.includes("/messages/range-4"))).toBe(false);
   await expect(page.locator(".message-row.selected")).toContainText("Range message 1");
   expect(state.operations).toEqual([]);
 });
@@ -124,7 +129,8 @@ test("keyboard Space, Shift+Space and Shift+Enter select without opening", async
   await row(page, 6).locator(".message-open").focus(); await page.keyboard.press("Shift+Enter");
   await selected(page, [1, 2, 3, 4, 5, 6]);
   await expect(row(page, 6).locator(".message-open")).toBeFocused();
-  expect(state.reads).toEqual([]); expect(state.operations).toEqual([]);
+  expect(state.discoveries).toEqual([]);
+  await expect(page.locator(".conversation")).toHaveCount(0); expect(state.operations).toEqual([]);
 });
 
 test("account, mailbox and search changes clear selection and anchor", async ({ page }) => {
@@ -189,6 +195,7 @@ for (const [width, dark] of [[1480, false], [1480, true], [390, false], [390, tr
     await page.evaluate(() => document.fonts.ready);
     const dir = resolve("../../docs/screenshots/shift-selection"); mkdirSync(dir, { recursive: true });
     await page.screenshot({ path: `${dir}/${width}-${dark ? "dark" : "light"}.png`, fullPage: true });
-    expect(state.operations).toEqual([]); expect(state.reads).toEqual([]);
+    expect(state.operations).toEqual([]); expect(state.discoveries).toEqual([]);
+    await expect(page.locator(".conversation")).toHaveCount(0);
   });
 }

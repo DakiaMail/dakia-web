@@ -1,6 +1,6 @@
 import { messageContent } from "./messageContent";
 import { useEffect, useId, useRef, useState } from "react";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, CornerUpRight, FileText, RefreshCw, Reply, ReplyAll } from "lucide-react";
 import type { Account, Draft, Message, MessageContent } from "@dakia/api-types";
 import { api, ApiFailure } from "./api";
@@ -95,8 +95,9 @@ function ConversationMessage({ message, initiallyOpen, multiple, ...props }: Pro
   // row. An explicit user toggle remains authoritative across reconciliation.
   const [userExpanded, setUserExpanded] = useState<boolean | null>(null);
   const expanded = userExpanded ?? initiallyOpen;
+  const client = useQueryClient();
   const content = useQuery({
-    ...messageContent(message.account_id, message.id),
+    ...messageContent(message.account_id, message.id, client),
     enabled: expanded,
     staleTime: 30000,
     retry: false,

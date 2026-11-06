@@ -1,3 +1,4 @@
+import { localMailCache } from "./localMailCache";
 import { useMessagePrefetch } from "./useMessagePrefetch";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
@@ -110,13 +111,23 @@ export function App() {
   const [online, setOnline] = useState(navigator.onLine);
   const session = useQuery({
     queryKey: ["session"],
-    queryFn: api.session,
+    queryFn: async () => {
+      const ticket = localMailCache.ticket();
+      const session = await api.session();
+      if (!await localMailCache.identify(session.user_id, client, ticket)) throw new ApiFailure(401, "session_changed", "Please sign in again.");
+      return session;
+    },
     retry: false,
     enabled: online,
   });
   const accounts = useQuery({
     queryKey: ["accounts"],
-    queryFn: api.accounts,
+    queryFn: async () => {
+      const ticket = localMailCache.ticket();
+      const accounts = await api.accounts();
+      await localMailCache.activate(session.data!.user_id, accounts, client, ticket);
+      return accounts;
+    },
     enabled: !!session.data,
   });
   const { alwaysLoadImages, setAlwaysLoadImages, blockHiddenImages, setBlockHiddenImages } = useImagePrivacy(session.data?.user_id);
@@ -398,7 +409,7 @@ export function App() {
       found = item.message.id === active.id && item.message.account_id === active.account_id;
     }
   }, [items, active?.id, active?.account_id]);
-  const prefetch = useMessagePrefetch(JSON.stringify([session.data?.user_id, account, nav, q, categoryFilter, ids]), nextMessage);
+  const prefetch = useMessagePrefetch(JSON.stringify([session.data?.user_id, account, nav, q, categoryFilter, ids, workspace]), nextMessage, listRef, rows);
   const submitState = useQuery({
     queryKey: ["submission", submission?.account_id, submission?.id],
     queryFn: () => api.submission(submission!),
@@ -514,6 +525,9 @@ export function App() {
         return next;
       });
     }
+    const cacheAccounts = ["archive", "trash", "spam", "move", "snooze"].includes(change.kind) ? [...new Set(messages.map(m => m.account_id))] : [];
+    const cacheStarted = Date.now();
+    const cacheInvalidation = cacheAccounts.length ? localMailCache.invalidateFolders(cacheAccounts) : Promise.resolve();
     const failures: string[] = [];
     setError(undefined);
     const removing = ["archive", "trash", "spam", "move", "snooze"].includes(change.kind);
@@ -575,6 +589,8 @@ export function App() {
       }),
     );
     await reconcileMail(background);
+    await cacheInvalidation;
+    localMailCache.resumeFolders(cacheAccounts, listKey, cacheStarted);
     return { applied: messages.length - failures.length, failed: failures.length };
   }
   async function reconcileMail(quiet = false) {
@@ -753,6 +769,11 @@ export function App() {
     : updating ? (!q && nav === "INBOX" ? "Updating inbox…" : "Updating mail…")
     : inboxCoverage?.coverage.some(c => c.state === "partial") ? "Inbox refreshed. Provider coverage is limited; some mail may not be exposed."
     : inboxCoverage?.coverage.some(c => c.state !== "complete") ? "Inbox refresh is pending." : "Refresh mail";
+  const signedInUser = useRef<string | undefined>(undefined);
+  if (!signedInUser.current && session.data?.user_id) signedInUser.current = session.data.user_id;
+  const identityChanged = !!signedInUser.current && !!session.data?.user_id && signedInUser.current !== session.data.user_id;
+  useEffect(() => { if (identityChanged) window.location.replace("/"); }, [identityChanged]);
+  if (identityChanged) return <Empty title="Opening Dakia…" />;
   const sessionExpired = session.error instanceof ApiFailure && session.error.status === 401;
   const connectionProblem = !online || !!session.error;
   const connectionNotice = connectionProblem && !sessionExpired && (
@@ -876,6 +897,7 @@ export function App() {
             aria-label="Sign out"
             onClick={async () => {
               try {
+                await localMailCache.clear();
                 await api.logout();
                 client.clear();
                 window.location.assign("/auth/login");
@@ -1177,8 +1199,8 @@ export function App() {
                           className="message-open"
                           onFocus={() => prefetch.request(item.message)}
                           onMouseEnter={() => prefetch.request(item.message)}
-                          onMouseLeave={() => prefetch.cancel()}
-                          onBlur={() => prefetch.cancel()}
+                          onMouseLeave={() => prefetch.clearIntent()}
+                          onBlur={() => prefetch.clearIntent()}
                           onClick={(e) => {
                             if (e.shiftKey) selectMessage(item.message, true, true);
                             else void open(item.message);
@@ -1327,7 +1349,7 @@ export function App() {
       </section>
 
       {settingsAccount && <MailboxSettingsDialog account={settingsAccount} onClose={() => setSettingsAccount(null)} />}
-      {removingAccount && <AccountRemoval account={removingAccount} onClose={() => setRemovingAccount(null)} onRemoved={() => { client.clear(); window.location.assign("/"); }} />}
+      {removingAccount && <AccountRemoval account={removingAccount} onClose={() => setRemovingAccount(null)} onRemoved={() => { void localMailCache.clear().finally(() => { client.clear(); window.location.assign("/"); }); }} />}
       {setup && (
         <AccountSetup
           account={reconnect}

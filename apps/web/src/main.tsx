@@ -1,3 +1,4 @@
+import { localMailCache } from "./localMailCache";
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -12,6 +13,10 @@ const client = new QueryClient({
   defaultOptions: {
     queries: { retry: 1, staleTime: 15000, refetchOnWindowFocus: true },
   },
+});
+window.addEventListener("dakia-auth-expired", event => {
+  void localMailCache.clear();
+  if ((event as CustomEvent).detail !== "/session") void client.invalidateQueries({ queryKey: ["session"] });
 });
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

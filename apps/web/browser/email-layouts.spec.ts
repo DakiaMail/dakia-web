@@ -213,3 +213,28 @@ if(privateDir) for(const width of [320,390,600,900,1480,1920]) test(`exact priva
   await capture.close();
   writeFileSync(`${output}/amazon-${width}.json`,JSON.stringify(geometry,null,2),{mode:0o600});
 });
+
+for (const sizing of ['min-height:100vh', 'height:100vh', 'min-height:100%', 'min-height:110vh;box-sizing:content-box']) test(`viewport body padding has bounded stable height ${sizing}`, async ({page}) => {
+  const { frame } = await openMail(page, `<body style="${sizing};padding:16px"><p>Viewport padding</p><div id="late"></div><p id="end">Message end</p></body>`);
+  const iframe=page.locator('iframe[title="Message body"]');
+  await expect(async()=>{
+    const samples=await iframe.evaluate(async node=>{
+      const values:number[]=[];
+      for(let i=0;i<20;i++){await new Promise(requestAnimationFrame);values.push(node.getBoundingClientRect().height);}
+      return values;
+    });
+    expect(Math.max(...samples)).toBeLessThan(2000);
+    expect(Math.max(...samples)-Math.min(...samples)).toBeLessThanOrEqual(1);
+  }).toPass({timeout:3000});
+  // Content arriving after stabilization must still expand the reader.
+  const before = await iframe.evaluate(node => (node as HTMLIFrameElement).clientHeight);
+  await frame.locator('#late').evaluate((node, source) => {
+    const image = document.createElement('img');
+    image.style.cssText = 'display:block;width:1px;height:1200px';
+    image.src = source;
+    node.append(image);
+  }, png);
+  await expect.poll(() => iframe.evaluate(node => (node as HTMLIFrameElement).clientHeight)).toBeGreaterThan(before + 1000);
+  await frame.locator('#end').scrollIntoViewIfNeeded();
+  await expect(frame.locator('#end')).toBeInViewport();
+});

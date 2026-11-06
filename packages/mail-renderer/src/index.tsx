@@ -134,7 +134,7 @@ export function mailDocument(html: string, dark = false, images?: Record<string,
       report();
     });
     new ResizeObserver(report).observe(document.body);
-    addEventListener('load', report, true); addEventListener('resize', report); report();
+    document.addEventListener('load', report, true); addEventListener('resize', report); report();
   })();</script>` : ""}</body></html>`;
 }
 export function MailReader({
@@ -172,6 +172,7 @@ export function MailReader({
   }, []);
   const [channel] = useState(() => crypto.randomUUID());
   const [height, setHeight] = useState(80);
+  const lastSize = useRef<{ viewport: number; viewportHeight: number; height: number } | null>(null);
   useEffect(() => {
     const resize = (event: MessageEvent) => {
       if (event.source !== frame.current?.contentWindow || event.origin !== "null") return;
@@ -181,7 +182,16 @@ export function MailReader({
       // a pane resize. They cannot size the newly laid-out document.
       if (typeof value.viewport !== "number" || !Number.isFinite(value.viewport) || Math.abs(value.viewport - (frame.current?.clientWidth || 0)) > 1) return;
       if (typeof value.viewportHeight !== "number" || !Number.isFinite(value.viewportHeight) || Math.abs(value.viewportHeight - (frame.current?.clientHeight || 0)) > 1) return;
-      setHeight(Math.max(48, Math.min(100000, value.height)));
+      const previous = lastSize.current;
+      const duplicate = previous && previous.viewport === value.viewport && previous.viewportHeight === value.viewportHeight && previous.height === value.height;
+      // A viewport-sized body (or child) can grow by the iframe height change
+      // plus its padding on every report. Stop that feedback and retain native
+      // frame scrolling for the remaining overflow. Independent content changes
+      // at the same viewport, such as a decoded image, can still grow the frame.
+      const viewportGrowth = previous ? value.viewportHeight - previous.viewportHeight : 0;
+      const feedback = previous && previous.viewport === value.viewport && viewportGrowth > 0 && value.height > previous.height && value.height - previous.height >= viewportGrowth - 1;
+      lastSize.current = { viewport: value.viewport, viewportHeight: value.viewportHeight, height: value.height };
+      if (!duplicate && !feedback) setHeight(Math.max(48, Math.min(100000, value.height)));
       if (typeof value.width === "number" && Number.isFinite(value.width)) setContentWidth(Math.max(0, Math.min(32000, value.width)));
     };
     window.addEventListener("message", resize);
@@ -203,7 +213,7 @@ export function MailReader({
   const initialSource = useRef(source);
   const updateFrame = () => frame.current?.contentWindow?.postMessage({ kind: "dakia-mail-update", channel, source }, "*");
   useEffect(updateFrame, [source, channel]);
-  useEffect(() => { setContentWidth(0); }, [source]);
+  useEffect(() => { lastSize.current = null; setContentWidth(0); }, [source]);
   const wide = available > 0 && contentWidth > available + 1;
   const layoutWidth = fit && wide ? contentWidth : available;
   const scale = fit && wide ? available / layoutWidth : 1;

@@ -341,3 +341,32 @@ for (const width of [320, 390, 720, 1440]) for (const theme of ["light", "dark"]
   await expect(dialog.getByRole("button", { name: "Close", exact: true })).toBeInViewport();
   await page.screenshot({ path: testInfo.outputPath("shortcut-reference.png") });
 });
+
+for (const theme of ["light", "dark"]) test(`compose key hint stays readable in ${theme} theme`, async ({ page }, testInfo) => {
+  await page.addInitScript(theme => {
+    localStorage.setItem("dakia-theme", theme);
+    localStorage.setItem("dakia:keyboard-fixture:keyboard-hints", "true");
+  }, theme);
+  await fixture(page);
+  const compose = page.getByRole("region", { name: "Reading pane" }).getByRole("button", { name: "Compose", exact: true });
+  for (const state of ["normal", "hover", "focus"]) {
+    if (state === "hover") await compose.hover();
+    if (state === "focus") await compose.focus();
+    const ratios = await page.locator(".primary .key-hint").evaluateAll(hints => {
+      const luminance = (value: string) => {
+        const channels = value.match(/[\d.]+/g)!.slice(0, 3).map(Number).map(c => {
+          const s = c / 255; return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+        });
+        return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+      };
+      return hints.map(hint => {
+        const foreground = luminance(getComputedStyle(hint).color);
+        const background = luminance(getComputedStyle(hint.closest(".primary")!).backgroundColor);
+        return (Math.max(foreground, background) + 0.05) / (Math.min(foreground, background) + 0.05);
+      });
+    });
+    expect(ratios.length).toBeGreaterThan(0);
+    for (const ratio of ratios) expect(ratio).toBeGreaterThanOrEqual(4.5);
+    await compose.screenshot({ path: testInfo.outputPath(`compose-hint-${state}.png`), animations: "disabled" });
+  }
+});

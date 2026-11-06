@@ -1690,6 +1690,7 @@ body {
   line-height: 1.4;
   white-space: nowrap;
 }
+.primary .key-hint { color: inherit; border-color: currentColor; }
 .keyboard-hints > span { white-space: nowrap; }
 .keyboard-hints > button { font: inherit; color: inherit; padding: 3px; }
 .keyboard-dialog { top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(680px, calc(100vw - 32px)); max-height: min(760px, calc(100dvh - 40px)); display: flex; flex-direction: column; overflow: hidden; border-radius: 12px; }

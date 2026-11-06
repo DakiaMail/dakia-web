@@ -1,3 +1,4 @@
+import { messageContent } from "./messageContent";
 import { useEffect, useId, useRef, useState } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { ChevronDown, CornerUpRight, FileText, RefreshCw, Reply, ReplyAll } from "lucide-react";
@@ -95,22 +96,7 @@ function ConversationMessage({ message, initiallyOpen, multiple, ...props }: Pro
   const [userExpanded, setUserExpanded] = useState<boolean | null>(null);
   const expanded = userExpanded ?? initiallyOpen;
   const content = useQuery({
-    queryKey: ["content", message.account_id, message.id],
-    queryFn: async ({ signal }) => {
-      const controller = new AbortController();
-      const cancel = () => controller.abort();
-      signal.addEventListener("abort", cancel, { once: true });
-      const timer = setTimeout(cancel, 30000);
-      try {
-        return await api.contentById(message.account_id, message.id, controller.signal);
-      } catch (error) {
-        if (controller.signal.aborted && !signal.aborted) throw new Error("This message couldn’t be loaded. Please try again.");
-        throw error;
-      } finally {
-        clearTimeout(timer);
-        signal.removeEventListener("abort", cancel);
-      }
-    },
+    ...messageContent(message.account_id, message.id),
     enabled: expanded,
     staleTime: 30000,
     retry: false,

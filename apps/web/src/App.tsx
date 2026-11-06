@@ -1,3 +1,4 @@
+import { useMessagePrefetch } from "./useMessagePrefetch";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -388,6 +389,16 @@ export function App() {
       selected
     : null;
 
+  const nextMessage = useMemo(() => {
+    if (!active) return;
+    let found = false;
+    for (const item of items) {
+      if (item.kind !== "mail") continue;
+      if (found) return item.message;
+      found = item.message.id === active.id && item.message.account_id === active.account_id;
+    }
+  }, [items, active?.id, active?.account_id]);
+  const prefetch = useMessagePrefetch(JSON.stringify([session.data?.user_id, account, nav, q, categoryFilter, ids]), nextMessage);
   const submitState = useQuery({
     queryKey: ["submission", submission?.account_id, submission?.id],
     queryFn: () => api.submission(submission!),
@@ -618,6 +629,7 @@ export function App() {
   }
 
   async function open(m: Message, linkedAccount?: string) {
+    prefetch.foreground(m);
     if (!selected && listRef.current)
       positions.current[`${account}/${nav}/${q}/${view}`] = listRef.current.scrollTop;
     const url = new URL(location.href);
@@ -1163,6 +1175,10 @@ export function App() {
                         </label>
                         <button title={`Open ${item.message.subject || "message"}`}
                           className="message-open"
+                          onFocus={() => prefetch.request(item.message)}
+                          onMouseEnter={() => prefetch.request(item.message)}
+                          onMouseLeave={() => prefetch.cancel()}
+                          onBlur={() => prefetch.cancel()}
                           onClick={(e) => {
                             if (e.shiftKey) selectMessage(item.message, true, true);
                             else void open(item.message);

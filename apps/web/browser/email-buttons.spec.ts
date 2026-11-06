@@ -11,7 +11,7 @@ for (const width of [320, 390, 600, 1480, 1920]) for (const theme of ["light", "
   const navigations: string[] = [];
   await context.route("**/*", route => {
     const url = new URL(route.request().url());
-    if (url.origin !== "http://127.0.0.1:4173") { navigations.push(url.href); return route.fulfill({ contentType: "text/html", body: "Intercepted fixture destination" }); }
+    if (url.origin !== (process.env.DAKIA_FIXTURE_ORIGIN || "http://127.0.0.1:4173")) { navigations.push(url.href); return route.fulfill({ contentType: "text/html", body: "Intercepted fixture destination" }); }
     if (!url.pathname.startsWith("/api/")) return route.continue();
     const path = url.pathname;
     const respond = (json: unknown) => route.fulfill({ json });

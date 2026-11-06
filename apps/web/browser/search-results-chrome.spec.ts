@@ -11,7 +11,7 @@ for (const width of [320, 390, 1480]) test(`search results chrome ${width}`, asy
   const rows = mail.rows.slice(0, 8).map((row, i) => ({ ...row, unread: false, subject: `Project planning ${i + 1}`, category: "people" }));
   await page.route("**/*", route => {
     const url = new URL(route.request().url()), path = url.pathname;
-    if (url.origin !== "http://127.0.0.1:4173") { external.push(url.origin); return route.abort(); }
+    if (url.origin !== (process.env.DAKIA_FIXTURE_ORIGIN || "http://127.0.0.1:4173")) { external.push(url.origin); return route.abort(); }
     if (!path.startsWith("/api/")) return route.continue();
     if (route.request().method() !== "GET") writes.push(path);
     const respond = (json: unknown) => route.fulfill({ json });

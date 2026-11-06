@@ -16,7 +16,7 @@ for (const width of [390, 1480]) for (const theme of ["light", "dark"]) {
       '<img src="https://tracker.example.org/open" style="display:none;width:1px;height:1px">';
     await page.route("**/*", async route => {
       const url = new URL(route.request().url());
-      if (url.origin !== "http://127.0.0.1:4173") { external.push(url.href); return route.abort(); }
+      if (url.origin !== (process.env.DAKIA_FIXTURE_ORIGIN || "http://127.0.0.1:4173")) { external.push(url.href); return route.abort(); }
       const path = url.pathname;
       if (!path.startsWith("/api/")) return route.continue();
       const respond = (json: unknown) => route.fulfill({ json });

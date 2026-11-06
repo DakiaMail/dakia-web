@@ -22,7 +22,7 @@ async function openMail(page: Page, html: string, images: Record<string,string> 
   const root = { ...content.message, unread: false };
   await page.route('**/*', route => {
     const url = new URL(route.request().url()), path = url.pathname;
-    if (url.origin !== 'http://127.0.0.1:4173') { external.push(url.origin); return route.abort(); }
+    if (url.origin !== (process.env.DAKIA_FIXTURE_ORIGIN || "http://127.0.0.1:4173")) { external.push(url.origin); return route.abort(); }
     if (!path.startsWith('/api/')) return route.continue();
     const respond = (json: unknown) => route.fulfill({ json });
     if (path.endsWith('/image')) {

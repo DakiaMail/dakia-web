@@ -211,7 +211,13 @@ export function MailReader({
   // Updating srcDoc navigates a child frame and adds joint browser history.
   // Keep its sandbox document stable; only parent-sanitized content is updated.
   const initialSource = useRef(source);
-  const updateFrame = () => frame.current?.contentWindow?.postMessage({ kind: "dakia-mail-update", channel, source }, "*");
+  const loaded = useRef(false);
+  const appliedSource = useRef(source);
+  const updateFrame = () => {
+    if (!loaded.current || appliedSource.current === source) return;
+    frame.current?.contentWindow?.postMessage({ kind: "dakia-mail-update", channel, source }, "*");
+    appliedSource.current = source;
+  };
   useEffect(updateFrame, [source, channel]);
   useEffect(() => { lastSize.current = null; setContentWidth(0); }, [source]);
   const wide = available > 0 && contentWidth > available + 1;
@@ -229,7 +235,7 @@ export function MailReader({
           sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox"
           referrerPolicy="no-referrer"
           srcDoc={initialSource.current}
-          onLoad={updateFrame}
+          onLoad={() => { loaded.current = true; updateFrame(); }}
         />
       </div>
     </>

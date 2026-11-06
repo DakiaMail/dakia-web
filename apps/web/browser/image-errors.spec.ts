@@ -11,7 +11,7 @@ for (const width of [390, 1480]) test(`honest independent image failures ${width
   const html = "<h1>Image response regression</h1>" + errors.map((_, i) => `<img src="https://assets.example.org/${i}" width="80" height="32">`).join("");
   await page.route("**/*", async route => {
     const url = new URL(route.request().url());
-    if (url.origin !== "http://127.0.0.1:4173") { external.push(url.href); return route.abort(); }
+    if (url.origin !== (process.env.DAKIA_FIXTURE_ORIGIN || "http://127.0.0.1:4173")) { external.push(url.href); return route.abort(); }
     const path = url.pathname;
     if (!path.startsWith("/api/")) return route.continue();
     const respond = (json: unknown) => route.fulfill({ json });

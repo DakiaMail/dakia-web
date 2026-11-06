@@ -29,7 +29,7 @@ for (const width of [390, 1480]) {
         const external: string[] = [];
         await page.route("**/*", async (route) => {
           const url = new URL(route.request().url());
-          if (url.origin !== "http://127.0.0.1:4173") {
+          if (url.origin !== (process.env.DAKIA_FIXTURE_ORIGIN || "http://127.0.0.1:4173")) {
             external.push(url.origin);
             return route.abort();
           }

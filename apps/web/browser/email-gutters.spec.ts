@@ -16,7 +16,7 @@ for (const [name, html] of Object.entries(cases)) for (const width of [320, 390,
   const writes: string[] = [];
   await page.route("**/*", route => {
     const url = new URL(route.request().url()), path = url.pathname;
-    if (url.origin !== "http://127.0.0.1:4173") { external.push(url.href); return route.abort(); }
+    if (url.origin !== (process.env.DAKIA_FIXTURE_ORIGIN || "http://127.0.0.1:4173")) { external.push(url.href); return route.abort(); }
     if (!path.startsWith("/api/")) return route.continue();
     const respond = (json: unknown) => route.fulfill({ json });
     if (path === "/api/session") return respond({ user_id: "fixture", csrf_token: "fixture" });
@@ -32,21 +32,25 @@ for (const [name, html] of Object.entries(cases)) for (const width of [320, 390,
   await page.getByRole("button", { name: /Maya Chen.*A few thoughts/ }).click();
   const frame = page.frameLocator('iframe[title="Message body"]');
   await expect(frame.locator("p").first()).toBeVisible();
-  const geometry = await frame.locator("body").evaluate(body => {
+  const measure = () => frame.locator("body").evaluate(body => {
     const p = body.querySelector("p")!.getBoundingClientRect();
     return { left: p.left, right: innerWidth - p.right, padding: getComputedStyle(body).paddingLeft, width: innerWidth, overflow: body.scrollWidth - innerWidth,
       clipped: [...body.querySelectorAll("p,h1,pre,table,td")].filter(el => { const r = el.getBoundingClientRect(); return r.left < -1 || r.right > innerWidth + 1; }).map(el => el.tagName) };
   });
-  // Media queries belong to the message document, not the outer app viewport.
-  // The split reader at 1480 can itself be narrower than 600px.
-  if (geometry.width <= 600) {
-    const expected = 12 + (name === "padded" ? 16 : name === "nested" ? 10 : 0);
-    expect(geometry.left).toBe(expected);
-    expect(geometry.right).toBe(expected);
-    expect(geometry.padding).toBe("12px");
-    expect(geometry.clipped).toEqual([]);
-    expect(geometry.overflow).toBeLessThanOrEqual(1);
-  } else expect(geometry.padding).toBe("2px");
+  let geometry = await measure();
+  await expect(async () => {
+    geometry = await measure();
+    // Media queries belong to the message document, not the outer app viewport.
+    // The split reader at 1480 can itself be narrower than 600px.
+    if (geometry.width <= 600) {
+      const expected = 12 + (name === "padded" ? 16 : name === "nested" ? 10 : 0);
+      expect(geometry.left).toBe(expected);
+      expect(geometry.right).toBe(expected);
+      expect(geometry.padding).toBe("12px");
+      expect(geometry.clipped).toEqual([]);
+      expect(geometry.overflow).toBeLessThanOrEqual(1);
+    } else expect(geometry.padding).toBe("2px");
+  }).toPass();
   expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
   const iframe = page.locator('iframe[title="Message body"]');
   await expect(async () => {

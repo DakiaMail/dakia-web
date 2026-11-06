@@ -1,0 +1,68 @@
+{
+  "samples": [
+    {
+      "action": "open",
+      "ms": 40.01091599999995
+    },
+    {
+      "action": "reply",
+      "ms": 42.559833000000026
+    },
+    {
+      "action": "return",
+      "ms": 33.54833400000007
+    },
+    {
+      "action": "open",
+      "ms": 34.70558300000016
+    },
+    {
+      "action": "reply",
+      "ms": 21.739665999999943
+    },
+    {
+      "action": "return",
+      "ms": 11.590249999999742
+    },
+    {
+      "action": "open",
+      "ms": 33.67862500000001
+    },
+    {
+      "action": "reply",
+      "ms": 19.92929099999992
+    },
+    {
+      "action": "return",
+      "ms": 9.678415999999743
+    },
+    {
+      "action": "open",
+      "ms": 34.50975000000017
+    },
+    {
+      "action": "reply",
+      "ms": 22.400375000000167
+    },
+    {
+      "action": "return",
+      "ms": 33.72199999999975
+    },
+    {
+      "action": "next",
+      "ms": 30.429291999999805
+    },
+    {
+      "action": "archive",
+      "ms": 20.3857909999997
+    }
+  ],
+  "bodies": [
+    "m0",
+    "m1",
+    "m2",
+    "m3"
+  ],
+  "longTasks": [],
+  "source": "reading-loop candidate based on af5f801"
+}

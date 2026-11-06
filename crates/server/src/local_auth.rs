@@ -114,7 +114,7 @@ async fn render(
     };
     let action = if joining { "/auth/join" } else { "/auth/login" };
     let script = if joining {
-        r#"<script>const code=location.hash.slice(1);if(code){document.getElementById("invite-code").value=code;history.replaceState(null,"",location.pathname)}</script>"#
+        r#"<script>const code=location.hash.slice(1)||history.state?.dakiaInvite;if(typeof code==="string"&&code.length<=256){document.getElementById("invite-code").value=code;history.replaceState({dakiaInvite:code},"",location.pathname)}</script>"#
     } else {
         ""
     };

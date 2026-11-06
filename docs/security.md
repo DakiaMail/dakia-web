@@ -4,7 +4,7 @@ This is an initial overview, not a security audit or a guarantee. A fuller threa
 
 ## Login and ownership
 
-New local installations require a private setup code from the host before creating the single owner account. Passwords are stored as salted Argon2id hashes. There is no public registration. Login attempts are rate limited per instance, and password hashing concurrency is bounded. Local password reset and invitations are not included yet; preserve access to your host and backups.
+New local installations require a private setup code from the host before creating the first owner account. Passwords are stored as salted Argon2id hashes. There is no public registration. The owner can create or revoke single-use invitations that expire after 24 hours. Invited people have separate logins and cannot manage invitations or access another user’s mail through the app. Invitation tokens are stored as hashes, and links use URL fragments to keep tokens out of server request URLs. Login attempts are rate limited per username with an instance-wide cap, and password hashing concurrency is bounded. Local password reset is not included yet; preserve access to your host and backups.
 
 Existing OIDC installations retain their confidential-client, PKCE, nonce, and browser-bound state flow. OIDC and local identities are not automatically linked.
 
@@ -20,7 +20,7 @@ Account ownership is checked on the server. Received HTML is sanitized and isola
 
 The supplied container runs without root privileges. Compose drops capabilities, uses a read-only root filesystem, and exposes its port on loopback. Do not give Dakia the Docker socket or privileged access.
 
-Keep the encryption key through upgrades. A missing key on an existing data directory causes startup to fail. Backups must include the data and separately protected keys. Test restoration with disposable data before depending on it.
+Keep the encryption key through upgrades. A missing key on an existing data directory causes startup to fail. Backups must include the data and separately protected keys. Test restoration with disposable data before depending on it. Restore invalidates pending invitations as well as sessions.
 
 ## Reporting a vulnerability
 

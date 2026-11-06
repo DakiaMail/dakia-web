@@ -1668,3 +1668,11 @@ body {
 .app-update { position: fixed; z-index: 45; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); width: min(360px, calc(100vw - 32px)); padding: 16px; border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-bg, white); box-shadow: 0 8px 30px #0002; }
 .app-update p { margin: 0 0 12px; line-height: 1.5; }
 .app-update > div { display: flex; gap: 12px; align-items: center; }
+
+.workspace-invitations { margin-top: 28px; }
+.workspace-invitations p { color: var(--color-secondary); line-height: 1.6; }
+.invitation-link { display: flex; flex-wrap: wrap; align-items: end; gap: 12px; margin: 16px 0; }
+.invitation-link label { flex: 1 1 240px; min-width: 0; }
+.invitation-link input { display: block; width: 100%; margin-top: 8px; min-width: 0; padding: 10px; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-surface); color: inherit; font: inherit; }
+.invitation-list { list-style: none; padding: 0; }
+.invitation-list li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; align-items: center; padding: 12px 0; border-top: 1px solid var(--color-border); }

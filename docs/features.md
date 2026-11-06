@@ -2,6 +2,10 @@
 
 Dakia connects to existing IMAP/SMTP mailboxes. It does not replace your email provider.
 
+## Separate logins
+
+The instance owner can invite other people with single-use links. Each person connects and manages their own email accounts.
+
 ## Read and organize
 
 Unified and per-account inboxes, conversations, search, categories, stars, snooze, and bulk actions.

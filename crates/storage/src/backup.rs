@@ -144,6 +144,9 @@ impl Store {
         sqlx::query("DELETE FROM sessions")
             .execute(&store.control)
             .await?;
+        sqlx::query("DELETE FROM local_invitations")
+            .execute(&store.control)
+            .await?;
         sqlx::query("DELETE FROM oidc_flows")
             .execute(&store.control)
             .await?;

@@ -78,6 +78,10 @@ export const api = {
     await request("/logout", { method: "POST" });
     csrf = "";
   },
+  localAccess: () => request<{ can_invite: boolean }>("/local-access"),
+  invitations: () => request<{ id: string; expires_at: number }[]>("/invitations"),
+  createInvitation: () => request<{ id: string; expires_at: number; url: string }>("/invitations", { method: "POST" }),
+  revokeInvitation: (id: string) => request<void>(`/invitations/${key(id)}`, { method: "DELETE" }),
   accounts: () => request<Account[]>("/accounts"),
   syncActive: (id: string, signal?: AbortSignal) => request<boolean>(`${accountPath(id)}/sync-active`, { signal }),
   discover: (email: string, signal?: AbortSignal) => request<DiscoveredSettings | null>("/accounts/discover", { method: "POST", body: JSON.stringify({ email }), signal }),

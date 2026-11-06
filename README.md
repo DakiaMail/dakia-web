@@ -26,7 +26,7 @@ Open your HTTPS address and choose **Sign in**. Read your private setup code fro
 docker compose exec dakia cat /secrets/setup-token
 ```
 
-Create your username and password, then connect your first mailbox. Setup closes after the owner account is created. Keep both persistent volumes: losing the credential key means losing access to stored credentials.
+Create your username and password, then connect your first mailbox. Setup closes after the owner account is created. To add another person, open **Workspace → Invite someone** and share a single-use invitation link. Each person gets their own login and separate email accounts. Keep both persistent volumes: losing the credential key means losing access to stored credentials.
 
 Compose pulls a verified preview image for Linux AMD64 or ARM64. It is pinned by digest so an upstream rebuild cannot silently change your installation. Platform-specific NAS and Proxmox walkthroughs are still being validated.
 

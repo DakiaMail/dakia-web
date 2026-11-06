@@ -14,6 +14,34 @@ pub(super) fn scoped_search(query: &str, token: Option<&PageToken>) -> Option<St
         }
     }
 }
+// Bound repeated UID enumeration on dense historical folders. A narrow
+// result is sufficient only if it contains more than one page: then there
+// is positive continuation evidence inside that range. Sparse/end pages
+// fall back to the entire remaining range before claiming completion.
+async fn snapshot_uids(
+    s: &mut Connection,
+    token: Option<&PageToken>,
+    limit: usize,
+) -> Result<Vec<u32>> {
+    if let Some(t) = token {
+        let upper = t.upper_uid.min(t.before_uid.saturating_sub(1));
+        if upper > 1024 {
+            let lower = upper - 1023;
+            let mut candidates = search_uids(s, &format!("ALL UID {lower}:{upper}")).await?;
+            candidates.retain(|u| *u >= lower && *u <= upper);
+            candidates.sort_unstable();
+            candidates.dedup();
+            if candidates.len() > limit {
+                return Ok(candidates);
+            }
+        }
+    }
+    match scoped_search("ALL", token) {
+        Some(query) => search_uids(s, &query).await,
+        None => Ok(Vec::new()),
+    }
+}
+
 fn sequence(uids: &[u32]) -> String {
     uids.iter()
         .map(u32::to_string)
@@ -144,10 +172,7 @@ impl ImapProvider {
             });
             stage = "search";
             timing.stage(3);
-            let mut uids = match scoped_search("ALL", token) {
-                Some(query) => search_uids(&mut s, &query).await?,
-                None => Vec::new(),
-            };
+            let mut uids = snapshot_uids(&mut s, token, limit).await?;
             uids.retain(|u| {
                 *u != 0 && token.is_none_or(|t| *u <= t.upper_uid && *u < t.before_uid)
             });
@@ -187,6 +212,38 @@ impl ImapProvider {
                     uidvalidity: validity,
                     uid,
                 };
+                // Generic IMAP identity is already determined by the selected
+                // epoch and UID. On a cold first chunk, fetching flags merely
+                // to rediscover that identity costs a redundant round trip.
+                // Gmail still needs its server-supplied stable message ID.
+                let mut identities = HashMap::new();
+                if !gmail && since.is_none() && consumed == 0 {
+                    stage = "identity_lookup";
+                    timing.stage(6);
+                    for uid in chunk {
+                        let known_identity = known
+                            .identity_known(&Identity::Imap(reference(*uid)))
+                            .await?;
+                        identities.insert(*uid, known_identity);
+                    }
+                    if identities.values().all(|known| !known) {
+                        stage = "headers";
+                        timing.stage(7);
+                        let (metadata, attempted) =
+                            self.metadata(&mut s, folder, validity, chunk).await?;
+                        bytes += metadata.iter().map(|m| m.headers.len()).sum::<usize>();
+                        rows.extend(metadata.into_iter().map(MetadataChange::New));
+                        consumed += attempted;
+                        cold_page = true;
+                        if attempted < chunk.len()
+                            || bytes >= 2 * 1024 * 1024
+                            || started.elapsed() >= std::time::Duration::from_secs(2)
+                        {
+                            break;
+                        }
+                        continue;
+                    }
+                }
                 let mut reusable = Vec::new();
                 let mut fresh = Vec::new();
                 stage = "reference_lookup";
@@ -272,7 +329,14 @@ impl ImapProvider {
                         .labels
                         .iter()
                         .any(|v| v.trim_start_matches('\\').eq_ignore_ascii_case("Drafts"));
-                    if !draft && known.identity_known(&identity).await? {
+                    let identity_known = if draft {
+                        false
+                    } else if let Some(known) = identities.get(&uid) {
+                        *known
+                    } else {
+                        known.identity_known(&identity).await?
+                    };
+                    if identity_known {
                         rows.push(MetadataChange::Mutable(MutableMetadata {
                             reference: reference(uid),
                             identity,

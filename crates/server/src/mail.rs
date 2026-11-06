@@ -5,6 +5,8 @@ mod archive_tests;
 mod conversation;
 mod inbox;
 #[cfg(test)]
+mod initial_sync_bench;
+#[cfg(test)]
 #[path = "mail_tests.rs"]
 mod integration_tests;
 mod reconcile;

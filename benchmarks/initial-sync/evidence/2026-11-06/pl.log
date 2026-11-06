@@ -1,0 +1,11 @@
+pages=100 elapsed=43.093384421
+pages=200 elapsed=82.665399764
+pages=300 elapsed=121.355940962
+pages=400 elapsed=160.994750123
+pages=500 elapsed=200.841984112
+pages=600 elapsed=243.133898671
+pages=700 elapsed=283.023825794
+pages=800 elapsed=322.133241909
+pages=900 elapsed=361.78740922
+pages=1000 elapsed=401.733361387
+{"client":"pl_mail","seconds":401.73337572,"rows":50000,"pages":1000,"indexed_bodies":50000,"peak_memory_bytes":61865984}

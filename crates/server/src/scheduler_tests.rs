@@ -35,17 +35,17 @@ async fn wait_pages(p: &PagedProvider, n: usize, seconds: u64) {
 async fn executor_refills_bounded_turns_without_accelerating_mutation_maintenance() {
     let (_dir, app, _, a, provider) = ready().await;
     let job = tokio::spawn(crate::executor::run(app.clone()));
-    wait_pages(&provider, 4, 3).await;
+    wait_pages(&provider, 6, 3).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(
         provider.visited.lock().await.len(),
-        4,
-        "four jobs per admission window"
+        6,
+        "six jobs per admission window"
     );
     assert_eq!(provider.maximum.load(Ordering::SeqCst), 1);
     assert_eq!(
         app.store.inbox_coverage(&a).await.unwrap().state,
-        CoverageState::Pending
+        CoverageState::Partial
     );
     let visits = provider.visited.lock().await.clone();
     assert_eq!(
@@ -54,7 +54,9 @@ async fn executor_refills_bounded_turns_without_accelerating_mutation_maintenanc
             ("INBOX".into(), 0),
             ("Archive".into(), 0),
             ("INBOX".into(), 1),
-            ("Sent".into(), 0)
+            ("Sent".into(), 0),
+            ("INBOX".into(), 2),
+            ("Archive".into(), 1)
         ]
     );
     job.abort();

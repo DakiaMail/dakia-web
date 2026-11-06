@@ -593,3 +593,122 @@ async fn quota_gap_waits_for_capacity_then_becomes_eligible_without_identity_cha
         m.id
     );
 }
+
+#[test]
+#[ignore = "manual CPU timing for the synthetic initial-sync fixture"]
+fn full_text_normalization_timing() {
+    use unicode_normalization::UnicodeNormalization;
+    let body = "A deterministic mailbox benchmark. ".repeat(48);
+    let start = std::time::Instant::now();
+    for _ in 0..1000 {
+        std::hint::black_box(normalize_search(std::hint::black_box(&body)));
+    }
+    let normalization_ms = start.elapsed().as_secs_f64() * 1000.;
+    let start = std::time::Instant::now();
+    for _ in 0..1000 {
+        std::hint::black_box(std::hint::black_box(&body).to_ascii_lowercase());
+    }
+    let ascii_ms = start.elapsed().as_secs_f64() * 1000.;
+    let reference: String = body
+        .nfc()
+        .flat_map(char::to_lowercase)
+        .collect::<String>()
+        .nfc()
+        .collect();
+    assert_eq!(reference, body.to_ascii_lowercase());
+    println!("NORMALIZE normalization_ms={normalization_ms:.3} ascii_ms={ascii_ms:.3}");
+}
+
+#[tokio::test]
+async fn full_text_body_batch_rejects_cross_account_and_guards_changed_or_removed_sources() {
+    let (_dir, store, _user, a, _) = fixture().await;
+    let rows = store
+        .ingest_messages(
+            &a,
+            vec![
+                message(&a, "first"),
+                message(&a, "changed"),
+                message(&a, "removed"),
+            ],
+            &[],
+        )
+        .await
+        .unwrap();
+    store.index_search_headers(&a).await.unwrap();
+    let mut foreign = rows[1].clone();
+    foreign.account_id = "other".into();
+    assert!(store
+        .put_search_bodies(
+            &a,
+            &[
+                (&rows[0], "must not commit", "ready"),
+                (&foreign, "foreign", "ready")
+            ]
+        )
+        .await
+        .is_err());
+    assert_eq!(store.text_coverage(&a).await.unwrap().bodies, 0);
+    let mut changed = rows[1].clone();
+    changed.provider_id = "replacement".into();
+    store.upsert_message(&a, changed).await.unwrap();
+    let mut removed = rows[2].clone();
+    removed.folder_ids.clear();
+    store.upsert_message(&a, removed).await.unwrap();
+    store.index_search_headers(&a).await.unwrap();
+    store
+        .put_search_bodies(
+            &a,
+            &[
+                (&rows[0], "committed body", "ready"),
+                (&rows[1], "stale body", "ready"),
+                (&rows[2], "deleted body", "ready"),
+            ],
+        )
+        .await
+        .unwrap();
+    assert_eq!(ids(&store, &a, "committed body").await.len(), 1);
+    assert!(ids(&store, &a, "stale body").await.is_empty());
+    assert!(ids(&store, &a, "deleted body").await.is_empty());
+    assert_eq!(store.text_coverage(&a).await.unwrap().bodies, 1);
+}
+#[tokio::test]
+async fn full_text_body_batch_accounts_for_quota_between_rows_in_one_transaction() {
+    let (_dir, store, _user, a, _) = fixture().await;
+    let rows = store
+        .ingest_messages(&a, vec![message(&a, "first"), message(&a, "second")], &[])
+        .await
+        .unwrap();
+    store.index_search_headers(&a).await.unwrap();
+    let db = store.db(&a).await.unwrap();
+    let budget = 512_i64 * 1024 * 1024;
+    sqlx::query("UPDATE search_totals SET body_bytes=? WHERE id=1")
+        .bind(budget - 5)
+        .execute(&db)
+        .await
+        .unwrap();
+    store
+        .put_search_bodies(
+            &a,
+            &[(&rows[0], "abc", "ready"), (&rows[1], "def", "ready")],
+        )
+        .await
+        .unwrap();
+    let states: Vec<(String, String)> =
+        sqlx::query_as("SELECT message_id,body_state FROM search_documents ORDER BY message_id")
+            .fetch_all(&db)
+            .await
+            .unwrap();
+    assert_eq!(
+        states,
+        vec![
+            ("first".into(), "ready".into()),
+            ("second".into(), "quota".into())
+        ]
+    );
+    let total: i64 = sqlx::query_scalar("SELECT body_bytes FROM search_totals WHERE id=1")
+        .fetch_one(&db)
+        .await
+        .unwrap();
+    assert_eq!(total, budget - 2);
+    assert!(store.next_search_bodies(&a, true, 201).await.is_err());
+}

@@ -1,0 +1,13 @@
+
+running 1 test
+turns=100 elapsed=32.309
+test mail::initial_sync_bench::initial_mailbox_sync_benchmark has been running for over 60 seconds
+turns=200 elapsed=88.465
+turns=300 elapsed=151.956
+turns=400 elapsed=212.539
+turns=500 elapsed=279.783
+INITIAL_SYNC {"client":"dakia","indexed_bodies":50000,"memberships":50000,"milestone":"all bodies downloaded and indexed; metadata and membership reconciled","rows":50000,"scheduled":true,"seconds":316.815126125,"turns_or_polls":543,"verified_body_tokens":50000}
+test mail::initial_sync_bench::initial_mailbox_sync_benchmark ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 138 filtered out; finished in 317.94s
+

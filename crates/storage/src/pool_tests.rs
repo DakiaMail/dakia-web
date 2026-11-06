@@ -266,3 +266,6 @@ async fn failed_open_is_not_cached_and_can_be_retried_after_repair() {
     assert!(reopened.db(&a2).await.is_ok());
     assert_eq!(reopened.account_pools.lock().await.len(), 1);
 }
+
+#[path = "seed_membership_tests.rs"]
+mod seed_membership_tests;

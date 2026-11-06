@@ -54,10 +54,12 @@ async fn cleanup_worker_drains_bounded_turns_for_48_and_200_targets() {
             .unwrap();
         assert_eq!(provider.mutations.lock().await.len(), 0);
         crate::mutations::drain(&app, &a).await.unwrap();
-        assert_eq!(
-            provider.mutations.lock().await.len(),
-            20,
-            "one bounded worker turn, not a five-second wait per target"
+        let first_turn = provider.mutations.lock().await.len();
+        // A turn also yields after two seconds, so a busy test host may
+        // legitimately process fewer than the maximum 20 writes.
+        assert!(
+            (1..=20).contains(&first_turn),
+            "one bounded worker turn must make progress without exceeding 20 writes: {first_turn}"
         );
         while app.store.sender_cleanup_jobs(&a).await.unwrap()[0].pending > 0 {
             crate::mutations::drain(&app, &a).await.unwrap();

@@ -1,3 +1,5 @@
+#[path = "imap_body_batch.rs"]
+mod body_batch;
 #[path = "verify_mutation.rs"]
 mod verify_mutation;
 use crate::*;

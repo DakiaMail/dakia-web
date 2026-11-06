@@ -94,6 +94,15 @@ pub trait MailProvider: Send + Sync {
     ) -> Result<Page>;
     async fn wait_for_change(&self, folder: &str, max_wait: std::time::Duration) -> Result<bool>;
     async fn fetch(&self, reference: &MessageRef, max_bytes: u32) -> Result<Vec<u8>>;
+    /// At most 50 small messages in one folder/epoch, in input order.
+    /// Unsupported callers retain their existing single-message semantics.
+    async fn fetch_batch(
+        &self,
+        _references: &[MessageRef],
+        _max_bytes: u32,
+    ) -> Result<Vec<Vec<u8>>> {
+        Err(error(ErrorKind::Unsupported, "body batching unsupported"))
+    }
     /// Bounded, read-only stable Gmail identity discovery. Not a text search.
     async fn resolve_gmail_message(
         &self,
@@ -143,6 +152,12 @@ pub struct AccountProvider {
     scan_cache: Mutex<ScanCache>,
 }
 impl AccountProvider {
+    /// Add an explicit trust root for private mail servers and disposable fixtures.
+    pub fn with_imap_root(mut self, root: native_tls::Certificate) -> Result<Self> {
+        self.imap = self.imap.with_root(root)?;
+        Ok(self)
+    }
+
     async fn lock_scan_cache(
         &self,
         operation: &'static str,
@@ -296,6 +311,9 @@ impl MailProvider for AccountProvider {
         Ok(changed)
     }
     #[tracing::instrument(target = "dakia_server::provider_io", skip_all, fields(account_key = %crate::telemetry::key(&self.imap.config.account_id), request_key = %crate::telemetry::request_key(), request_kind = "fetch"))]
+    async fn fetch_batch(&self, references: &[MessageRef], max_bytes: u32) -> Result<Vec<Vec<u8>>> {
+        self.imap.fetch_batch(references, max_bytes).await
+    }
     async fn fetch(&self, reference: &MessageRef, max_bytes: u32) -> Result<Vec<u8>> {
         tracing::info!(target: "dakia_server::provider_io", operation = "fetch", "provider_io");
         retry_read(|| self.imap.fetch(reference, max_bytes)).await

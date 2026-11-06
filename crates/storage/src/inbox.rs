@@ -60,10 +60,13 @@ impl Store {
 
     /// Include legacy cached rows in reconciliation so an authoritative complete
     /// scan can retire old/deleted/UIDVALIDITY-reset memberships as well.
+    /// Check the membership index before decoding legacy message JSON. Repeated
+    /// turns must still discover newly cached rows without reparsing every
+    /// already-seeded message in a large folder.
     pub async fn seed_inbox_memberships(&self, a: &AuthorizedAccount) -> Result<()> {
         let _guard = self.gate.read().await;
         let db = self.db(a).await?;
-        sqlx::query("INSERT OR IGNORE INTO folder_memberships(folder,message_id,generation) SELECT 'INBOX',m.id,-1 FROM messages m WHERE EXISTS(SELECT 1 FROM json_each(m.document,'$.folder_ids') f WHERE upper(f.value)='INBOX')")
+        sqlx::query("INSERT OR IGNORE INTO folder_memberships(folder,message_id,generation) SELECT 'INBOX',m.id,-1 FROM messages m WHERE CASE WHEN EXISTS(SELECT 1 FROM folder_memberships known WHERE known.folder='INBOX' AND known.message_id=m.id) THEN 0 ELSE EXISTS(SELECT 1 FROM json_each(m.document,'$.folder_ids') f WHERE upper(f.value)='INBOX') END")
             .execute(&db).await?;
         Ok(())
     }

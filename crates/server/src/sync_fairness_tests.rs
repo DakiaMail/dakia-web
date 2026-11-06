@@ -170,7 +170,12 @@ impl p::MailProvider for PagedProvider {
         self.scan(f, q, t, n).await
     }
     async fn fetch(&self, _: &p::MessageRef, _: u32) -> p::Result<Vec<u8>> {
-        panic!("no body reads")
+        // Executor body-index pages may follow metadata. This fixture has no
+        // content; fail normally so metadata fairness is still exercised.
+        Err(p::error(
+            p::ErrorKind::Unsupported,
+            "fixture body unavailable",
+        ))
     }
     async fn mutate(
         &self,

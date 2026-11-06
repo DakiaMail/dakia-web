@@ -49,12 +49,12 @@ pub(crate) fn extract(raw: &[u8]) -> (String, &'static str) {
 }
 
 #[tracing::instrument(target = "dakia_server::diagnostics", skip_all, fields(account_key = crate::diagnostics::correlation(a.id()), purpose = "search_index"))]
-pub(crate) async fn tick(app: &App, a: &AuthorizedAccount) -> crate::Result<()> {
+pub(crate) async fn tick(app: &App, a: &AuthorizedAccount) -> crate::Result<bool> {
     let lane = app.mail.sync_lane(a).await;
     // Foreground actions and metadata always win admission; do not wait behind
     // them while holding a scarce global metadata slot.
     let Ok(_guard) = lane.try_lock() else {
-        return Ok(());
+        return Ok(false);
     };
     app.store.index_search_headers(a).await?;
     let now = chrono::Utc::now().timestamp();
@@ -65,10 +65,14 @@ pub(crate) async fn tick(app: &App, a: &AuthorizedAccount) -> crate::Result<()> 
         .and_then(|s| s.parse::<i64>().ok())
         .unwrap_or(0);
     if due > now {
-        return Ok(());
+        return Ok(false);
     }
-    // Persist throttle before network I/O. Process death leaves a bounded delay,
-    // not a permanently leased job. One read/account/5 seconds, two globally.
+    // Persist admission before I/O. Failure or process death leaves a bounded
+    // delay. A successful bounded page may refill the executor's finite budget.
+    // At most 200 candidates and a 4 MiB soft MIME budget. One prefetched
+    // small-body chunk or individually capped message can cross that boundary.
+    // Yield after two seconds between reads; the account lane and two global
+    // jobs still bound concurrent work.
     app.store
         .put_provider_document(a, "search:body_due", &(now + 5).to_string())
         .await?;
@@ -82,47 +86,131 @@ pub(crate) async fn tick(app: &App, a: &AuthorizedAccount) -> crate::Result<()> 
         .put_provider_document(a, "search:turn", &turn.wrapping_add(1).to_string())
         .await?;
     if turn % 12 == 0 && app.mail.recover_content_reference(&app.store, a).await? {
-        return Ok(());
+        return Ok(false);
     }
-    let Some(m) = app.store.next_search_body(a, turn % 2 == 0).await? else {
-        return Ok(());
-    };
-    let result = app
-        .mail
-        .raw_with_limit(&app.store, a, &m.id, 4 * 1024 * 1024)
-        .await;
-    let (text, state) = match result {
-        Ok(raw) => tokio::task::spawn_blocking(move || extract(&raw))
-            .await
-            .map_err(|_| {
-                crate::ApiFailure(
-                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                    "search_parse_failed",
-                )
-            })?,
-        Err(error)
-            if matches!(
-                error.1,
-                "content_reference_unavailable" | "content_reference_changed"
-            ) =>
-        {
-            // The guarded reference transaction owns this state. Do not turn
-            // a stale read back into an hourly retry or overwrite a fresh observation.
-            tracing::info!(target:"dakia_server::diagnostics",message_key=crate::diagnostics::correlation(&m.id),source_key=crate::diagnostics::correlation(&m.provider_id),operation="search_index",outcome=if error.1=="content_reference_unavailable"{"reference_unavailable"}else{"observation_changed"},"mail_work");
-            return Ok(());
+    let messages = app.store.next_search_bodies(a, turn % 2 == 0, 200).await?;
+    let started = std::time::Instant::now();
+    let mut bytes = 0;
+    let mut failed = false;
+    let batch_due = app
+        .store
+        .provider_document(a, "search:batch_due")
+        .await?
+        .and_then(|s| s.parse::<i64>().ok())
+        .unwrap_or(0);
+    let mut records = Vec::new();
+    for chunk in messages.chunks(50) {
+        let references: Option<Vec<p::MessageRef>> = chunk
+            .iter()
+            .map(|m| {
+                serde_json::from_str::<p::MessageRef>(&m.provider_id)
+                    .ok()
+                    .filter(|r| r.account_id == a.id())
+            })
+            .collect();
+        let mut prefetched = None;
+        if let Some(refs) = references.filter(|refs| {
+            batch_due <= now
+                && refs
+                    .iter()
+                    .all(|r| r.folder == refs[0].folder && r.uidvalidity == refs[0].uidvalidity)
+        }) {
+            let provider = app.mail.provider(&app.store, a).await?;
+            match provider.fetch_batch(&refs, 4 * 1024 * 1024).await {
+                Ok(bodies) if bodies.len() == chunk.len() => prefetched = Some(bodies.into_iter()),
+                Err(error)
+                    if matches!(
+                        error.kind,
+                        p::ErrorKind::Unsupported | p::ErrorKind::StaleReference
+                    ) => {}
+                _ => {
+                    // Keep pending work intact after a failed batch. Subsequent
+                    // pages use the established individual path to isolate a
+                    // bad message, rather than repeatedly stalling its peers.
+                    app.store
+                        .put_provider_document(a, "search:batch_due", &(now + 300).to_string())
+                        .await?;
+                    return Err(crate::ApiFailure(
+                        axum::http::StatusCode::BAD_GATEWAY,
+                        "provider_unavailable",
+                    ));
+                }
+            }
         }
-        Err(error) => (
-            String::new(),
-            if error.0 == axum::http::StatusCode::PAYLOAD_TOO_LARGE
-                || error.1 == "message_too_large"
-            {
-                "oversized"
+        for m in chunk {
+            let result = if let Some(bodies) = &mut prefetched {
+                Ok(bodies.next().expect("validated body batch length"))
             } else {
-                "fetch_error"
-            },
-        ),
-    };
-    app.store.put_search_body(a, &m, &text, state).await?;
-    tracing::info!(target: "dakia_server::diagnostics", message_key = crate::diagnostics::correlation(&m.id), source_key = crate::diagnostics::correlation(&m.provider_id), operation = "search_index", outcome = state, indexed_bytes = text.len() as u64, "mail_work");
-    Ok(())
+                app.mail
+                    .raw_with_limit(&app.store, a, &m.id, 4 * 1024 * 1024)
+                    .await
+            };
+            let (text, state) = match result {
+                Ok(raw) => {
+                    bytes += raw.len();
+                    tokio::task::spawn_blocking(move || extract(&raw))
+                        .await
+                        .map_err(|_| {
+                            crate::ApiFailure(
+                                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                                "search_parse_failed",
+                            )
+                        })?
+                }
+                Err(error)
+                    if matches!(
+                        error.1,
+                        "content_reference_unavailable" | "content_reference_changed"
+                    ) =>
+                {
+                    // The guarded reference transaction owns this state. Never
+                    // overwrite a fresh observation or convert a gap into retry.
+                    failed = true;
+                    break;
+                }
+                Err(error) => {
+                    let state = if error.0 == axum::http::StatusCode::PAYLOAD_TOO_LARGE
+                        || error.1 == "message_too_large"
+                    {
+                        "oversized"
+                    } else {
+                        failed = true;
+                        "fetch_error"
+                    };
+                    (String::new(), state)
+                }
+            };
+            tracing::info!(target: "dakia_server::diagnostics", message_key = crate::diagnostics::correlation(&m.id), source_key = crate::diagnostics::correlation(&m.provider_id), operation = "search_index", outcome = state, indexed_bytes = text.len() as u64, "mail_work");
+            records.push((m, text, state));
+            if failed
+                || bytes >= 4 * 1024 * 1024
+                || started.elapsed() >= std::time::Duration::from_secs(2)
+            {
+                break;
+            }
+        }
+        if failed
+            || bytes >= 4 * 1024 * 1024
+            || started.elapsed() >= std::time::Duration::from_secs(2)
+        {
+            break;
+        }
+    }
+    // One index transaction per admitted page, rather than one per wire
+    // chunk. Repeated FTS segment work and durability barriers are amortized
+    // without changing the 200-row, byte, identity or quota bounds.
+    let progressed = !records.is_empty();
+    if progressed {
+        let commits: Vec<_> = records
+            .iter()
+            .map(|(m, text, state)| (*m, text.as_str(), *state))
+            .collect();
+        app.store.put_search_bodies(a, &commits).await?;
+    }
+    if !failed {
+        app.store
+            .put_provider_document(a, "search:body_due", "0")
+            .await?;
+    }
+    Ok(progressed && !failed)
 }

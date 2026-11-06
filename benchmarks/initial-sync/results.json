@@ -1,0 +1,178 @@
+{
+  "count": 50000,
+  "milestone": "all bodies downloaded and indexed",
+  "throughput_ratio": 1.2680372324189324,
+  "pl": {
+    "seconds": 401.73337572,
+    "messages_per_second": 124.46065729636808,
+    "requests": 3003,
+    "connections": 1,
+    "received_bytes": 253092520,
+    "sent_bytes": 171878,
+    "header_rows": 50000,
+    "body_rows": 50000,
+    "commands": {
+      "LOGIN": 1,
+      "CAPABILITY": 1,
+      "EXAMINE": 1,
+      "UID SEARCH": 1000,
+      "UID FETCH": 2000
+    }
+  },
+  "dakia": {
+    "seconds": 316.815126125,
+    "messages_per_second": 157.82074742312778,
+    "requests": 4521,
+    "connections": 1,
+    "received_bytes": 129311828,
+    "sent_bytes": 1065684,
+    "header_rows": 50050,
+    "body_rows": 50000,
+    "commands": {
+      "LOGIN": 1,
+      "CAPABILITY": 1,
+      "LIST": 2,
+      "EXAMINE": 1258,
+      "UID SEARCH": 258,
+      "UID FETCH": 3001
+    }
+  },
+  "target_met": true,
+  "resources": {
+    "pl": {
+      "wall_seconds": 401.95627075000084,
+      "cpu_core_seconds": 319.861132,
+      "average_cpu_percent_one_core": 79.57610199815481,
+      "peak_sample_cpu_percent_one_core": 182.19045832181988,
+      "samples": 1551,
+      "peak_working_set_bytes": 300445696,
+      "average_working_set_bytes": 202325021.59076777,
+      "peak_anonymous_and_shared_bytes": 295272448,
+      "average_anonymous_and_shared_bytes": 197439121.29014656,
+      "peak_memory_usage_bytes": 565366784,
+      "average_memory_usage_bytes": 347021572.1229323,
+      "platform": "Linux Docker cgroups",
+      "memory_accounting": "working set = cgroup memory usage minus inactive file cache; anonymous+shared also provided; simultaneous app+DB sum, not sum of independent peaks",
+      "components": {
+        "dakia-initial-sync-pl": {
+          "wall_seconds": 401.95627075000084,
+          "cpu_core_seconds": 147.311415,
+          "average_cpu_percent_one_core": 36.648617205333075,
+          "peak_sample_cpu_percent_one_core": 78.91803487365092,
+          "samples": 1551,
+          "peak_working_set_bytes": 101785600,
+          "average_working_set_bytes": 65203493.39528779,
+          "peak_anonymous_and_shared_bytes": 65032192,
+          "average_anonymous_and_shared_bytes": 62290043.629756495,
+          "peak_memory_usage_bytes": 171577344,
+          "average_memory_usage_bytes": 116656770.16125758
+        },
+        "dakia-initial-sync-db": {
+          "wall_seconds": 401.95627075000084,
+          "cpu_core_seconds": 172.549717,
+          "average_cpu_percent_one_core": 42.92748479282174,
+          "peak_sample_cpu_percent_one_core": 146.3640190802859,
+          "samples": 1551,
+          "peak_working_set_bytes": 235429888,
+          "average_working_set_bytes": 137121528.19548032,
+          "peak_anonymous_and_shared_bytes": 233132032,
+          "average_anonymous_and_shared_bytes": 135149077.66038945,
+          "peak_memory_usage_bytes": 431222784,
+          "average_memory_usage_bytes": 230364801.9616743
+        }
+      },
+      "exit_status": 0,
+      "sample_interval_seconds": 0.25,
+      "sampling_errors": [],
+      "scope": "sync job lifecycle, including worker startup and validation; excludes fixture and sampler"
+    },
+    "dakia": {
+      "wall_seconds": 317.95628912499524,
+      "cpu_core_seconds": 302.422185,
+      "average_cpu_percent_one_core": 95.11439004155429,
+      "peak_sample_cpu_percent_one_core": 101.20463826410135,
+      "samples": 1256,
+      "peak_resident_bytes": 44351488,
+      "average_resident_bytes": 35009390.001981586,
+      "peak_physical_footprint_bytes": 25657968,
+      "average_physical_footprint_bytes": 16771280.356549827,
+      "platform": "native macOS",
+      "cpu_user_seconds": 257.771521,
+      "cpu_system_seconds": 44.650664,
+      "kernel_peak_resident_bytes": 44482560,
+      "memory_accounting": "resident size and physical footprint from proc_pid_rusage v2; kernel lifetime peak RSS from wait rusage; SQLite is embedded in the same process",
+      "exit_status": 0,
+      "sample_interval_seconds": 0.25,
+      "sampling_errors": [],
+      "scope": "sync job lifecycle, including worker startup and validation; excludes fixture and sampler"
+    }
+  },
+  "manifest": {
+    "base_commit": "7d722ce74c9b7f1d622ef99ff67bb5d736106ed3",
+    "dataset": {
+      "count": 50000,
+      "raw_bytes": 98645576,
+      "min_message_bytes": 1956,
+      "max_message_bytes": 1974,
+      "delay_ms": 0,
+      "folders": [
+        "INBOX"
+      ]
+    },
+    "runtime": {
+      "dakia": "cargo test --release; native macOS arm64; SQLite embedded",
+      "pl_mail": "PHP 8.4.27 arm64 Docker + PostgreSQL 18; production migrations",
+      "pl_mail_image": "ghcr.io/karatektus/pl_mail@sha256:fb0d453584d8e86d34459538b281bbc0aecab947c0d38864d662c549fcd0c9b9",
+      "pl_mail_revision": "111ad61b1b45ae5e72cc159dfd6f931b4ed72040",
+      "postgres_shared_buffers": "128MB",
+      "postgres_work_mem": "4MB",
+      "docker_cpus": 10,
+      "docker_memory_bytes": 16818991104
+    },
+    "tests": {
+      "server": {
+        "passed": 126,
+        "failed": 0,
+        "ignored": 13
+      },
+      "storage": {
+        "passed": 46,
+        "failed": 0,
+        "ignored": 3
+      },
+      "provider": {
+        "passed": 99,
+        "failed": 0,
+        "ignored": 5
+      }
+    },
+    "source_sha256": {
+      "crates/mail-provider/src/imap.rs": "2ba230a042c60d1d187f321fa93f95a7e7f850cde08a19bf2ae1354b628d2220",
+      "crates/mail-provider/src/imap_body_batch.rs": "27f3d4ae5992012d2e11c315d1fb2595fa4d73f986e9186e5c19ab537c010a33",
+      "crates/mail-provider/src/imap_reconcile.rs": "fc43a8fa17e07a788e12251782654a14fd141a7c448a24d163c2c781f36b0e76",
+      "crates/mail-provider/src/provider.rs": "c7a60e038d460bc5f8ec07a4ec9c4a8402149ef8e95ab77bf195836b72b408a6",
+      "crates/mail-provider/tests/body_batch_fixture.rs": "502b5a59b7de237fd0cb17033f2a3fd005364db1e70c9f159b474fc89c642b54",
+      "crates/mail-provider/tests/cold_reconcile_fixture.rs": "cb9ead2c38f3c16b5a1b790d155f64a78bf4c093aa34694de0b81dd3d81e7dc6",
+      "crates/server/src/executor.rs": "0f16936a7d7d25f2085cb4b7e75d852541ec7b3c8f073e4c94c590ef6de19c15",
+      "crates/server/src/scheduler_tests.rs": "427f3209bdab452f9d7623e7ff84e82dfa5ed9ddc97e5c0379f3f120f1d0e8b6",
+      "crates/server/src/full_text_tests.rs": "1b1fec60762b79dc368c4820e375d67d1bb4d6e14d5d0d0cc02eda413c62e2ff",
+      "crates/server/src/mail.rs": "c3bbd6cf231ebf201169bb8c4f65293d05623223c2e702db532c783c174454ea",
+      "crates/server/src/mail/initial_sync_bench.rs": "15cf401085016dec113dcf7d5661aa3262720c633746bcd1e5c2fae39839b175",
+      "crates/server/src/sync/full_text.rs": "43f92d2f8e960d30e7e025fe569f26de87f435973d031f02db4197e6f37f9b0d",
+      "crates/server/src/sync_fairness_tests.rs": "af935b27dc9432838b63fbb9e89eecccfe89b7e8cf443a4a0bb4996c332a9638",
+      "crates/storage/src/full_text.rs": "3a5ef06b925787271ca8a288970b87e0d70a3354b0111d96b868e42c0759f69b",
+      "crates/storage/src/full_text_tests.rs": "3b735644530cecfef66ec020583914b0c70012f961f82e5634190b7f290f38d2",
+      "crates/storage/src/inbox.rs": "a1a732ba8556e6a9e8f7ae3c0dd9ce99bca8e0e0ed34b4f3cbcab34bf76aa07d",
+      "crates/storage/src/pool_tests.rs": "6f10f75a66de6696e741daf5ed6ac40ec34cf97142e933dd5b600f487e67505c",
+      "crates/storage/src/seed_membership_tests.rs": "350593e58d00981014a1b3a8c0207367dae69c2408d30fc40b8324af0036f7d6",
+      "docs/full-text-search.md": "c78589ac10d90ef9c2c2bdc6555b9791b5635c0c54890cf377f5e33c9a41e314",
+      "benchmarks/initial-sync/resource_usage.py": "77e421302b2813ab7e6e2a168c7179d5b54a94b40b0d5bb8dbea51d170e84e87",
+      "benchmarks/initial-sync/benchmark.py": "160d152c488fe6348aba01727e359873244d84d8e2d77e04b71049488cfc5262",
+      "benchmarks/initial-sync/fake_imap.py": "4be7aaecafb02e47a3d36cd26f6cbd78e529399bc26e894a563ccb3b459be182",
+      "benchmarks/initial-sync/run_dakia.py": "77a7f3749390f0e1dfaeb31cbe5273f0e4bcb522ba9686ae7728284f75e4d85a",
+      "benchmarks/initial-sync/analyze.py": "f3350cc63632f6885d6f4a2126cd7b87572779bb3ecd938a166f8f0874a4050e",
+      "benchmarks/initial-sync/pl_mail.php": "329e973b2a26f0740e7b06a237f16e702f74f7d0e91ebc50c0c0aa1c016338a2"
+    },
+    "binary_sha256": "2356e71a6e660a76da9957bf5fae9aedc60ec2b99a4112f273695b1b2e68465c"
+  }
+}

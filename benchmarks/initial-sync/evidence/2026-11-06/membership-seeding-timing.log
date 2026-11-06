@@ -1,0 +1,9 @@
+    Finished `release` profile [optimized] target(s) in 0.13s
+     Running unittests src/lib.rs (target/release/deps/dakia_storage-c98697ddc468330e)
+
+running 1 test
+SEED_CPU old_ms=248.357 indexed_ms=85.877
+test pool_tests::seed_membership_tests::inbox_seed_cpu_timing ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 48 filtered out; finished in 0.85s
+

@@ -232,13 +232,16 @@ pub async fn run(app: App) {
                     let handle = metadata.spawn(async move {
                         let _permit = permit;
                         let progressed = crate::sync::tick(&app, &a).await.unwrap_or(false);
-                        // Initial metadata acceleration must not multiply
-                        // filtered discovery or body-warming budgets.
+                        // Filtered discovery retains its original admission.
+                        // Body acquisition has its own bounded page and shares
+                        // this job's finite per-account/global admission.
                         if used == 0 {
                             let _ = crate::sync::starred::tick(&app, &a).await;
-                            let _ = crate::sync::full_text::tick(&app, &a).await;
                         }
-                        progressed
+                        let bodies = crate::sync::full_text::tick(&app, &a)
+                            .await
+                            .unwrap_or(false);
+                        progressed || bodies
                     });
                     task_accounts.insert(handle.id(), id);
                 }
@@ -247,10 +250,10 @@ pub async fn run(app: App) {
         first_account = next_account;
     }
 }
-// Four page/head jobs per account per five-second admission window. Two
+// Six metadata/head/body jobs per account per five-second admission window. Two
 // globally active, one per account. Idle/error waits until the next window;
 // successful work immediately refills free slots within this finite budget.
-const METADATA_TURNS_PER_WINDOW: usize = 4;
+const METADATA_TURNS_PER_WINDOW: usize = 6;
 
 pub(crate) async fn tick(app: &App, a: &AuthorizedAccount) -> dakia_storage::Result<()> {
     let now = Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true);

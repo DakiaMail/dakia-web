@@ -4,6 +4,9 @@ use super::*;
 use unicode_normalization::UnicodeNormalization;
 
 pub fn normalize_search(value: &str) -> String {
+    if value.is_ascii() {
+        return value.to_ascii_lowercase();
+    }
     value
         .nfc()
         .flat_map(char::to_lowercase)
@@ -75,16 +78,34 @@ impl Store {
         a: &AuthorizedAccount,
         oldest: bool,
     ) -> Result<Option<Message>> {
+        Ok(self
+            .next_search_bodies(a, oldest, 1)
+            .await?
+            .into_iter()
+            .next())
+    }
+    /// Select one bounded page once, avoiding repeated scans over already
+    /// indexed rows while filling the durable body index.
+    pub async fn next_search_bodies(
+        &self,
+        a: &AuthorizedAccount,
+        oldest: bool,
+        limit: usize,
+    ) -> Result<Vec<Message>> {
+        if !(1..=200).contains(&limit) {
+            return Err(Error::Invalid);
+        }
         let db = self.db(a).await?;
         let order = if oldest {
             "d.message_id"
         } else {
             "json_extract(m.document,'$.received_at') DESC,d.message_id"
         };
-        let raw: Option<String> = sqlx::query_scalar(&format!("SELECT m.document FROM search_documents d JOIN messages m ON m.id=d.message_id WHERE d.body_state IN ('pending','fetch_error','quota') AND (d.body_state<>'quota' OR (SELECT body_bytes FROM search_totals WHERE id=1)<=?) AND d.retry_at<=? AND json_array_length(m.document,'$.folder_ids')>0 ORDER BY {order} LIMIT 1"))
-            .bind(SEARCH_BUDGET - 1024 * 1024).bind(Utc::now().timestamp()).fetch_optional(&db).await?;
-        raw.map(|raw| serde_json::from_str(&raw).map_err(Error::from))
-            .transpose()
+        let rows: Vec<String> = sqlx::query_scalar(&format!("SELECT m.document FROM search_documents d JOIN messages m ON m.id=d.message_id WHERE d.body_state IN ('pending','fetch_error','quota') AND (d.body_state<>'quota' OR (SELECT body_bytes FROM search_totals WHERE id=1)<=?) AND d.retry_at<=? AND json_array_length(m.document,'$.folder_ids')>0 ORDER BY {order} LIMIT ?"))
+            .bind(SEARCH_BUDGET - 1024 * 1024).bind(Utc::now().timestamp()).bind(limit as i64).fetch_all(&db).await?;
+        rows.into_iter()
+            .map(|raw| serde_json::from_str(&raw).map_err(Error::from))
+            .collect()
     }
     /// Commit only against the still-current identity and membership. Never
     /// resurrect text fetched concurrently with confirmed deletion/epoch reset.
@@ -95,28 +116,49 @@ impl Store {
         text: &str,
         state: &str,
     ) -> Result<()> {
-        if m.account_id != a.id
-            || !matches!(
-                state,
-                "ready" | "encrypted" | "oversized" | "parse_error" | "fetch_error" | "quota"
-            )
+        self.put_search_bodies(a, &[(m, text, state)]).await
+    }
+    /// One atomic bounded body-index commit, retaining per-message identity,
+    /// membership and incremental quota checks inside the writer transaction.
+    pub async fn put_search_bodies(
+        &self,
+        a: &AuthorizedAccount,
+        rows: &[(&Message, &str, &str)],
+    ) -> Result<()> {
+        if rows.len() > 200
+            || rows.iter().map(|(_, text, _)| text.len()).sum::<usize>() > 8 * 1024 * 1024
+            || rows.iter().any(|(m, _, state)| {
+                m.account_id != a.id
+                    || !matches!(
+                        *state,
+                        "ready"
+                            | "encrypted"
+                            | "oversized"
+                            | "parse_error"
+                            | "fetch_error"
+                            | "quota"
+                    )
+            })
         {
             return Err(Error::Invalid);
         }
         let _guard = self.gate.read().await;
         let db = self.db(a).await?;
         let mut tx = db.begin().await?;
-        let text = normalize_search(text);
-        let bytes: i64 = sqlx::query_scalar("SELECT body_bytes-COALESCE((SELECT length(CAST(body AS BLOB)) FROM search_documents WHERE message_id=?),0) FROM search_totals WHERE id=1").bind(&m.id).fetch_one(&mut *tx).await?;
-        let state = if text.len() > 1024 * 1024 {
-            "oversized"
-        } else if bytes + text.len() as i64 > SEARCH_BUDGET {
-            "quota"
-        } else {
-            state
-        };
-        sqlx::query("UPDATE search_documents SET body=?,body_state=?,retry_at=?,updated_at=? WHERE message_id=? AND source=? AND EXISTS(SELECT 1 FROM messages WHERE id=? AND json_array_length(document,'$.folder_ids')>0 AND json_extract(document,'$.provider_id')=?)")
+        for (m, text, state) in rows {
+            let state = *state;
+            let text = normalize_search(text);
+            let bytes: i64 = sqlx::query_scalar("SELECT body_bytes-COALESCE((SELECT length(CAST(body AS BLOB)) FROM search_documents WHERE message_id=?),0) FROM search_totals WHERE id=1").bind(&m.id).fetch_one(&mut *tx).await?;
+            let state = if text.len() > 1024 * 1024 {
+                "oversized"
+            } else if bytes + text.len() as i64 > SEARCH_BUDGET {
+                "quota"
+            } else {
+                state
+            };
+            sqlx::query("UPDATE search_documents SET body=?,body_state=?,retry_at=?,updated_at=? WHERE message_id=? AND source=? AND EXISTS(SELECT 1 FROM messages WHERE id=? AND json_array_length(document,'$.folder_ids')>0 AND json_extract(document,'$.provider_id')=?)")
             .bind(if state=="ready" { text.as_str() } else { "" }).bind(state).bind(if state=="fetch_error" { Utc::now().timestamp()+3600 } else { 0 }).bind(Utc::now().timestamp()).bind(&m.id).bind(&m.provider_id).bind(&m.id).bind(&m.provider_id).execute(&mut *tx).await?;
+        }
         tx.commit().await?;
         Ok(())
     }

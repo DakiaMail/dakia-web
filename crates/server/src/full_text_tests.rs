@@ -47,11 +47,11 @@ async fn full_text_backfill_fetches_read_only_resumes_and_does_not_cache_attachm
         .unwrap();
     *provider.raw.lock().await=b"From: fixture@example.invalid\r\nMIME-Version: 1.0\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<p>historical-body-only caf\xc3\xa9</p>".to_vec();
     crate::sync::full_text::tick(&app, &a).await.unwrap();
-    assert_eq!(app.store.text_coverage(&a).await.unwrap().bodies, 1);
-    assert_eq!(provider.fetch_calls.load(Ordering::SeqCst), 1);
-    // Throttle survives process scheduling/re-entry. It is not an in-memory cursor.
+    assert_eq!(app.store.text_coverage(&a).await.unwrap().bodies, 2);
+    assert_eq!(provider.fetch_calls.load(Ordering::SeqCst), 2);
+    // Completed rows are durable and must not be fetched again on re-entry.
     crate::sync::full_text::tick(&app, &a).await.unwrap();
-    assert_eq!(provider.fetch_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(provider.fetch_calls.load(Ordering::SeqCst), 2);
     let db = database(&dir, &a).await;
     let cached: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM received_cache")
         .fetch_one(&db)
@@ -191,7 +191,7 @@ async fn permanent_index_failure_is_not_fetched_again_when_old_retry_time_expire
     *provider.raw.lock().await =
         b"MIME-Version: 1.0\r\nContent-Type: application/pkcs7-mime\r\n\r\nencrypted".to_vec();
     crate::sync::full_text::tick(&app, &a).await.unwrap();
-    assert_eq!(provider.fetch_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(provider.fetch_calls.load(Ordering::SeqCst), 2);
     let db = database(&dir, &a).await;
     sqlx::query("UPDATE search_documents SET body_state='ready' WHERE body_state='pending'")
         .execute(&db)
@@ -208,7 +208,7 @@ async fn permanent_index_failure_is_not_fetched_again_when_old_retry_time_expire
             .unwrap();
         crate::sync::full_text::tick(&app, &a).await.unwrap();
     }
-    assert_eq!(provider.fetch_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(provider.fetch_calls.load(Ordering::SeqCst), 2);
     assert!(provider.mutations.lock().await.is_empty());
 }
 

@@ -54,6 +54,7 @@ for (const [index, label, destination] of [[1, "Archive", "Archive"], [2, "Move 
     await page.getByRole("tab", { name: "List", exact: true }).click();
     const row = page.locator(".message-open").filter({ hasText: `Synthetic ${index}` });
     await row.click();
+    if (label === "Mark as spam") await page.getByRole("button", { name: "More actions", exact: true }).click();
     const accepted = page.waitForResponse(r => r.url().endsWith("/operations") && r.request().method() === "POST");
     await page.getByRole("region", { name: "Reading pane" }).getByRole("button", { name: label, exact: true }).click();
     const op = await (await accepted).json();

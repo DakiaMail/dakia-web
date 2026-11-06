@@ -46,7 +46,7 @@ for (const width of [390, 1480]) {
         await page.setViewportSize({ width, height: 980 });
         const observed = await setup(page, failure);
         const reader = page.getByRole("region", { name: "Reading pane" });
-        if (width === 390 && kind !== "archive") await reader.getByRole("button", { name: "More actions" }).click();
+        if (kind === "spam") await reader.getByRole("button", { name: "More actions" }).click();
         await reader.getByRole("button", { name: label, exact: true }).click();
         await expect(page.getByRole("alert")).toContainText(failure === "rejected" ? "Refresh and try again" : "could not be verified");
         expect(observed.writes).toHaveLength(1);

@@ -70,9 +70,24 @@ pub async fn initialize_local_login(
 }
 
 pub async fn page(app: &App) -> Result<Response> {
-    render(app, "").await
+    render(app, "", "", "").await
 }
-async fn render(app: &App, error: &str) -> Result<Response> {
+fn escape_html(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+async fn render(app: &App, error: &str, username: &str, code: &str) -> Result<Response> {
+    let username = escape_html(username);
+    let code = escape_html(code);
+    let notice = if error.is_empty() {
+        String::new()
+    } else {
+        format!("<p role=\"alert\">{}</p>", escape_html(error))
+    };
     let ready: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM local_login")
         .fetch_one(app.store.control())
         .await
@@ -83,16 +98,16 @@ async fn render(app: &App, error: &str) -> Result<Response> {
         "Sign in to Dakia"
     };
     let setup = if ready == 0 {
-        "<label>Setup code<input name=\"code\" required autocomplete=\"off\" maxlength=\"256\"></label><p>Read the setup-token file on your host. Create your login below, then connect your mailbox.</p>"
+        format!("<label>Setup code<input name=\"code\" value=\"{code}\" required autocomplete=\"off\" autocapitalize=\"none\" autocorrect=\"off\" spellcheck=\"false\" maxlength=\"256\"></label><p>Read the setup-token file on your host. Create your login below, then connect your mailbox.</p>")
     } else {
-        ""
+        String::new()
     };
     let autocomplete = if ready == 0 {
         "new-password"
     } else {
         "current-password"
     };
-    Ok(Html(format!(r#"<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{title}</title><link rel="icon" href="/favicon.ico"><style>body{{font:16px system-ui;background:#f5f5f7;color:#202124;margin:0;display:grid;min-height:100dvh;place-items:center}}main{{width:min(340px,80vw);padding:36px;background:white;border-radius:20px;box-shadow:0 8px 40px #0001}}img{{width:64px;height:64px}}h1{{font-size:26px}}label{{display:block;margin:20px 0}}input{{display:block;box-sizing:border-box;width:100%;margin-top:8px;padding:12px;border:1px solid #aaa;border-radius:8px;font:inherit}}button{{width:100%;padding:12px;background:#27272a;color:white;border:0;border-radius:8px;font:inherit;cursor:pointer}}p{{font-size:14px;line-height:1.6;color:#555}}</style><main><img src="/dakia-icon-192.png" alt="Dakia"><h1>{title}</h1><p role="status">{error}</p><form method="post" action="/auth/login">{setup}<label>Username<input name="username" required autocomplete="username" maxlength="128"></label><label>Password<input name="password" type="password" required minlength="12" maxlength="1024" autocomplete="{autocomplete}"></label><button>Continue</button></form><p>Use at least 12 characters for your password.</p></main></html>"#)).into_response())
+    Ok(Html(format!(r#"<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{title}</title><link rel="icon" href="/favicon.ico"><style>*{{box-sizing:border-box}}body{{font:16px system-ui;background:#f5f5f7;color:#202124;margin:0;display:grid;min-height:100dvh;place-items:center;padding:24px 16px}}main{{width:100%;max-width:412px;padding:36px;background:white;border-radius:20px;box-shadow:0 8px 40px #0001}}img{{width:64px;height:64px}}h1{{font-size:26px}}label{{display:block;margin:20px 0}}input{{display:block;box-sizing:border-box;width:100%;margin-top:8px;padding:12px;border:1px solid #aaa;border-radius:8px;font:inherit}}button{{width:100%;min-height:44px;padding:12px;background:#27272a;color:white;border:0;border-radius:8px;font:inherit;cursor:pointer}}p{{font-size:14px;line-height:1.6;color:#555}}@media(max-width:420px){{body{{padding:16px}}main{{padding:24px}}}}</style><main><img src="/dakia-icon-192.png" alt="Dakia"><h1>{title}</h1>{notice}<form method="post" action="/auth/login">{setup}<label>Username<input name="username" value="{username}" required autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="128"></label><label>Password<input name="password" type="password" required minlength="12" maxlength="1024" autocomplete="{autocomplete}"></label><button>Continue</button></form><p>Use at least 12 characters for your password.</p></main></html>"#)).into_response())
 }
 
 #[derive(Deserialize)]
@@ -109,6 +124,9 @@ pub async fn submit(
     headers: HeaderMap,
     Form(input): Form<Credentials>,
 ) -> Result<Response> {
+    // Preserve non-password fields on retries, bounding reflected input before escaping.
+    let username: String = input.username.chars().take(128).collect();
+    let code: String = input.code.chars().take(256).collect();
     match process(State(app.clone()), headers, Form(input)).await {
         Ok(response) => Ok(response),
         Err(error) => {
@@ -125,7 +143,7 @@ pub async fn submit(
             if !app.config.issuer.is_empty() {
                 return Err(error);
             }
-            let mut response = render(&app, message).await?;
+            let mut response = render(&app, message, &username, &code).await?;
             *response.status_mut() = error.0;
             Ok(response)
         }
@@ -384,6 +402,30 @@ mod tests {
                 .status(),
             StatusCode::SEE_OTHER
         );
+    }
+    #[tokio::test]
+    async fn failed_setup_retains_escaped_fields_but_never_passwords() {
+        let (_dir, app) = fixture().await;
+        let response = router(app)
+            .oneshot(request(
+                "https://mail.test",
+                "username=%3Cowner%3E&password=never-echo-password&code=bad%22%3E%3Cscript%3E"
+                    .into(),
+            ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let html = String::from_utf8(bytes.to_vec()).unwrap();
+        assert!(html.contains("value=\"&lt;owner&gt;\""));
+        assert!(html.contains("value=\"bad&quot;&gt;&lt;script&gt;\""));
+        assert!(html.contains("role=\"alert\""));
+        assert!(html.contains("autocapitalize=\"none\""));
+        assert!(!html.contains("never-echo-password"));
+        assert!(!html.contains("<script>"));
+        assert!(html.contains("type=\"password\" required"));
     }
     #[tokio::test]
     async fn oidc_data_cannot_be_claimed_and_configuration_stays_valid() {

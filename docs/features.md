@@ -20,7 +20,7 @@ Rich-text composing, attachments, drafts, replies, forwarding, and scheduled sen
 
 ## On your devices
 
-The web app adapts to desktop and mobile screens and can be installed as a PWA. Sign in on another device with the same Dakia login to access your mailboxes. Installation does not provide offline mail.
+The web app adapts to desktop and mobile screens and can be installed as a PWA. Sign in on another device with the same Dakia login to access your mailboxes. Recent folders and bodies are cached on this browser for fast reopening after session checks. An already-authorized session can read saved mail offline; installation does not download a full offline mailbox.
 
 <img src="images/mail-mobile.png" alt="Mobile view of a message in Bob's fictional mailbox" width="390">
 

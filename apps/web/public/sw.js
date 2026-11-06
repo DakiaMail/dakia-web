@@ -1,7 +1,7 @@
-/* Network-only app: installation does not provide an offline mailbox.
- * Keep this registration for existing push subscriptions. Never cache mail,
- * API/auth responses, or navigations containing notification deep links.
- * Activate a waiting update only after an app client explicitly requests it. */
+/* Cache build-owned static assets only. Mail lives in the authenticated app's
+ * bounded IndexedDB cache. Never store API/auth responses, navigations, remote
+ * images or notification links in Cache Storage. Waiting updates still require
+ * an explicit request from the app. */
 self.addEventListener("message", (event) => {
   if (event.data?.type !== "DAKIA_SKIP_WAITING" || !event.source?.url) return;
   try {
@@ -18,6 +18,10 @@ self.addEventListener("activate", (event) => {
           keys.filter((key) => key.startsWith("dakia-shell-")).map((key) => caches.delete(key)),
         ),
       )
+      .then(async () => {
+        const cache = await caches.open(STATIC_CACHE);
+        for (const key of await cache.keys()) if (!STATIC_ASSETS.includes(new URL(key.url).pathname)) await cache.delete(key);
+      })
       .then(() => self.clients.claim()),
   );
 });
@@ -95,4 +99,31 @@ self.addEventListener("notificationclick", (event) => {
         return self.clients.openWindow(target.href);
       }),
   );
+});
+
+// Cache only build-owned, content-hashed static assets. Navigations, API/auth,
+// notification links and all mail/images remain outside Cache Storage.
+const STATIC_CACHE = "dakia-static-v1";
+const STATIC_ASSETS = /* DAKIA_STATIC_ASSETS */ [];
+self.addEventListener("install", event => {
+  event.waitUntil((async () => {
+    const cache = await caches.open(STATIC_CACHE);
+    await Promise.all(STATIC_ASSETS.map(async path => {
+      const response = await fetch(path, { cache: "no-store", credentials: "omit" });
+      if (response.ok && !response.headers.get("content-type")?.includes("text/html")) await cache.put(path, response);
+    }));
+    for (const key of await cache.keys()) if (!STATIC_ASSETS.includes(new URL(key.url).pathname)) await cache.delete(key);
+  })().catch(() => {}));
+});
+self.addEventListener("fetch", event => {
+  const url = new URL(event.request.url);
+  if (event.request.method !== "GET" || url.origin !== self.location.origin || url.search || !STATIC_ASSETS.includes(url.pathname)) return;
+  event.respondWith((async () => {
+    const cache = await caches.open(STATIC_CACHE);
+    const cached = await cache.match(url.pathname);
+    if (cached) return cached;
+    const response = await fetch(event.request);
+    if (response.ok && !response.headers.get("content-type")?.includes("text/html")) await cache.put(url.pathname, response.clone());
+    return response;
+  })());
 });

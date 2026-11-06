@@ -45,7 +45,12 @@ test("two real releases offer reload; another tab and its draft stay open", asyn
   await expect(page.getByRole("button", { name: "Compose", exact: true })).toBeVisible();
   await expect(page.getByText("New version available")).toHaveCount(0);
   await expect(draft).toHaveValue("Do not reload this draft");
-  expect(await page.evaluate(() => caches.keys())).toEqual([]);
+  const cachedPaths = await page.evaluate(async () => {
+    const paths: string[] = [];
+    for (const name of await caches.keys()) for (const request of await (await caches.open(name)).keys()) paths.push(new URL(request.url).pathname);
+    return paths;
+  });
+  expect(cachedPaths.every(path => path.startsWith("/assets/"))).toBe(true);
 });
 
 test("Later keeps the app open and a failed update check is quiet", async ({ page, request }) => {

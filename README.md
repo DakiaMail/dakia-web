@@ -86,3 +86,11 @@ Within the Inbox view tablist, unmodified Left/Right and Home/End select tabs. O
 ## License
 
 Dakia is licensed under [MPL 2.0](LICENSE). Dependencies and model artifacts retain their own licenses. See [third-party notices](THIRD_PARTY_NOTICES.md).
+
+Recent mail is saved in a bounded, user-scoped browser cache for faster reopening
+and folder switching. Cached views appear after a fresh session and account check
+then refresh in the background. All messages intersecting the mail-list viewport
+are prefetched serially without marking them read or loading external images.
+Signing out or removing an account clears saved mail in this browser and other
+updated tabs. See [persistent local caching](docs/persistent-local-cache.md) for
+limits, authorization, retention and offline behavior.

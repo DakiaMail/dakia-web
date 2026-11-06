@@ -3,25 +3,28 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 
-test('network-only PWA never intercepts or persists requests and removes only obsolete Dakia shell caches', async () => {
-  const handlers = new Map(), deleted = [];
+test('static-only worker never intercepts private, external, navigation or unlisted requests', async () => {
+  const handlers = new Map(), deleted = [], put = [];
   let claimed = false, work;
-  runInNewContext(readFileSync(new URL('../../../apps/web/public/sw.js', import.meta.url), 'utf8'), {
-    self: { addEventListener: (name, handler) => handlers.set(name, handler), clients: { claim: async () => { claimed = true; } } },
-    caches: {
-      keys: async () => ['dakia-shell-v1', 'dakia-shell-v2', 'other-app'],
-      delete: async key => { deleted.push(key); return true; },
-      open: () => { throw new Error('No cache creation or writing allowed'); },
-    }, URL,
+  const source = readFileSync(new URL('../../../apps/web/public/sw.js', import.meta.url), 'utf8')
+    .replace('/* DAKIA_STATIC_ASSETS */ []', JSON.stringify(['/assets/app-123.js']));
+  const cache = { keys: async () => [{ url: 'https://mail.example.test/assets/old.js' }], delete: async key => deleted.push(key.url),
+    match: async () => undefined, put: async (key, value) => put.push(key) };
+  runInNewContext(source, {
+    self: { location: { origin: 'https://mail.example.test' }, addEventListener: (name, handler) => handlers.set(name, handler), clients: { claim: async () => { claimed = true; } } },
+    caches: { keys: async () => ['dakia-shell-v1', 'other-app'], delete: async key => deleted.push(key), open: async () => cache },
+    fetch: async () => ({ ok: true, headers: new Headers({ 'content-type': 'application/javascript' }), clone() { return this; } }), URL,
   });
-  assert.equal(handlers.has('fetch'), false);
-  assert.equal(handlers.has('install'), false);
-  assert.equal(handlers.has('push'), true);
-  assert.equal(handlers.has('notificationclick'), true);
-  handlers.get('activate')({ waitUntil: promise => { work = promise; } });
-  await work;
-  assert.deepEqual(deleted, ['dakia-shell-v1', 'dakia-shell-v2']);
+  handlers.get('activate')({ waitUntil: promise => { work = promise; } }); await work;
+  assert.deepEqual(deleted, ['dakia-shell-v1', 'https://mail.example.test/assets/old.js']);
   assert.equal(claimed, true);
+  for (const [path, method] of [['/api/accounts', 'GET'], ['/auth/login', 'GET'], ['/?account=x&message=y', 'GET'], ['/assets/unknown.js', 'GET'], ['/assets/app-123.js?private=1', 'GET'], ['/assets/app-123.js', 'POST'], ['https://external.test/assets/app-123.js', 'GET']]) {
+    let intercepted = false;
+    handlers.get('fetch')({ request: { url: new URL(path, 'https://mail.example.test').href, method }, respondWith: () => { intercepted = true; } });
+    assert.equal(intercepted, false, path);
+  }
+  handlers.get('fetch')({ request: { url: 'https://mail.example.test/assets/app-123.js', method: 'GET' }, respondWith: promise => { work = promise; } }); await work;
+  assert.deepEqual(put, ['/assets/app-123.js']);
 });
 
 

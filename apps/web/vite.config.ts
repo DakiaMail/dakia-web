@@ -11,10 +11,10 @@ export default defineConfig({
   plugins: [react(), {
     name: "dakia-release-version",
     apply: "build",
-    generateBundle() {
+    generateBundle(_options, bundle) {
       this.emitFile({ type: "asset", fileName: "app-version.json", source: JSON.stringify({ version: buildId }) });
       // A UI-only release must also produce a byte-different worker.
-      this.emitFile({ type: "asset", fileName: "sw.js", source: `/* Dakia build ${buildId} */\n${readFileSync(local("./public/sw.js"), "utf8")}` });
+      this.emitFile({ type: "asset", fileName: "sw.js", source: `/* Dakia build ${buildId} */\n${readFileSync(local("./public/sw.js"), "utf8").replace("/* DAKIA_STATIC_ASSETS */ []", JSON.stringify(Object.keys(bundle).filter(path => /^assets\//.test(path)).map(path => "/" + path)))}` });
     },
   }],
   resolve: {

@@ -1,0 +1,59 @@
+{
+  "baseline_commit": "00e2fa1411a7ea81e46bc6ebc19da92c7ac13c6c",
+  "candidate_commit": "02283e2",
+  "method": "Three isolated Chrome fixture runs per version; fresh session/accounts; 600 ms list and body responses; timings include browser automation waits, not production percentiles.",
+  "baseline": {
+    "samples": [
+      {
+        "reopenMs": 859.4956659999998,
+        "switchFolderMs": 798.4247920000003,
+        "bodyMs": 832.988625,
+        "listAndBodyDelayMs": 600
+      },
+      {
+        "reopenMs": 859.9824170000002,
+        "switchFolderMs": 804.9219580000004,
+        "bodyMs": 829.4003329999996,
+        "listAndBodyDelayMs": 600
+      },
+      {
+        "reopenMs": 858.0967499999999,
+        "switchFolderMs": 806.5144999999998,
+        "bodyMs": 828.5892089999998,
+        "listAndBodyDelayMs": 600
+      }
+    ],
+    "median_ms": {
+      "reopenMs": 859.4956659999998,
+      "switchFolderMs": 804.9219580000004,
+      "bodyMs": 829.4003329999996
+    }
+  },
+  "candidate": {
+    "samples": [
+      {
+        "reopenMs": 84.38891699999999,
+        "switchFolderMs": 10.561165999999957,
+        "bodyMs": 66.21670900000004,
+        "listAndBodyDelayMs": 600
+      },
+      {
+        "reopenMs": 84.19749999999999,
+        "switchFolderMs": 11.065875000000005,
+        "bodyMs": 55.425500000000056,
+        "listAndBodyDelayMs": 600
+      },
+      {
+        "reopenMs": 77.69729100000018,
+        "switchFolderMs": 11.459041999999954,
+        "bodyMs": 54.926124999999956,
+        "listAndBodyDelayMs": 600
+      }
+    ],
+    "median_ms": {
+      "reopenMs": 84.19749999999999,
+      "switchFolderMs": 11.065875000000005,
+      "bodyMs": 55.425500000000056
+    }
+  }
+}

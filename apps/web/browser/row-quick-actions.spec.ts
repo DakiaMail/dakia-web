@@ -7,7 +7,8 @@ async function fixture(page: Page, failed = false) {
   const operations: Operation[] = [];
   let release!: () => void;
   const gate = new Promise<void>(resolve => release = resolve);
-  let bodyReads = 0;
+  const bodyReads: string[] = [];
+  let discoveries = 0;
   await page.route("**/api/**", async route => {
     const path = new URL(route.request().url()).pathname;
     const respond = (value: unknown) => route.fulfill({ contentType: "application/json", body: JSON.stringify(value) });
@@ -23,15 +24,15 @@ async function fixture(page: Page, failed = false) {
     }
     if (path.includes("/operations/")) return respond(operations.find(op => path.endsWith(op.id)));
     if (path === "/api/search" || path.endsWith("/messages")) return respond({ ...mail, rows: rows.filter(row => !operations.some(op => op.account_id === row.account_id && op.status === "applied")), continuation: null });
-    if (path.endsWith("/conversation")) return respond({ rows: [rows[0]], complete: true, continuation: null });
+    if (path.endsWith("/conversation")) { discoveries++; return respond({ rows: [rows[0]], complete: true, continuation: null }); }
     if (path.endsWith("/unsubscribe")) return respond(null);
-    if (path.includes("/messages/")) { bodyReads++; return respond({ ...content, message: rows[0] }); }
+    if (path.includes("/messages/")) { bodyReads.push(path); return respond({ ...content, message: rows.find(row => path.includes(`/accounts/${row.account_id}/`)) || rows[0] }); }
     return respond([]);
   });
   await page.goto("/");
   await page.getByRole("tab", { name: "List", exact: true }).click();
   await expect(page.locator(".message-row")).toHaveCount(2);
-  return { operations, release, bodyReads: () => bodyReads };
+  return { operations, release, bodyReads: () => bodyReads, discoveries: () => discoveries };
 }
 
 for (const [kind, label] of [["archive", "Archive message"], ["trash", "Move message to trash"], ["spam", "Move message to spam"]] as const) {
@@ -46,7 +47,10 @@ for (const [kind, label] of [["archive", "Archive message"], ["trash", "Move mes
     await expect(neighbor.getByRole("checkbox")).toBeChecked();
     await expect.poll(() => f.operations.length).toBe(1);
     expect(f.operations[0]).toMatchObject({ account_id: "work", target_id: "same-id", change: { kind } });
-    expect(f.bodyReads()).toBe(0);
+    // Viewport body GETs are allowed; the quick action must not open/read mail.
+    expect(f.bodyReads().every(path => /^\/api\/accounts\/(work|personal)\/messages\/same-id$/.test(path))).toBe(true);
+    expect(f.discoveries()).toBe(0);
+    await expect(page.locator(".conversation")).toHaveCount(0);
     f.release();
     if (failed) {
       await expect(target).toBeVisible();

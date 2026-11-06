@@ -1,5 +1,8 @@
 # Reading-loop performance
 
+This records phase one. [Persistent local caching](persistent-local-cache.md) extends
+the body prefetch queue to all visible messages and adds bounded browser storage.
+
 Phase one builds on the merged initial-sync work in PR #72. It changes foreground
 reading without changing mailbox synchronization or persisting mail on the device.
 

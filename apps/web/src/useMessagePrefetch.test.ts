@@ -65,16 +65,26 @@ test("does not start while a foreground body is loading", async () => {
   expect(api.contentById).toHaveBeenCalledTimes(1);
 });
 
-test("retains at most three unused speculative bodies", async () => {
+test("retains the focused body plus at most three unused speculative bodies", async () => {
   for (let i = 0; i < 8; i++) {
     prefetch.request({ ...target, id: String(i) });
     await vi.advanceTimersByTimeAsync(151);
   }
-  expect(client.getQueryCache().findAll({ queryKey: ["content"] })).toHaveLength(3);
+  expect(client.getQueryCache().findAll({ queryKey: ["content"] })).toHaveLength(4);
 });
 test("an explicit open retries a failed speculative read", async () => {
   vi.mocked(api.contentById).mockRejectedValueOnce(new Error("temporary"));
   prefetch.request(target); await vi.advanceTimersByTimeAsync(151);
   await client.fetchQuery(messageContent(target.account_id, target.id));
   expect(api.contentById).toHaveBeenCalledTimes(2);
+});
+
+test("warms every viewport body serially, then replaces the offscreen queue", async () => {
+  prefetch.setVisible(Array.from({ length: 12 }, (_, i) => ({ ...target, id: String(i) })));
+  await vi.advanceTimersByTimeAsync(200);
+  expect(api.contentById).toHaveBeenCalledTimes(12);
+  expect(client.getQueryCache().findAll({ queryKey: ["content"] })).toHaveLength(12);
+  prefetch.setVisible([{ ...target, id: "new" }]); await vi.advanceTimersByTimeAsync(200);
+  expect(api.contentById).toHaveBeenCalledTimes(13);
+  expect(client.getQueryCache().findAll({ queryKey: ["content"] })).toHaveLength(4);
 });

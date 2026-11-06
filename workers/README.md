@@ -31,6 +31,6 @@ The private VAPID file contains `subject`, `publicKey` and `privateKey`. The pro
 
 ## Push
 
-The service sends generic New mail notifications, not sender/subject/body data. The supported endpoint allowlist and HTTPS validation live in `push/service.mjs`; subscription ownership is checked server-side. Tests use stubbed transport rather than sending external notifications. A passing worker test is not proof of operating-system banner display or live browser permission.
+The Web Push payload is generic and omits sender, subject, and body text. A signed-in browser can separately fetch an authorized message summary and use it to display sender, subject, account, and preview text in the notification. Without that summary it displays generic New mail text. The supported endpoint allowlist and HTTPS validation live in `push/service.mjs`; subscription ownership is checked server-side. Tests use stubbed transport rather than sending external notifications. A passing worker test is not proof of operating-system banner display or live browser permission.
 
 See the root third-party notices and preserved licenses for model/runtime provenance.

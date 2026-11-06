@@ -1,55 +1,127 @@
 # Hosting Dakia
 
-This guide covers the initial self-hosting package. Platform-specific walkthroughs and tested resource requirements are being prepared. Do not treat an untested platform as supported.
+Use the published container image with Docker Compose. It includes the web app, server, classifier, and workers; a source build and a separate database service are not required. The image supports Linux AMD64 and ARM64.
+
+Start with [owner setup and everyday use](getting-started.md) after installation. For configuration, backups, and existing OIDC installations, see [operations](../deploy/README.md).
 
 ## Docker Compose
 
-Follow the root README. Set `DAKIA_ORIGIN` to the exact HTTPS address users open. Compose binds port 3025 to host loopback. Put an HTTPS reverse proxy on the same host in front of it, or use Tailscale Serve. A proxy in a separate container must share a private Docker network with Dakia; its localhost does not refer to the host or Dakia container.
+Install Docker with the Compose plugin on your host. Clone the repository and prepare configuration:
 
-The application requires HTTPS and uses Secure cookies. Plain HTTP on a LAN IP is not supported. Do not expose port 3025 directly to the internet. The application needs outbound HTTPS, IMAP, and SMTP connectivity, not inbound SMTP ports or MX changes.
+```sh
+git clone https://github.com/DakiaMail/dakia-web.git
+cd dakia-web
+cp .env.example .env
+```
 
-The `data` volume contains SQLite, messages, attachments, and model caches. The `secrets` volume contains the credential key and initial claim code. Both must survive container recreation. Never use `docker compose down -v` on an installation you want to keep. Back up data and secrets together, with restricted access and encrypted off-host copies. Keep live SQLite off SMB/NFS shares.
+Edit `.env` and set `DAKIA_ORIGIN` to the exact HTTPS origin people will open, for example `https://mail.example.com`. Include a nonstandard HTTPS port if you use one. Do not include a path, query, or trailing slash.
+
+```sh
+docker compose up -d --wait
+docker compose ps
+```
+
+The default publishes `127.0.0.1:3025` on the Docker host. Configure one of the HTTPS options below, open your address, and follow [first login](getting-started.md#create-the-first-login). Ordinary users do not need Rust, Node.js, Python, or a registry login.
+
+Run commands from the same directory and keep the same Compose project name. Changing the project name can select different volumes and make an existing installation appear empty. For an additional isolated instance, use a separate directory, project name, port, and origin; do not share its data or secrets volumes with another instance.
+
+## HTTPS on the same host
+
+### Existing reverse proxy
+
+If Caddy runs directly on the same host as Docker, a site block can forward to Dakia:
+
+```caddyfile
+mail.example.com {
+    reverse_proxy 127.0.0.1:3025
+}
+```
+
+Set `DAKIA_ORIGIN=https://mail.example.com`. Configure DNS and certificate issuance for your network, validate your full proxy configuration, and reload it without replacing unrelated sites. See [Caddy's HTTPS reverse-proxy guide](https://caddyserver.com/docs/quick-starts/reverse-proxy).
+
+The example assumes the proxy can reach the Docker host's loopback port. A proxy in another container needs a private Docker network and an upstream pointing to Dakia's container port 3025. A proxy in another VM needs a reachable private bind address and firewall rules that restrict access to the proxy. `localhost` in another container or VM does not refer to Dakia's host.
+
+Preserve the browser's Origin header. A valid HTTPS certificate is required for normal sign-in; plain HTTP on a LAN address is not supported.
+
+### Tailscale Serve
+
+For private access, install and sign in to Tailscale on the Docker host, enable MagicDNS and HTTPS for your tailnet, and configure Serve on that host:
+
+```sh
+tailscale serve --bg http://127.0.0.1:3025
+tailscale serve status
+```
+
+Set `DAKIA_ORIGIN` to the HTTPS origin shown by Serve, then run `docker compose up -d` again to apply it. Users need access to your tailnet as well as a Dakia login. This does not make the service public on the internet. Check existing Serve configuration before adding a route. See [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve) and its [command reference](https://tailscale.com/docs/reference/tailscale-cli/serve).
+
+## Storage and network access
+
+| Mount | Contents |
+| --- | --- |
+| `/data` | SQLite databases, messages/cache, drafts, attachments, diagnostics, and public model caches |
+| `/secrets` | Credential encryption key and the initial setup code |
+
+The supplied Compose file creates named volumes for both. They must survive container recreation. Never run `docker compose down -v` on an installation you want to keep. Back up data and secrets with restricted access and encrypted off-host copies. Losing the key prevents decryption of stored mailbox credentials.
+
+The container runs as UID/GID 1000. If replacing named volumes with host directories or NAS datasets, create dedicated directories writable by that identity and keep the secrets directory private. Keep live SQLite on local storage; do not put its database files on an SMB/NFS mount from another machine.
+
+Allow outbound HTTPS, IMAP, and SMTP connections. Dakia does not require inbound SMTP ports or MX changes. Provider connectivity and storage capacity matter as mailboxes grow; minimum hardware requirements are not yet established.
+
+## Platform paths
+
+The Compose package and native AMD64/ARM64 images have been checked, and a Docker VM under Proxmox has been exercised with separate users and disposable TLS mailboxes. The NAS paths below describe manual configuration; platform-specific acceptance and catalog packages are not yet complete.
+
+### Proxmox
+
+1. Use a Debian or Ubuntu VM with persistent local disk storage.
+2. Install Docker Engine and Compose inside that guest, following the [Docker installation guide](https://docs.docker.com/engine/install/).
+3. Follow the Compose and HTTPS steps above inside the VM. If using a proxy in another VM, account for the loopback binding described above.
+4. Keep the guest running for background work. Test backup and restore before depending on it.
+
+A dedicated appliance image or cloud-init installer is not supplied. Nested Docker in LXC is outside the tested path.
+
+### Mac mini
+
+Install a Docker runtime with Compose, then use the same instructions. Docker selects ARM64 on Apple Silicon or AMD64 on Intel. Configure the runtime to start after reboot and keep the Mac awake when syncing or scheduled sending is needed. Test that the service returns after a reboot. Native macOS server packaging is not supplied.
+
+### Synology
+
+On a supported model, create a [Container Manager Project](https://kb.synology.com/en-global/DSM/help/ContainerManager/docker_project) from `compose.yaml`. Supply the `.env` values, preserve both volumes, and configure the NAS's HTTPS proxy to the published loopback port. If using host directories, set permissions for UID/GID 1000. Check that your NAS supports one of the image architectures.
+
+### TrueNAS
+
+Use the [custom-app Compose YAML interface](https://www.truenas.com/docs/scale/apps/installcustomappscreens/). Supply the origin and image from the Compose package, preserve data and secrets in named volumes or dedicated local datasets, and grant UID/GID 1000 the required access. Configure HTTPS with a reachable private upstream; a separate proxy app cannot use Dakia's loopback address as its own localhost. No Dakia catalog entry is currently supplied by this repository.
+
+### Unraid
+
+For a manual Docker container, copy the full `ghcr.io/...@sha256:...` image reference from the default in `compose.yaml`. Map a persistent appdata directory to `/data` and a separate private directory to `/secrets`, configure `DAKIA_ORIGIN`, and route container port 3025 through your HTTPS proxy. Ensure UID/GID 1000 can write its directories. The repository does not yet supply a Community Applications template; do not assume a similarly named catalog item is this package.
+
+### Portainer
+
+Create a [stack](https://docs.portainer.io/user/docker/stacks/add) using the Compose file. Supply `DAKIA_ORIGIN` and optional `DAKIA_PORT` through stack environment variables or the `.env` loader. Keep the image pin and both volumes. Configure your proxy according to whether it runs on the host or in another container. No custom Portainer template is required.
 
 ## More than one person
 
-After owner setup, open Workspace and choose Create invitation. Share the link privately. Each link works once and expires after 24 hours. The owner can revoke an unused link from Workspace. The recipient chooses their own username and password, then connects their own email accounts. Invitation management does not grant access to another person’s mail.
-
-Existing local owners retain their login, mailbox ownership, and sessions when upgrading. OIDC deployments continue managing users through their identity provider; local invitations are disabled in OIDC mode.
-
-## Proxmox
-
-Create a Debian or Ubuntu VM, install Docker Engine and Compose, and use the same package. Do not install Dakia on the hypervisor. A ready-made cloud-init flow is planned. LXC nesting is not part of the initial tested path.
-
-## Mac mini
-
-Install a Docker runtime with Compose, then follow the Docker instructions. Apple Silicon needs the ARM64 image; Intel needs AMD64. Test restart after reboot, configure the runtime to start automatically, and keep the machine awake for background syncing and scheduled mail. Native macOS packaging is not included in this phase.
-
-## Synology
-
-On a model supporting Container Manager, create a Project from the Compose file. Configure storage permissions for UID 1000, your HTTPS reverse proxy, and the external origin. Check the processor architecture before installing. A screenshot walkthrough is planned.
-
-## TrueNAS
-
-Use Apps > Install via YAML with the Compose definition. Adjust storage to dedicated local datasets and permissions for UID 1000. Keep secrets private. A validated catalog entry is planned.
-
-## Unraid
-
-Use the container image with persistent appdata and a separate private secrets directory. Map container port 3025 through your HTTPS proxy. An application template and platform testing are planned.
-
-## Portainer
-
-Deploy the Compose definition as a stack. Use the pinned registry image from the Compose file and set the origin explicitly. A ready-made template is planned.
-
-## Private access
-
-Tailscale Serve can provide an HTTPS address inside your tailnet without router forwarding. Set that exact address as the origin. Your existing Caddy, Traefik, or Nginx Proxy Manager installation is another option. Detailed proxy examples are planned.
+Complete owner setup, then use Workspace to create invitations. See [inviting someone](getting-started.md#invite-another-person) and [joining an installation](getting-started.md#join-an-installation). A Dakia invitation does not change LAN, VPN, or proxy access rules.
 
 ## Existing OIDC installations
 
-Keep the existing issuer, client ID, secret file, origin, credential key, and data mounts. A fully configured OIDC installation continues using its original login flow and user identities. Local login is enabled only when OIDC is absent. Removing OIDC settings from an installation with existing OIDC users fails startup rather than allowing someone to claim their mail.
+Keep the existing issuer, client ID, secret file, origin, credential key, and data mounts. A fully configured OIDC installation continues using its original login flow and user identities. Manage people through that identity provider; local invitations are disabled in OIDC mode.
 
-## Images and updates
+Removing OIDC settings from an installation with OIDC users fails startup. It does not convert those people to local accounts. Local and OIDC identities are not automatically linked.
 
-The root Dockerfile builds both architectures. The image workflow runs only on manual dispatch or version tags, never on main pushes, and does not deploy to servers. The published preview image has passed native builds and packaged startup, worker, health, and restart checks on both architectures. This does not establish compatibility with every NAS or container runtime. The Compose default pins that image by digest.
+## Updates and recovery
 
-Keep the previous image and a matching stopped backup before upgrades. Database migrations can require restoring a matching backup for rollback. See the operations guide for backup and restore commands. Automated backups and guided updates are future work.
+The Compose default pins a preview image by digest. `docker compose pull` alone will not choose a newer build. First review the new release/Compose image reference and preserve your `.env`, overrides, project name, volumes, and previous image reference. Make a stopped backup with the matching operator binary before upgrading.
+
+After choosing the new image:
+
+```sh
+docker compose pull
+docker compose up -d --wait
+docker compose ps
+```
+
+Check HTTPS, login, and your own mailbox access. Existing local owners retain their login, mailbox ownership, and sessions through the invitation migration. Database rollback may require restoring a matching backup; do not run an older binary against migrated data. See [backup and restore](../deploy/README.md#backup-and-restore).
+
+Restores invalidate sessions, login flows, and unused invitation links, and disable background jobs until the operator reconciles the restored state. Automated backups and guided updates are not included.

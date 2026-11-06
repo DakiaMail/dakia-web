@@ -4,22 +4,39 @@ For new installations, start with [hosting](../docs/hosting.md) and the root Com
 
 ## Configuration
 
-Required environment variables (OIDC variables are required only when using OIDC):
+The root image already supplies the data, key, web, worker, and model paths. For the supplied Compose package, set `DAKIA_ORIGIN` in `.env`; `DAKIA_PORT` optionally changes the host port. Neither setting is a password.
 
-| Variable | Meaning |
+| Variable | Root image default / purpose |
 | --- | --- |
-| `DAKIA_ORIGIN` | External HTTPS application origin |
-| `DAKIA_OIDC_ISSUER` | Exact OIDC issuer URL, reachable from the server |
-| `DAKIA_OIDC_CLIENT_ID` | Confidential client ID; register `<origin>/auth/callback` with PKCE |
-| `DAKIA_OIDC_SECRET_FILE` | Path to the private client secret file |
-| `DAKIA_CREDENTIAL_KEY_FILE` | Path to exactly 32 raw key bytes, separate from SQLite |
-| `DAKIA_DATA_DIR` | Persistent local filesystem directory for control/account databases and blobs |
+| `DAKIA_ORIGIN` | Required external HTTPS origin, without a path or trailing slash |
+| `DAKIA_DATA_DIR` | `/data`; persistent control/account databases, mail and blobs |
+| `DAKIA_CREDENTIAL_KEY_FILE` | `/secrets/credential-key`; exactly 32 raw bytes, generated on a fresh installation if absent |
+| `DAKIA_OIDC_ISSUER` | Unset for local login; exact HTTPS issuer when using OIDC |
+| `DAKIA_OIDC_CLIENT_ID` | Required with OIDC; confidential client with PKCE and callback `<origin>/auth/callback` |
+| `DAKIA_OIDC_SECRET_FILE` | Required with OIDC; readable private client secret file |
+
+A standalone server outside the supplied image needs explicit data and key paths. On first start, the key's parent directory must exist and be writable. Missing keys on an existing installation fail startup instead of being replaced.
+
+The root Compose file passes `DAKIA_ORIGIN` to the container. Other runtime settings need explicit `environment` entries and any required mounts; simply adding them to `.env` does not pass them through automatically. For OIDC, save the following as `compose.override.yaml` beside `compose.yaml` and set its issuer, client ID, and host secret-file path in `.env`. Compose loads this override automatically:
+
+```yaml
+services:
+  dakia:
+    environment:
+      DAKIA_OIDC_ISSUER: ${DAKIA_OIDC_ISSUER:?Set the issuer}
+      DAKIA_OIDC_CLIENT_ID: ${DAKIA_OIDC_CLIENT_ID:?Set the client ID}
+      DAKIA_OIDC_SECRET_FILE: /run/secrets/dakia-oidc
+    volumes:
+      - ${DAKIA_OIDC_SECRET_HOST_FILE:?Set a private absolute file path}:/run/secrets/dakia-oidc:ro
+```
+
+Configure all three OIDC settings together, and keep the actual secret outside the repository in a file readable by container UID 1000. Preserve existing OIDC/data/key configuration when upgrading. OIDC mode uses the identity provider's account management and disables local invitations; it does not link local and OIDC identities automatically.
 
 Optional/runtime settings:
 
 | Variable | Default or purpose |
 | --- | --- |
-| `DAKIA_LISTEN` | `127.0.0.1:3025`; expose only through the intended proxy/network boundary |
+| `DAKIA_LISTEN` | Image: `0.0.0.0:3025`; standalone: `127.0.0.1:3025`. Compose publishes only host loopback by default |
 | `DAKIA_WEB_ROOT` | `apps/web/dist`; set `/app/web` in the packaged image |
 | `DAKIA_DURABLE_ATTACHMENT_BUDGET_BYTES` | 1073741824 per account; positive integer |
 | `DAKIA_CLASSIFIER_DIR` | Model directory containing `MANIFEST.json` and verified artifacts |
@@ -28,7 +45,11 @@ Optional/runtime settings:
 | `DAKIA_MODEL_CACHE` | Writable cache for public translation models |
 | `DAKIA_VAPID_FILE` | Private VAPID JSON file for Web Push; see `workers/README.md` |
 
-Preserve key bytes across upgrades. Restrict secret directory/file permissions and mount secrets read-only. Never put credentials in command arguments, URLs, Git or logs. Give the service UID access to its data/model cache, not other application stores. Keep live SQLite on a local filesystem, not a network share. Run only one server/operator against a data directory; an exclusive lock enforces this.
+Preserve key bytes across upgrades. Restrict secret directory/file permissions. New local setup needs writable `/secrets` to create its key and setup-code file. Existing provisioned secret files, such as an OIDC client secret, can be mounted read-only. Never put credentials in command arguments, URLs, Git or logs. Give the service UID access to its data/model cache, not other application stores. Keep live SQLite on a local filesystem, not a network share. Run only one server/operator against a data directory; an exclusive lock enforces this.
+
+## Local users
+
+The first local login is the owner. Workspace provides owner-only invitation creation and revocation. Invitations are single-use, expire after 24 hours, and allow a recipient to choose their own credentials and connect separate mailboxes. Existing local owners retain their ID, password hash, mailbox ownership, and sessions through the invitation migration. See the [user guide](../docs/getting-started.md).
 
 ## Build
 
@@ -70,14 +91,14 @@ The local healthcheck binary can be used as:
 
 ## Backup and restore
 
-Stop the server before invoking the offline operator with its matching binary and key. Do not run it against a concurrently active store.
+Stop the server before invoking the offline operator with its matching binary and key. Do not run it against a concurrently active store. The container includes `/app/dakia-admin`; override the image entrypoint when using it in a separate stopped-data operator container, and mount a backup directory writable by UID 1000. The commands below describe the binary arguments, not commands to run inside a live server container.
 
 ```sh
 dakia-admin backup DATA_DIR NEW_BACKUP_DIR KEY_FILE
 dakia-admin restore BACKUP_DIR NEW_DATA_DIR KEY_FILE
 ```
 
-Backup coordinates SQLite snapshots and durable blobs and writes a manifest last. Received cache and public models are excluded. Restore requires a new directory, clears authentication sessions/login flows, disables jobs and changes in-flight submissions to `delivery_unknown`. Inspect and reconcile before enabling jobs. Protect completed backups and separately back up encryption, identity-provider and VAPID keys. Encrypt off-host archives using operator-controlled tooling and test restore into an isolated directory.
+Backup coordinates SQLite snapshots and durable blobs and writes a manifest last. Received cache and public models are excluded. Restore requires a new directory, clears authentication sessions/login flows and pending invitation links, disables jobs and changes in-flight submissions to `delivery_unknown`. Inspect and reconcile before enabling jobs. Protect completed backups and separately back up encryption, identity-provider and VAPID keys. Encrypt off-host archives using operator-controlled tooling and test restore into an isolated directory.
 
 Do not run an older binary directly against migrated data. Roll back using a matching restored snapshot and retain the newer data until reconciliation is complete. Local backup/restore behavior is covered by storage tests; this repository does not claim an operator's live disaster-recovery acceptance.
 

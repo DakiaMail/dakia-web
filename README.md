@@ -26,12 +26,17 @@ Open your HTTPS address and choose **Sign in**. Read your private setup code fro
 docker compose exec dakia cat /secrets/setup-token
 ```
 
-Create your username and password, then connect your first mailbox. Setup closes after the owner account is created. To add another person, open **Workspace → Invite someone** and share a single-use invitation link. Each person gets their own login and separate email accounts. Keep both persistent volumes: losing the credential key means losing access to stored credentials.
+Create your username and a password with at least 12 characters, then connect your first mailbox. Your Dakia password is separate from your email provider’s password.
+
+To add another person, open **Workspace → Invite someone → Create invitation** and share the link privately. They choose their own login and connect their own mailboxes. Links expire after 24 hours and work once.
+
+[Follow the setup, invitation, and sign-in guide](docs/getting-started.md). Keep both persistent volumes: losing the credential key means losing access to stored credentials.
 
 Compose pulls a verified preview image for Linux AMD64 or ARM64. It is pinned by digest so an upstream rebuild cannot silently change your installation. Platform-specific NAS and Proxmox walkthroughs are still being validated.
 
 ## What you can do
 
+- Invite other people to create separate logins and private mailbox connections.
 - Connect multiple IMAP/SMTP accounts and use a unified inbox.
 - Read conversations, search mail, and organize messages with smart categories.
 - Compose rich-text messages with attachments, drafts, and scheduled sending.
@@ -43,6 +48,7 @@ Compose pulls a verified preview image for Linux AMD64 or ARM64. It is pinned by
 
 ## Documentation
 
+- [Getting started](docs/getting-started.md): owner setup, joining by invitation, connecting mail, and signing in.
 - [Hosting and deployment](docs/hosting.md): Docker, Proxmox, Mac mini, Synology, TrueNAS, Unraid, and Portainer.
 - [Security](docs/security.md): login, encryption, isolation, backups, and reporting vulnerabilities.
 - [Privacy](docs/privacy.md): where mail is processed and which services Dakia contacts.

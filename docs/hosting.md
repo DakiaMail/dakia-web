@@ -32,7 +32,7 @@ Use the container image with persistent appdata and a separate private secrets d
 
 ## Portainer
 
-Deploy the Compose definition as a stack. Until registry images are published, build and load an image on the Docker host first. Set the image and origin explicitly. A ready-made template is planned.
+Deploy the Compose definition as a stack. Use the pinned registry image from the Compose file and set the origin explicitly. A ready-made template is planned.
 
 ## Private access
 
@@ -44,6 +44,6 @@ Keep the existing issuer, client ID, secret file, origin, credential key, and da
 
 ## Images and updates
 
-The root Dockerfile builds both architectures. The image workflow runs only on manual dispatch or version tags, never on main pushes, and does not deploy to servers. Until both platform builds and runtime checks pass, build locally and regard multi-architecture release support as pending.
+The root Dockerfile builds both architectures. The image workflow runs only on manual dispatch or version tags, never on main pushes, and does not deploy to servers. The published preview image has passed native builds and packaged startup, worker, health, and restart checks on both architectures. This does not establish compatibility with every NAS or container runtime. The Compose default pins that image by digest.
 
 Keep the previous image and a matching stopped backup before upgrades. Database migrations can require restoring a matching backup for rollback. See the operations guide for backup and restore commands. Automated backups and guided updates are future work.

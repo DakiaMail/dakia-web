@@ -24,4 +24,4 @@ Keep the encryption key through upgrades. A missing key on an existing data dire
 
 ## Reporting a vulnerability
 
-Do not post secrets, private messages, or exploit details in public issues. Use GitHub private vulnerability reporting when enabled on the repository. A documented security contact and supported-version policy are being prepared.
+Do not post secrets, private messages, or exploit details in public issues. Use [GitHub private vulnerability reporting](https://github.com/DakiaMail/dakia-web/security/advisories/new), which is enabled for this repository. A documented security contact and supported-version policy are being prepared.

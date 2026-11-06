@@ -17,7 +17,7 @@ git clone https://github.com/DakiaMail/dakia-web.git
 cd dakia-web
 cp .env.example .env
 # Set DAKIA_ORIGIN to your HTTPS address, without a trailing slash.
-docker compose up -d --build
+docker compose up -d
 ```
 
 Open your HTTPS address and choose **Sign in**. Read your private setup code from the host:
@@ -28,7 +28,7 @@ docker compose exec dakia cat /secrets/setup-token
 
 Create your username and password, then connect your first mailbox. Setup closes after the owner account is created. Keep both persistent volumes: losing the credential key means losing access to stored credentials.
 
-The Compose file currently builds locally. Published multi-architecture images will replace that step after release validation. The image build targets Linux AMD64 and ARM64; platform acceptance is still in progress.
+Compose pulls a verified preview image for Linux AMD64 or ARM64. It is pinned by digest so an upstream rebuild cannot silently change your installation. Platform-specific NAS and Proxmox walkthroughs are still being validated.
 
 ## What you can do
 
@@ -61,6 +61,8 @@ npm run build
 npm test
 cargo test --workspace --locked
 ```
+
+To build your own container image, run `docker build -t dakia:local .` and set `DAKIA_IMAGE=dakia:local`.
 
 The classifier is downloaded from a pinned revision and checked against its SHA-256 manifest. Translation models are downloaded and verified when needed.
 

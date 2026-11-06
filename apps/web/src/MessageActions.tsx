@@ -1,15 +1,13 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { Archive, Clock, CornerUpRight, Mail, MoreHorizontal, Reply, ShieldAlert, Star, Trash2 } from "lucide-react";
+import { Archive, Clock, FolderInput, Mail, MoreHorizontal, ShieldAlert, Star, Trash2 } from "lucide-react";
 import { plainKey } from "./keyboard";
 
 interface Props {
-  reply?: () => void;
-  replyReady?: boolean;
   archive: () => void;
   unread: () => void;
   read: () => void;
-  star: () => void;
-  unstar: () => void;
+  starred: boolean;
+  toggleStar: () => void;
   trash: () => void;
   spam: () => void;
   snooze: () => void;
@@ -45,16 +43,14 @@ export function MessageActions(props: Props) {
     };
   }, [open]);
   const extras = <>
-    <button aria-label="Move" title="Move" disabled={props.pending} onClick={() => { close(true); props.move(); }}><CornerUpRight size={18} />Move</button>
+    <button aria-label="Move" title="Move" disabled={props.pending} onClick={() => { close(true); props.move(); }}><FolderInput size={18} />Move</button>
     <button aria-label="Mark as spam" title="Mark as spam" disabled={props.pending} onClick={() => { close(true); props.spam(); }}><ShieldAlert size={18} />Mark as spam</button>
     {props.category !== undefined && <label>Category <select aria-label="Category" title="Change category" value={props.category} disabled={props.pending} onChange={event => { props.setCategory(event.target.value); close(true); }}>
       <option value="" disabled>Category</option>
       {props.categories.map(category => <option key={category}>{category}</option>)}
     </select></label>}
-    {props.reply && <button aria-label="Reply to selected message" title="Reply" disabled={props.pending || !props.replyReady} onClick={() => { close(true); props.reply?.(); }}><Reply size={18} />Reply</button>}
     <button aria-label="Mark read" title="Mark read" disabled={props.pending} onClick={() => { close(true); props.read(); }}><Mail size={18} />Mark read</button>
-    <button aria-label="Star selected messages" title="Star" disabled={props.pending} onClick={() => { close(true); props.star(); }}><Star size={18} fill="currentColor" />Star</button>
-    <button aria-label="Unstar selected messages" title="Unstar" disabled={props.pending} onClick={() => { close(true); props.unstar(); }}><Star size={18} />Unstar</button>
+    <button aria-label={props.starred ? "Unstar selected messages" : "Star selected messages"} title={props.starred ? "Unstar" : "Star"} disabled={props.pending} onClick={() => { close(true); props.toggleStar(); }}><Star size={18} fill={props.starred ? "currentColor" : "none"} />{props.starred ? "Unstar" : "Star"}</button>
   </>;
   return <div className="reader-toolbar" aria-label="Message actions">
     <button aria-label="Archive" title="Archive" disabled={props.pending} onClick={props.archive}><Archive size={18} /><span className="message-action-label">Archive</span></button>

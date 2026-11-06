@@ -380,11 +380,6 @@ export function App() {
       selected
     : null;
 
-  // Subscribe to the reader's existing body query, without starting a fetch.
-  const replyContent = useQuery<MessageContent>({
-    queryKey: ["content", active?.account_id, active?.id],
-    enabled: false,
-  });
   const submitState = useQuery({
     queryKey: ["submission", submission?.account_id, submission?.id],
     queryFn: () => api.submission(submission!),
@@ -640,15 +635,14 @@ export function App() {
     : active
       ? [active]
       : [];
+  const allStarred = bulk.every(message => message.starred);
   const messageActions = bulk.length > 0 ? <MessageActions
-    reply={active && !checked.size ? () => { if (replyContent.data) reply("reply", replyContent.data); } : undefined}
-    replyReady={!!replyContent.data}
     pending={bulk.some(message => pendingTargets[identity(message)] > 0 || !!cleanupRows[identity(message)])}
     archive={() => removeFromReader("archive")}
     unread={() => void act(bulk, { kind: "read", value: false })}
     read={() => void act(bulk, { kind: "read", value: true })}
-    star={() => void act(bulk, { kind: "star", value: true })}
-    unstar={() => void act(bulk, { kind: "star", value: false })}
+    starred={allStarred}
+    toggleStar={() => void act(bulk, { kind: "star", value: !allStarred })}
     trash={() => removeFromReader("trash")}
     spam={() => removeFromReader("spam")}
     snooze={() => setSnooze([...bulk])} move={() => setMove([...bulk])}

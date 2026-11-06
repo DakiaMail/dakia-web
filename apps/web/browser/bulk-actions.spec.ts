@@ -2,9 +2,9 @@ import { test, expect, type Page } from "@playwright/test";
 import type { Change, Message, Operation } from "@dakia/api-types";
 import { accounts, content, page as mail } from "./fixtures";
 
-async function fixture(page: Page) {
-  const rows: Message[] = accounts.map(account => ({ ...mail.rows[0], account_id: account.id, id: "same-id", subject: `Bulk ${account.id}`, unread: false, revision: 1 }));
-  rows.push({ ...rows[0], id: "sibling", subject: "Unselected thread sibling" });
+async function fixture(page: Page, starred: boolean | "mixed" = false) {
+  const rows: Message[] = accounts.map((account, index) => ({ ...mail.rows[0], starred: starred === "mixed" ? index === 0 : starred, account_id: account.id, id: "same-id", subject: `Bulk ${account.id}`, unread: false, revision: 1 }));
+  rows.push({ ...rows[0], id: "sibling", subject: "Unselected thread sibling", starred: false });
   const operations = new Map<string, Operation>();
   let posts = 0;
   const folderReads: string[] = [];
@@ -72,9 +72,31 @@ const cases: [string, Change][] = [
   ["Star selected messages", { kind: "star", value: true }], ["Unstar selected messages", { kind: "star", value: false }],
 ];
 for (const width of [390, 1480]) {
+  test(`one star action handles mixed selection and toggles back ${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 980 });
+    const state = await fixture(page, "mixed");
+    await select(page);
+    const toolbar = page.locator(".reader-toolbar");
+    await toolbar.getByRole("button", { name: "More actions", exact: true }).click();
+    await expect(toolbar.getByRole("button", { name: /^(Star|Unstar) selected messages$/ })).toHaveCount(1);
+    await expect(toolbar.getByRole("button", { name: "Star selected messages", exact: true })).toBeVisible();
+    await toolbar.getByRole("button", { name: "Star selected messages", exact: true }).click();
+    await expect.poll(state.posts).toBe(2);
+    expect([...state.operations.values()].every(op => op.change.kind === "star" && op.change.value)).toBe(true);
+    state.settle();
+    await finished(page);
+    await toolbar.getByRole("button", { name: "More actions", exact: true }).click();
+    await expect(toolbar.getByRole("button", { name: /^(Star|Unstar) selected messages$/ })).toHaveCount(1);
+    await toolbar.getByRole("button", { name: "Unstar selected messages", exact: true }).click();
+    await expect.poll(state.posts).toBe(4);
+    expect([...state.operations.values()].slice(-2).every(op => op.change.kind === "star" && !op.change.value)).toBe(true);
+    state.settle();
+    await finished(page);
+    expect(state.rows.every(row => !row.starred)).toBe(true);
+  });
   for (const [name, change] of cases) test(`bulk ${name} explicit account targets ${width}`, async ({ page }) => {
     await page.setViewportSize({ width, height: 980 });
-    const state = await fixture(page);
+    const state = await fixture(page, change.kind === "star" && !change.value);
     await select(page);
     await action(page, name);
     await expect.poll(state.posts).toBe(2);

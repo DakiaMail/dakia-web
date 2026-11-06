@@ -81,7 +81,7 @@ for (const width of [320, 390, 768, 901, 1024, 1480]) for (const theme of ["ligh
       await expect(trigger).toHaveAttribute("aria-expanded", "false");
       // Tab exits normally, no focus trap or document-wide key listener.
       await trigger.click(); await page.keyboard.press("End");
-      await expect(toolbar(page).getByRole("button", { name: "Unstar selected messages" })).toBeFocused();
+      await expect(toolbar(page).getByRole("button", { name: "Star selected messages" })).toBeFocused();
       await page.keyboard.press("Tab");
       await expect(trigger).toHaveAttribute("aria-expanded", "false");
     }

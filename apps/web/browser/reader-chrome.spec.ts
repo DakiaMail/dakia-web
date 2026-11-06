@@ -86,8 +86,8 @@ for (const width of [320, 390, 600, 1480]) for (const long of [false, true]) tes
   }
   expect(state.writes).toEqual([]);
   if (width <= 600) {
-    await reader.getByRole("button", { name: "More actions", exact: true }).click();
-    await reader.getByRole("button", { name: "Reply to selected message", exact: true }).click();
+    await page.locator(".conversation").evaluate(el => { el.scrollTop = el.scrollHeight; });
+    await reader.getByRole("button", { name: "Reply", exact: true }).click();
     await expect(page.getByRole("dialog")).toBeVisible();
   }
 });

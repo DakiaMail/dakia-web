@@ -73,6 +73,10 @@ for (const width of [1480, 390]) for (const theme of ["light", "dark"]) {
     await reader.getByRole("button", { name: "More actions" }).click();
     for (const name of actions) await expect(reader.getByRole("button", { name, exact: true })).toBeEnabled();
     await expect(reader.getByRole("combobox", { name: "Category", exact: true })).toBeVisible();
+    const more = reader.getByRole("group", { name: "More message actions" });
+    await expect(more.getByRole("button", { name: /reply/i })).toHaveCount(0);
+    await expect(more.getByRole("button", { name: /^(Star|Unstar) selected messages$/ })).toHaveCount(1);
+    await expect(more.getByRole("button", { name: "Move", exact: true }).locator(".lucide-folder-input")).toHaveCount(1);
     await screenshot(page, `${width}-${theme}-selected`);
     await page.keyboard.press("Escape");
     await reader.getByRole("button", { name: "Archive", exact: true }).focus();

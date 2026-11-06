@@ -7,7 +7,7 @@ permissions:
   contents: read
 env:
   IMAGE: ghcr.io/dakiamail/dakia-web
-  VERSION: ${{ github.ref_type == 'tag' && github.ref_name || 'edge' }}
+  VERSION: ${{ github.ref_type == 'tag' && github.ref_name || (github.ref_name == 'main' && 'edge' || format('qa-{0}', github.run_id)) }}
 jobs:
   image:
     strategy:

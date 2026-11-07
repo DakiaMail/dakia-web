@@ -2,12 +2,19 @@ name: Container images
 on:
   workflow_dispatch:
   push:
+    branches: [main]
     tags: ['v*']
+    paths-ignore:
+      - 'README.md'
+      - 'docs/**'
+      - 'compose.yaml'
+      - '.env.example'
+      - 'deploy/README.md'
 permissions:
   contents: read
 env:
   IMAGE: ghcr.io/dakiamail/dakia-web
-  VERSION: ${{ github.ref_type == 'tag' && github.ref_name || (github.ref_name == 'main' && 'edge' || format('qa-{0}', github.run_id)) }}
+  VERSION: ${{ github.ref_type == 'tag' && github.ref_name || format('sha-{0}', github.sha) }}
 jobs:
   image:
     strategy:
@@ -31,18 +38,30 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/build-push-action@v6
+        id: build
         with:
           context: .
           platforms: linux/${{ matrix.arch }}
           push: true
           tags: ${{ env.IMAGE }}:${{ env.VERSION }}-${{ matrix.arch }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha,scope=image-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=image-${{ matrix.arch }}
       - name: Check the packaged runtime
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
         run: |
-          docker pull "$IMAGE:$VERSION-${{ matrix.arch }}"
-          docker run --rm --network none --entrypoint node "$IMAGE:$VERSION-${{ matrix.arch }}" /app/workers/translation/smoke.mjs
+          image="$IMAGE@$DIGEST"
+          docker pull "$image"
+          docker run --rm --network none --entrypoint node "$image" /app/workers/translation/smoke.mjs
           name="dakia-smoke-${{ matrix.arch }}"
           trap 'docker rm -f "$name" >/dev/null' EXIT
-          docker run -d --name "$name" --network none -e DAKIA_ORIGIN=https://mail.test "$IMAGE:$VERSION-${{ matrix.arch }}"
+          docker run -d --name "$name" --network none \
+            -e DAKIA_ORIGIN=https://mail.test \
+            -e DAKIA_GMAIL_CLIENT_ID=image-fixture.apps.googleusercontent.com \
+            -e DAKIA_GMAIL_CLIENT_SECRET=synthetic-image-smoke-only "$image"
           ready=false
           for attempt in $(seq 1 30); do
             if docker exec "$name" /app/dakia-healthcheck; then ready=true; break; fi
@@ -50,6 +69,7 @@ jobs:
           done
           test "$ready" = true
           docker exec "$name" test -s /secrets/setup-token
+          docker exec -i "$name" node --input-type=module - < scripts/image-oauth-smoke.mjs
           before=$(docker exec "$name" sha256sum /secrets/credential-key)
           docker restart "$name"
           ready=false
@@ -59,6 +79,7 @@ jobs:
           done
           test "$ready" = true
           test "$before" = "$(docker exec "$name" sha256sum /secrets/credential-key)"
+          docker exec -i "$name" node --input-type=module - --resume < scripts/image-oauth-smoke.mjs
   manifest:
     needs: image
     runs-on: ubuntu-24.04
@@ -71,4 +92,10 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - run: docker buildx imagetools create -t "$IMAGE:$VERSION" "$IMAGE:$VERSION-amd64" "$IMAGE:$VERSION-arm64"
+      - name: Publish the verified multi-platform image
+        run: |
+          docker buildx imagetools create -t "$IMAGE:$VERSION" "$IMAGE:$VERSION-amd64" "$IMAGE:$VERSION-arm64"
+          if [ "$GITHUB_REF" = refs/heads/main ]; then
+            docker buildx imagetools create -t "$IMAGE:edge" "$IMAGE:$VERSION"
+          fi
+          docker buildx imagetools inspect "$IMAGE:$VERSION" | tee -a "$GITHUB_STEP_SUMMARY"

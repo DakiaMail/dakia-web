@@ -40,7 +40,7 @@ impl Store {
         let rules = self.rules(&a.user_id).await?;
         let db = self.db(a).await?;
         let mut tx = db.begin().await?;
-        let known = Self::previous_inbox_tx(&mut tx, &message.id).await?;
+        let known = Self::previous_rule_arrival_tx(&mut tx, &message.id).await?;
         let mut message = Self::upsert_message_tx(&mut tx, message).await?;
         self.evaluate_rules_tx(&mut tx, a, &mut message, known, &rules)
             .await?;
@@ -76,7 +76,7 @@ impl Store {
         let mut rows = Vec::with_capacity(messages.len());
         let mut known = Vec::with_capacity(messages.len());
         for message in messages {
-            known.push(Self::previous_inbox_tx(&mut tx, &message.id).await?);
+            known.push(Self::previous_rule_arrival_tx(&mut tx, &message.id).await?);
             rows.push(Self::upsert_message_tx(&mut tx, message).await?);
         }
         for (key, document) in documents {
@@ -106,8 +106,8 @@ impl Store {
         Ok(rows)
     }
 
-    async fn previous_inbox_tx(tx: &mut sqlx::SqliteConnection, id: &str) -> Result<bool> {
-        Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM messages m, json_each(m.document,'$.folder_ids') f WHERE m.id=? AND lower(ltrim(f.value,'\\'))='inbox')")
+    async fn previous_rule_arrival_tx(tx: &mut sqlx::SqliteConnection, id: &str) -> Result<bool> {
+        Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM messages m, json_each(m.document,'$.folder_ids') f WHERE m.id=? AND (lower(ltrim(f.value,'\\')) IN ('inbox','trash') OR f.value=(SELECT json_extract(document,'$.trash_folder') FROM provider_documents WHERE key='mailbox-settings') OR f.value IN (SELECT json_extract(folder.value,'$.name') FROM provider_documents p,json_each(p.document,'$.folders') folder,json_each(folder.value,'$.attributes') attr WHERE p.key='probe' AND lower(ltrim(attr.value,'\\'))='trash')))")
             .bind(id).fetch_one(&mut *tx).await?)
     }
 
@@ -255,6 +255,14 @@ impl Store {
                     .with_timezone(&Utc)
                     .to_rfc3339_opts(SecondsFormat::Millis, true);
                 sqlx::query("INSERT INTO snoozes(thread_id,until,arrival_boundary) VALUES(?,?,?) ON CONFLICT(thread_id) DO UPDATE SET until=excluded.until,arrival_boundary=excluded.arrival_boundary").bind(&m.thread_id).bind(until).bind(now()).execute(&mut *tx).await?;
+            }
+            // A deliberate restore overrides automation even if this message
+            // was first discovered in Spam/Trash and has no arrival receipt yet.
+            Change::Move { folder_id } if folder_id.eq_ignore_ascii_case("INBOX") => {
+                sqlx::query("INSERT OR IGNORE INTO rule_inbox_observations(message_id) VALUES(?)")
+                    .bind(&m.id)
+                    .execute(&mut *tx)
+                    .await?;
             }
             // Provider adapter applies its discovered folder semantics. No invented folder IDs.
             Change::Archive | Change::Trash | Change::Spam | Change::Move { .. } => {}

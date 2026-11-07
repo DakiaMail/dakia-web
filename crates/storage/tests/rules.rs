@@ -424,3 +424,56 @@ async fn failed_automatic_moves_are_reported_and_never_automatically_replayed() 
     assert_eq!(activity[0].failed, 1);
     assert_eq!(activity[0].pending, 0);
 }
+
+#[tokio::test]
+async fn mail_first_seen_in_trash_and_deliberate_inbox_moves_stay_restored() {
+    let (_d, s, user, _, account) = setup().await;
+    let a = s.authorize(&user, &account.id).await.unwrap();
+    s.create_rule(&user, block("offers@example.org"))
+        .await
+        .unwrap();
+    s.put_provider_document(&a, "mailbox-settings", r#"{"trash_folder":"Papierkorb"}"#)
+        .await
+        .unwrap();
+    for folder in ["Trash", "Papierkorb"] {
+        s.upsert_message(&a, mail(&account.id, folder, folder, &future()))
+            .await
+            .unwrap();
+        // Restoration in another mail client must also be respected.
+        s.upsert_message(&a, mail(&account.id, folder, "INBOX", &future()))
+            .await
+            .unwrap();
+    }
+    let m = s
+        .upsert_message(&a, mail(&account.id, "spam-restore", "Junk", &future()))
+        .await
+        .unwrap();
+    let op = s
+        .operation(
+            &a,
+            Operation {
+                id: "restore".into(),
+                account_id: account.id.clone(),
+                target_id: m.id.clone(),
+                expected_revision: m.revision,
+                change: Change::Move {
+                    folder_id: "INBOX".into(),
+                },
+                status: OperationStatus::Pending,
+                revision: 0,
+            },
+        )
+        .await
+        .unwrap();
+    let mut claimed = s.claim_mutation(&a).await.unwrap().unwrap();
+    assert_eq!(claimed.id, op.id);
+    claimed.status = OperationStatus::Applied;
+    s.finish_mutation(&a, claimed, Some(vec!["INBOX".into()]))
+        .await
+        .unwrap();
+    s.upsert_message(&a, mail(&account.id, "spam-restore", "INBOX", &future()))
+        .await
+        .unwrap();
+    assert!(s.claim_mutation(&a).await.unwrap().is_none());
+    assert!(s.rule_executions(&a).await.unwrap().is_empty());
+}

@@ -198,7 +198,7 @@ impl Store {
         tx: &mut sqlx::SqliteConnection,
         a: &AuthorizedAccount,
         message: &mut Message,
-        already_in_inbox: bool,
+        already_seen: bool,
         rules: &[MailRule],
     ) -> Result<()> {
         let inbox = message
@@ -215,7 +215,7 @@ impl Store {
                 .await?
                 .rows_affected()
                 == 1;
-        if !first || already_in_inbox {
+        if !first || already_seen {
             return Ok(());
         }
         if !rules.iter().any(|rule| rule_matches(rule, message)) {

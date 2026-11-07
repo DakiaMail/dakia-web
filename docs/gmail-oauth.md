@@ -36,7 +36,7 @@ services:
 
 The mounted file must contain only the client secret, readable by container UID 1000. `DAKIA_GMAIL_SECRET_FILE` takes precedence over the environment secret. A standalone server accepts the same settings. Neither value is needed when using an app password. Configuring only an ID or only a secret fails startup.
 
-Use a build containing this feature. An older pinned image does not gain OAuth support from configuration alone.
+The image pinned in the root Compose package includes Gmail sign-in. For an existing installation, pull the updated image and recreate the container before configuring Google credentials. Preserve your data and credential-key volumes.
 
 ## Connect or reconnect
 

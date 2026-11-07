@@ -1,10 +1,16 @@
-<p align="center"><img src="apps/web/public/dakia-icon-512.png" alt="Dakia logo" width="104"></p>
+<p align="center"><img src="apps/web/public/dakia-icon-512.png" alt="Dakia logo" width="64"></p>
 <h1 align="center">Dakia</h1>
 <p align="center">Your mail, on your own server.</p>
 
-Dakia is a self-hosted email app that connects to your existing mailboxes. Read, search, organize, and send mail from one place, on desktop or mobile.
+Dakia is a free, open-source, self-hosted email client, not a mail server. Keep your existing email providers and bring your IMAP/SMTP mailboxes together on desktop and mobile.
 
-Run it on a home server, a Mac mini, or a NAS. Your existing email provider continues to receive and deliver your mail.
+![Dakia's unified inbox and open message, with fictional Work and Personal mailboxes](docs/images/inbox-desktop.webp)
+
+- Bring multiple mailboxes into one inbox without moving your email to a new provider.
+- Read conversations, organize with smart categories, and classify or translate mail on your own server.
+- Use the same responsive app in your desktop browser or on your phone, with PWA installation available.
+
+[Website](https://dakiamail.com) · [Features](docs/features.md) · [Setup guide](docs/getting-started.md)
 
 ## Get started
 
@@ -34,6 +40,12 @@ To add another person, open **Workspace → Invite someone → Create invitation
 
 Compose pulls a verified preview image for Linux AMD64 or ARM64. It is pinned by digest so an upstream rebuild cannot silently change your installation. Platform-specific NAS and Proxmox walkthroughs are still being validated.
 
+## A quick look
+
+![Nine-second tour: desktop inbox, open message, mobile inbox, then the same message on mobile](docs/images/inbox-tour.gif)
+
+Four views of the running web frontend with fictional mail. Mobile scenes are browser viewports, not native phone captures. [View the static desktop screenshot](docs/images/inbox-desktop.webp) or [the static mobile screenshot](docs/images/inbox-mobile.webp). [Capture details](docs/images/README.md).
+
 ## What you can do
 
 - Invite other people to create separate logins and private mailbox connections.
@@ -53,6 +65,8 @@ Compose pulls a verified preview image for Linux AMD64 or ARM64. It is pinned by
 - [Security](docs/security.md): login, encryption, isolation, backups, and reporting vulnerabilities.
 - [Privacy](docs/privacy.md): where mail is processed and which services Dakia contacts.
 - [Operations](deploy/README.md): existing OIDC installations, configuration, and backup commands.
+
+If Dakia looks useful, [give the repository a star](https://github.com/DakiaMail/dakia-web) to help others find it.
 
 ## Development
 

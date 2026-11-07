@@ -36,7 +36,7 @@ Create your username and a password with at least 12 characters, then connect yo
 
 For Gmail, choose **Continue with Google** when Google sign-in is configured for your installation. Each operator supplies their own Google OAuth client. Dakia keeps the refresh token encrypted on your server and renews access automatically. App passwords remain available.
 
-Follow the [Gmail setup guide](docs/gmail-oauth.md) to register your client and configure its ID and secret. Gmail OAuth is included in source builds; the pinned preview image needs a new build before it can offer Google sign-in. For development, use a separate Google Cloud project and Dakia data directory.
+Follow the [Gmail setup guide](docs/gmail-oauth.md) to register your client and configure its ID and secret. The pinned image includes Gmail sign-in. For development, use a separate Google Cloud project and Dakia data directory.
 
 To add another person, open **Workspace → Invite someone → Create invitation** and share the link privately. They choose their own login and connect their own mailboxes. Links expire after 24 hours and work once.
 

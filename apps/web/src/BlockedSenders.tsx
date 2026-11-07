@@ -53,7 +53,7 @@ export function SenderBlock({ message, accounts, onCleanup }: {
         {!actionRule && <>
           <p>Older emails are unchanged. You can unblock this sender in Workspace.</p>
           {!review ? <button ref={savedFocus} type="button" onClick={() => setReview(true)}>Review older emails</button> : <div ref={reviewFocus} tabIndex={-1} aria-label="Older sender mail" className="blocked-cleanup-groups">
-            {accounts.map(account => <OlderSenderMail key={account.id} account={account} message={message} cutoff={cutoff.current} onCleanup={onCleanup} />)}
+            {accounts.map(account => <OlderSenderMail key={account.id} account={account} message={message} cutoff={cutoff.current} onCleanup={onCleanup} onDone={close} />)}
           </div>}
         </>}
         <div className="form-actions"><button ref={actionRule ? savedFocus : undefined} type="button" onClick={close}>Done</button></div>
@@ -63,14 +63,14 @@ export function SenderBlock({ message, accounts, onCleanup }: {
   </div>;
 }
 
-function OlderSenderMail({ account, message, cutoff, onCleanup }: { account: Account; message: Message; cutoff: number; onCleanup?: (rows: Message[]) => void }) {
+function OlderSenderMail({ account, message, cutoff, onCleanup, onDone }: { account: Account; message: Message; cutoff: number; onCleanup?: (rows: Message[]) => void; onDone: () => void }) {
   const [found, setFound] = useState<CleanupResult>();
   const [checking, setChecking] = useState(true);
   const cleanup = useSenderCleanup(account.id);
-  const [submitted, setSubmitted] = useState(false);
+  const [jobId, setJobId] = useState<string>();
   const locked = useRef(false);
-  const job = cleanup.jobs.data?.find(row => senderAddress(row.sender) === senderAddress(message.sender.email));
-  const intent = cleanup.submissions.find(row => senderAddress(row.sender) === senderAddress(message.sender.email));
+  const job = cleanup.jobs.data?.find(row => row.request.id === jobId);
+  const intent = cleanup.submissions.find(row => row.request.id === jobId);
   useEffect(() => {
     const abort = new AbortController();
     void findSenderMail({ ...message, account_id: account.id }, abort.signal, undefined, cutoff).then(result => {
@@ -86,15 +86,16 @@ function OlderSenderMail({ account, message, cutoff, onCleanup }: { account: Acc
       <p>{count} {noun}{!found?.complete && " found so far"}</p>
       {!found?.complete && <p role="status">Search incomplete. Other emails may remain.</p>}
       {!!found?.rows.length && <details><summary>Review emails</summary><ul className="blocked-review-list">{found.rows.map(row => <li key={row.id}>{row.subject || "(no subject)"}<small>{row.received_at.slice(0, 10)}</small></li>)}</ul></details>}
-      {!submitted && !job && !intent && <button type="button" disabled={!found?.rows.length} onClick={() => {
+      {!jobId && !job && !intent && <button type="button" disabled={!found?.rows.length} onClick={() => {
         if (locked.current || !found?.rows.length) return;
-        locked.current = true; cleanup.start(found.rows[0], found.rows, found.complete); setSubmitted(true);
+        const id = cleanup.start(found.rows[0], found.rows, found.complete);
+        if (id) { locked.current = true; setJobId(id); }
         // Keep this review open so outcomes remain visible. The ordinary app
         // projection removes frozen targets without unmounting the dialog.
       }}>Move {count} {noun} to Trash</button>}
     </>}
-    {(submitted || job || intent) && <p role="status">{intent?.error ? intent.rejected ? "Cleanup was rejected. No move was accepted." : "Cleanup status is unknown. Check again before trying another cleanup." : job ? `${job.pending} pending · ${job.applied} moved · ${job.failed} failed` : "Submitting cleanup…"}</p>}
-    {job && !job.pending && !job.failed && <button type="button" onClick={() => onCleanup?.(found?.rows || [])}>Back to mail</button>}
+    {(jobId || job || intent) && <p role="status">{intent?.error ? intent.rejected ? "Cleanup was rejected. No move was accepted." : "Cleanup status is unknown. Check again before trying another cleanup." : job ? `${job.pending} pending · ${job.applied} moved · ${job.failed} failed` : "Submitting cleanup…"}</p>}
+    {job && !job.pending && !job.failed && <button type="button" onClick={() => { onDone(); onCleanup?.(found?.rows || []); }}>Back to mail</button>}
     <ErrorNotice error={cleanup.jobs.error} />
   </section>;
 }

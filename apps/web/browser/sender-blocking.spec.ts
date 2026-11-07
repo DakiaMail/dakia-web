@@ -3,10 +3,10 @@ import type { MailRule, Message } from "@dakia/api-types";
 import { accounts, content, page as mail } from "./fixtures";
 import type { CleanupJob, CleanupRequest } from "../src/cleanupJobs";
 
-async function fixture(page: Page, bodyFails = false) {
+async function fixture(page: Page, bodyFails = false, previousCleanup = false) {
   let rules: MailRule[] = [];
   const requests: { account: string; request: CleanupRequest }[] = [];
-  const jobs: CleanupJob[] = [];
+  const jobs: CleanupJob[] = previousCleanup ? [{ request: { id: "previous-cleanup", source_id: "old", search_complete: true, targets: [{ id: "old", expected_revision: 1 }] }, account_id: "work", sender: mail.rows[0].sender.email, created_at: "2026-01-01T00:00:00Z", dismissed: false, pending: 0, applied: 1, failed: 0, failed_targets: [] }] : [];
   const base = { ...mail.rows[0], unread: false };
   const rows: Message[] = [base, { ...base, id: "personal-match", account_id: "personal", sender: { email: base.sender.email.toUpperCase(), name: "Same sender" }, subject: "Older personal email" }];
   await page.route("**/api/**", async route => {
@@ -71,4 +71,15 @@ test("older-mail review isolates exact senders and accounts and preserves partia
   expect(state.getRules()[0].enabled).toBe(true);
   await page.keyboard.press("Escape"); await page.reload(); await page.locator(".message-open").first().click();
   await expect(page.getByRole("button", { name: "Unblock sender", exact: true })).toBeVisible();
+});
+
+test("a previous completed cleanup does not prevent cleaning up newer emails", async ({ page }) => {
+  const state = await fixture(page, false, true); await page.goto("/"); await page.locator(".message-open").first().click();
+  await page.getByRole("button", { name: "Block sender", exact: true }).click();
+  const dialog = page.getByRole("dialog"); await dialog.getByRole("button", { name: "Block sender", exact: true }).click();
+  await dialog.getByRole("button", { name: "Review older emails", exact: true }).click();
+  const work = dialog.getByRole("region", { name: "Older emails in Work", exact: true });
+  await work.getByRole("button", { name: "Move 1 email to Trash", exact: true }).click();
+  await expect(work.getByText("1 pending · 0 moved · 0 failed")).toBeVisible();
+  expect(state.requests[0].request.targets.map(row => row.id)).toEqual(["m0"]);
 });

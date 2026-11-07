@@ -96,6 +96,7 @@ export function useSenderCleanup(account: string) {
         save(client, user, current().map(row => row.request.id === intent.request.id ? { ...row, rejected, error: error instanceof ApiFailure ? error.code : "acceptance_unknown" } : row));
         if (rejected) void invalidateMail(client).catch(() => {});
       }).finally(() => { void client.invalidateQueries({ queryKey: jobOptions(user, account).queryKey }); });
+      return intent.request.id;
     },
   };
 }

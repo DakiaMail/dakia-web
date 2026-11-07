@@ -137,10 +137,9 @@ impl p::MailProvider for Controlled {
         if matches!(
             &change,
             p::Mutation::Archive | p::Mutation::Trash | p::Mutation::Spam | p::Mutation::Move(_)
-        ) {
-            if std::env::var_os("DAKIA_RULES_FIXTURE").is_none() {
-                page.rows.retain(|m| m.reference != *r);
-            }
+        ) && std::env::var_os("DAKIA_RULES_FIXTURE").is_none()
+        {
+            page.rows.retain(|m| m.reference != *r);
         }
         let destination = match change {
             p::Mutation::Archive if gmail => None,

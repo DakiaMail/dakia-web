@@ -34,6 +34,10 @@ docker compose exec dakia cat /secrets/setup-token
 
 Create your username and a password with at least 12 characters, then connect your first mailbox. Your Dakia password is separate from your email provider’s password.
 
+For Gmail, choose **Continue with Google** when Google sign-in is configured for your installation. Each operator supplies their own Google OAuth client. Dakia keeps the refresh token encrypted on your server and renews access automatically. App passwords remain available.
+
+Follow the [Gmail setup guide](docs/gmail-oauth.md) to register your client and configure its ID and secret. Gmail OAuth is included in source builds; the pinned preview image needs a new build before it can offer Google sign-in. For development, use a separate Google Cloud project and Dakia data directory.
+
 To add another person, open **Workspace → Invite someone → Create invitation** and share the link privately. They choose their own login and connect their own mailboxes. Links expire after 24 hours and work once.
 
 [Follow the setup, invitation, and sign-in guide](docs/getting-started.md). Keep both persistent volumes: losing the credential key means losing access to stored credentials.
@@ -49,7 +53,7 @@ Four views of the running web frontend with fictional mail. Mobile scenes are br
 ## What you can do
 
 - Invite other people to create separate logins and private mailbox connections.
-- Connect multiple IMAP/SMTP accounts and use a unified inbox.
+- Connect Gmail with Google sign-in, or other IMAP/SMTP accounts, and use a unified inbox.
 - Read conversations, search mail, and organize messages with smart categories.
 - Compose rich-text messages with attachments, drafts, and scheduled sending.
 - Archive, snooze, star, move, and clean up messages in bulk.
@@ -61,6 +65,7 @@ Four views of the running web frontend with fictional mail. Mobile scenes are br
 ## Documentation
 
 - [Getting started](docs/getting-started.md): owner setup, joining by invitation, connecting mail, and signing in.
+- [Gmail sign-in](docs/gmail-oauth.md): operator-owned Google credentials, connection, reconnection, and development testing.
 - [Hosting and deployment](docs/hosting.md): Docker, Proxmox, Mac mini, Synology, TrueNAS, Unraid, and Portainer.
 - [Security](docs/security.md): login, encryption, isolation, backups, and reporting vulnerabilities.
 - [Privacy](docs/privacy.md): where mail is processed and which services Dakia contacts.
@@ -108,5 +113,3 @@ are prefetched serially without marking them read or loading external images.
 Signing out or removing an account clears saved mail in this browser and other
 updated tabs. See [persistent local caching](docs/persistent-local-cache.md) for
 limits, authorization, retention and offline behavior.
-
-For Gmail sign-in with your own Google OAuth client, see [Gmail OAuth setup](docs/gmail-oauth.md).

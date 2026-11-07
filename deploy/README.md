@@ -32,6 +32,8 @@ services:
 
 Configure all three OIDC settings together, and keep the actual secret outside the repository in a file readable by container UID 1000. Preserve existing OIDC/data/key configuration when upgrading. OIDC mode uses the identity provider's account management and disables local invitations; it does not link local and OIDC identities automatically.
 
+Gmail mailbox authorization uses a separate operator-owned Google OAuth client. Set `DAKIA_GMAIL_CLIENT_ID` and either `DAKIA_GMAIL_SECRET_FILE` (preferred) or `DAKIA_GMAIL_CLIENT_SECRET`. Configure both together; partial configuration fails startup. The supplied Compose file passes the ID and environment secret through. For the secret-file mount, Google console setup, and isolated development testing, see [Gmail OAuth](../docs/gmail-oauth.md).
+
 Optional/runtime settings:
 
 | Variable | Default or purpose |

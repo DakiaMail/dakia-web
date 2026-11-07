@@ -239,7 +239,7 @@ impl Store {
     pub async fn connect(&self, user: &str, input: &ConnectAccount) -> Result<Account> {
         let _guard = self.gate.read().await;
         if input.email.is_empty()
-            || input.password.is_empty()
+            || (input.password.is_empty() && input.gmail_oauth.is_none())
             || input.imap_host.is_empty()
             || input.smtp_host.is_empty()
             || input.imap_port == 0
@@ -289,7 +289,7 @@ impl Store {
     ) -> Result<Account> {
         let _guard = self.gate.read().await;
         self.db(a).await?;
-        if input.password.is_empty()
+        if (input.password.is_empty() && input.gmail_oauth.is_none())
             || input.username.is_empty()
             || input.imap_host.is_empty()
             || input.smtp_host.is_empty()

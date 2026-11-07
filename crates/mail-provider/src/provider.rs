@@ -170,6 +170,11 @@ impl AccountProvider {
             acquired = result.is_ok(), "mail provider cache lane");
         result.map_err(|_| error(ErrorKind::Retryable, "IMAP operation deadline exceeded"))
     }
+    pub fn with_oauth(mut self, source: std::sync::Arc<dyn AccessToken>) -> Self {
+        self.imap.oauth = Some(source.clone());
+        self.smtp.oauth = Some(source);
+        self
+    }
     pub fn new(config: Config, credentials: Credentials) -> Result<Self> {
         let smtp_credentials = Credentials {
             username: credentials.username.clone(),

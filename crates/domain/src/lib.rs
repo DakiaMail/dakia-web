@@ -242,4 +242,13 @@ pub struct ConnectAccount {
     pub smtp_tls: TlsMode,
     pub username: String,
     pub password: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(skip)]
+    pub gmail_oauth: Option<GmailGrant>,
+}
+// Stored only inside the encrypted account credential, never returned by the API.
+#[derive(Clone, Serialize, Deserialize)]
+pub struct GmailGrant {
+    pub client_id: String,
+    pub refresh_token: String,
 }

@@ -37,6 +37,7 @@ impl Drop for SyncActivity {
 }
 #[derive(Clone, Default)]
 pub struct MailRuntime {
+    pub(crate) gmail: Option<crate::gmail_oauth::GmailConfig>,
     languages: Arc<crate::language::Detector>,
     providers: Arc<Mutex<HashMap<String, Arc<dyn p::MailProvider>>>>,
     conversations: Arc<Mutex<HashMap<String, ConversationSlot>>>,
@@ -262,6 +263,10 @@ fn arrival_time(value: &str) -> Result<String> {
         .map_err(|_| ApiFailure(StatusCode::BAD_GATEWAY, "invalid_provider_arrival_time"))
 }
 impl MailRuntime {
+    pub fn with_gmail(mut self, config: Option<crate::gmail_oauth::GmailConfig>) -> Self {
+        self.gmail = config;
+        self
+    }
     async fn content_lane(&self, a: &AuthorizedAccount, id: &str) -> Arc<Mutex<()>> {
         let mut lanes = self.content_lanes.lock().await;
         lanes.retain(|_, lane| lane.strong_count() > 0);
@@ -428,16 +433,34 @@ impl MailRuntime {
             archive: settings.archive_folder,
             trash: settings.trash_folder,
         };
-        let provider: Arc<dyn p::MailProvider> = Arc::new(
-            p::AccountProvider::new(
-                config,
-                p::Credentials {
-                    username: input.username,
-                    password: input.password,
-                },
-            )
-            .map_err(provider_error)?,
-        );
+        let oauth = if let Some(grant) = input.gmail_oauth {
+            let config = self
+                .gmail
+                .clone()
+                .filter(|c| c.client_id == grant.client_id)
+                .ok_or(ApiFailure(
+                    StatusCode::UNAUTHORIZED,
+                    "account_reconnect_required",
+                ))?;
+            Some(Arc::new(crate::gmail_oauth::GoogleToken::new(
+                config, grant,
+            )))
+        } else {
+            None
+        };
+        let provider = p::AccountProvider::new(
+            config,
+            p::Credentials {
+                username: input.username,
+                password: input.password,
+            },
+        )
+        .map_err(provider_error)?;
+        let provider: Arc<dyn p::MailProvider> = Arc::new(if let Some(source) = oauth {
+            provider.with_oauth(source)
+        } else {
+            provider
+        });
         if provider.account_id() != a.id() {
             return Err(ApiFailure(StatusCode::FORBIDDEN, "account_mismatch"));
         }

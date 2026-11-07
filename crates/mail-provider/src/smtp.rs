@@ -2,7 +2,7 @@
 //! send/retry transport. Envelope rejection aborts before any DATA body is sent.
 use crate::{mime::PreparedMessage, *};
 use lettre::transport::smtp::{
-    authentication::{Credentials as SmtpCredentials, DEFAULT_MECHANISMS},
+    authentication::{Credentials as SmtpCredentials, Mechanism, DEFAULT_MECHANISMS},
     client::{AsyncSmtpConnection, TlsParameters},
     commands::{Data, Mail, Rcpt},
     extension::{ClientId, Extension, MailBodyParameter, MailParameter},
@@ -13,15 +13,21 @@ use tokio::time::{timeout_at, Instant};
 pub struct SmtpProvider {
     config: Config,
     credentials: Credentials,
+    pub(crate) oauth: Option<std::sync::Arc<dyn AccessToken>>,
     tls: TlsParameters,
 }
 impl SmtpProvider {
+    pub fn with_oauth(mut self, source: std::sync::Arc<dyn AccessToken>) -> Self {
+        self.oauth = Some(source);
+        self
+    }
     pub fn new(config: Config, credentials: Credentials) -> Result<Self> {
         let tls = TlsParameters::new(config.smtp.host.clone())
             .map_err(|_| error(ErrorKind::InvalidInput, "invalid SMTP TLS configuration"))?;
         Ok(Self {
             config,
             credentials,
+            oauth: None,
             tls,
         })
     }
@@ -55,13 +61,31 @@ impl SmtpProvider {
         if self.config.smtp.security == Security::StartTls {
             before(deadline, c.starttls(self.tls.clone(), &id)).await?;
         }
+        let token = if let Some(source) = &self.oauth {
+            Some(
+                timeout_at(deadline, source.access_token())
+                    .await
+                    .map_err(|_| {
+                        error(
+                            ErrorKind::Retryable,
+                            "SMTP deadline exceeded before message body",
+                        )
+                    })??,
+            )
+        } else {
+            None
+        };
         before(
             deadline,
             c.auth(
-                DEFAULT_MECHANISMS,
+                if token.is_some() {
+                    &[Mechanism::Xoauth2]
+                } else {
+                    DEFAULT_MECHANISMS
+                },
                 &SmtpCredentials::new(
                     self.credentials.username.clone(),
-                    self.credentials.password.clone(),
+                    token.unwrap_or_else(|| self.credentials.password.clone()),
                 ),
             ),
         )

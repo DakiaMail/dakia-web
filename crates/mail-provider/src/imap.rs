@@ -75,6 +75,7 @@ impl CommandLease<'_> {
 pub struct ImapProvider {
     pub config: Config,
     credentials: Credentials,
+    pub(crate) oauth: Option<std::sync::Arc<dyn AccessToken>>,
     lane: Mutex<Option<(std::time::Instant, Connection)>>,
     idle_lane: Mutex<()>,
     reconcile_batch: std::sync::atomic::AtomicUsize,
@@ -83,12 +84,17 @@ pub struct ImapProvider {
     retirement: tokio::sync::watch::Sender<bool>,
 }
 impl ImapProvider {
+    pub fn with_oauth(mut self, source: std::sync::Arc<dyn AccessToken>) -> Self {
+        self.oauth = Some(source);
+        self
+    }
     pub fn new(config: Config, credentials: Credentials) -> Result<Self> {
         let tls = native_tls::TlsConnector::new()
             .map_err(|_| error(ErrorKind::Retryable, "TLS initialization failed"))?;
         Ok(Self {
             config,
             credentials,
+            oauth: None,
             lane: Mutex::new(None),
             idle_lane: Mutex::new(()),
             reconcile_batch: std::sync::atomic::AtomicUsize::new(50),
@@ -182,9 +188,19 @@ impl ImapProvider {
                 return Err(error(ErrorKind::Retryable, "invalid IMAP greeting"));
             }
         }
-        client
-            .login(&self.credentials.username, &self.credentials.password)
-            .await
+        let authenticated = if let Some(source) = &self.oauth {
+            let token = source.access_token().await?;
+            let auth = Xoauth2(format!(
+                "user={}\x01auth=Bearer {}\x01\x01",
+                self.credentials.username, token
+            ));
+            client.authenticate("XOAUTH2", auth).await
+        } else {
+            client
+                .login(&self.credentials.username, &self.credentials.password)
+                .await
+        };
+        authenticated
             .map_err(|(e, _)| match e {
                 async_imap::error::Error::No(_) => {
                     error(ErrorKind::Authentication, "IMAP authentication failed")
@@ -1073,6 +1089,19 @@ impl CommandOutput {
                 self.fetches.push(f);
             }
             _ => {}
+        }
+    }
+}
+
+struct Xoauth2(String);
+impl async_imap::Authenticator for Xoauth2 {
+    type Response = Vec<u8>;
+    fn process(&mut self, challenge: &[u8]) -> Self::Response {
+        // Gmail's error challenge must receive an empty response, not the token again.
+        if challenge.is_empty() {
+            self.0.as_bytes().to_vec()
+        } else {
+            Vec::new()
         }
     }
 }

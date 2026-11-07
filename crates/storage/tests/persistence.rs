@@ -14,6 +14,7 @@ fn account() -> ConnectAccount {
         smtp_tls: TlsMode::Implicit,
         username: "test".into(),
         password: "test-only-not-a-real-secret".into(),
+        gmail_oauth: None,
     }
 }
 #[tokio::test]

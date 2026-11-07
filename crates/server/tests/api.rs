@@ -11,6 +11,8 @@ use std::sync::Arc;
 use tower::ServiceExt;
 #[path = "cases/events.rs"]
 mod events;
+#[path = "cases/gmail_oauth.rs"]
+mod gmail_oauth;
 #[path = "cases/operations.rs"]
 mod operations;
 #[path = "cases/release_operations.rs"]
@@ -183,6 +185,7 @@ async fn isolation_including_events_and_drafts() {
         smtp_tls: TlsMode::Implicit,
         username: "test".into(),
         password: "fixture-only".into(),
+        gmail_oauth: None,
     };
     let a = app.store.connect(&alice, &input).await.unwrap();
     let scope = app.store.authorize(&alice, &a.id).await.unwrap();
@@ -365,6 +368,7 @@ async fn reconnect_is_owned_in_place_and_preserves_data() {
         smtp_tls: TlsMode::Implicit,
         username: "test".into(),
         password: "old-fixture-only".into(),
+        gmail_oauth: None,
     };
     let account = app.store.connect(&alice, &input).await.unwrap();
     let scope = app.store.authorize(&alice, &account.id).await.unwrap();

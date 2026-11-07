@@ -162,7 +162,18 @@ export function App() {
     initialDue?: string;
     forwardAttachments?: import("@dakia/api-types").Attachment[];
   } | null>(null);
-  const [error, setError] = useState<unknown>();
+  const [error, setError] = useState<unknown>(() => {
+    const reason = new URLSearchParams(window.location.search).get("gmail_error");
+    if (!reason) return undefined;
+    const messages: Record<string, string> = {
+      cancelled: "Google sign-in was cancelled. You can try connecting again.",
+      expired: "Google sign-in expired. Start connecting again.",
+      mismatch: "Choose the Google account that matches the email you entered.",
+      permission: "Allow mail access when connecting your Google account.",
+      offline: "Google didn’t grant ongoing access. Try connecting again.",
+    };
+    return new Error(messages[reason] || "Couldn’t finish connecting Gmail. Check your account in Workspace and try again.");
+  });
   const [deepLinkError, setDeepLinkError] = useState<unknown>();
   const deepLinkPending = useRef(true);
   const [actionError, setActionError] = useState<unknown>();

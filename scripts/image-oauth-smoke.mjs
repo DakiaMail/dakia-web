@@ -1,0 +1,60 @@
+// Runs inside a disposable published image, including with networking disabled.
+import assert from 'node:assert/strict';
+import { randomBytes } from 'node:crypto';
+import { readFile, writeFile, readdir } from 'node:fs/promises';
+
+const origin = 'https://mail.test';
+const base = 'http://127.0.0.1:3025';
+const sessionPath = '/data/image-smoke-session.json';
+let cookie;
+async function request(path, init = {}) {
+  return fetch(`${base}${path}`, {
+    ...init,
+    headers: { Origin: origin, ...(cookie ? { Cookie: cookie } : {}), ...init.headers },
+    redirect: 'manual',
+  });
+}
+assert.equal((await request('/api/accounts/gmail')).status, 401);
+if (process.argv.includes('--resume')) {
+  ({ cookie } = JSON.parse(await readFile(sessionPath, 'utf8')));
+} else {
+  const code = (await readFile('/secrets/setup-token', 'utf8')).trim();
+  const response = await request('/auth/login', {
+    method: 'POST',
+    body: new URLSearchParams({ code, username: 'image-smoke', password: randomBytes(32).toString('base64url') }),
+  });
+  assert.equal(response.status, 303);
+  cookie = response.headers.get('set-cookie')?.split(';')[0];
+  assert.ok(cookie?.startsWith('__Host-dakia='));
+  await writeFile(sessionPath, JSON.stringify({ cookie }), { mode: 0o600 });
+}
+let response = await request('/api/session');
+assert.equal(response.status, 200);
+const { csrf_token: csrf } = await response.json();
+assert.equal((await request('/api/accounts/gmail')).status, 200);
+assert.deepEqual(await (await request('/api/accounts/gmail')).json(), { enabled: true });
+const body = JSON.stringify({ email: 'fixture@example.test', display_name: 'Image fixture' });
+assert.equal((await request('/api/accounts/gmail', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })).status, 403);
+response = await request('/api/accounts/gmail', {
+  method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, body,
+});
+assert.equal(response.status, 200);
+const { url } = await response.json();
+const auth = new URL(url);
+assert.equal(auth.origin, 'https://accounts.google.com');
+assert.equal(auth.searchParams.get('client_id'), 'image-fixture.apps.googleusercontent.com');
+assert.equal(auth.searchParams.get('redirect_uri'), `${origin}/api/accounts/gmail/callback`);
+assert.equal(auth.searchParams.get('code_challenge_method'), 'S256');
+assert.equal(auth.searchParams.get('access_type'), 'offline');
+assert.equal(auth.searchParams.get('scope'), 'openid email https://mail.google.com/');
+assert.ok(auth.searchParams.get('state').length >= 43);
+const callback = `/api/accounts/gmail/callback?${new URLSearchParams({ state: auth.searchParams.get('state'), error: 'access_denied' })}`;
+response = await request(callback);
+assert.equal(response.status, 303);
+assert.equal(response.headers.get('location'), '/?gmail_error=cancelled');
+assert.equal((await request(callback)).headers.get('location'), '/?gmail_error=expired');
+assert.deepEqual(await (await request('/api/accounts')).json(), []);
+const assets = (await readdir('/app/web/assets')).filter(name => name.endsWith('.js'));
+const sources = await Promise.all(assets.map(name => readFile(`/app/web/assets/${name}`, 'utf8')));
+assert.ok(sources.some(source => source.includes('Continue with Google')), 'Gmail sign-in UI must be packaged');
+console.log(`Packaged Gmail OAuth checks passed${process.argv.includes('--resume') ? ' after restart' : ''}.`);

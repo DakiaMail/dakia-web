@@ -252,3 +252,46 @@ pub struct GmailGrant {
     pub client_id: String,
     pub refresh_token: String,
 }
+
+// Rules are a closed wire schema: only implemented conditions and actions can
+// be accepted. New presets can share matching and durable execution later.
+values!(RulePreset { BlockSender });
+values!(RuleScope { AllMailboxes });
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+#[ts(export, export_to = "../../../packages/api-types/src/generated/")]
+pub enum RuleCondition {
+    SenderIs { email: String },
+}
+values!(RuleAction {
+    Trash,
+    SuppressNotifications
+});
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[serde(deny_unknown_fields)]
+#[ts(export, export_to = "../../../packages/api-types/src/generated/")]
+pub struct CreateRule {
+    pub preset: RulePreset,
+    pub scope: RuleScope,
+    pub condition: RuleCondition,
+    pub actions: Vec<RuleAction>,
+}
+dto!(MailRule {
+    id: String, preset: RulePreset, enabled: bool, activated_at: String,
+    scope: RuleScope, condition: RuleCondition, actions: Vec<RuleAction>
+});
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[serde(deny_unknown_fields)]
+#[ts(export, export_to = "../../../packages/api-types/src/generated/")]
+pub struct UpdateRule {
+    pub enabled: bool,
+}
+dto!(RuleExecution {
+    rule_id: String, message_id: String, operation_id: Option<String>,
+    state: String
+});
+dto!(RuleActivity {
+    rule_id: String,
+    pending: u32,
+    failed: u32
+});

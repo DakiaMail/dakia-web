@@ -57,10 +57,19 @@ Four views of the running web frontend with fictional mail. Mobile scenes are br
 - Read conversations, search mail, and organize messages with smart categories.
 - Compose rich-text messages with attachments, drafts, and scheduled sending.
 - Archive, snooze, star, move, and clean up messages in bulk.
+- Block unwanted senders across your mailboxes, with optional cleanup of older emails.
 - Classify and translate mail on your own server.
 - Use the responsive web app or install it as a PWA.
 
 [Features and screenshots](docs/features.md)
+
+## Block unwanted senders
+
+Open an email and choose **Block sender** beside the sender. Future emails from that exact address move to Trash across your mailboxes without notifications while Dakia syncs. Blocking does not reject delivery at your email provider.
+
+Choose **Review older emails** to find previous messages across your mailboxes, review each mailbox’s results, and confirm which emails to move to Trash. Search can be incomplete; Dakia shows the emails it found and reports pending or failed moves.
+
+Manage blocks in **Workspace → Blocked senders**. Unblocking lets future emails arrive normally and leaves existing Trash untouched. You can restore individual emails from Trash without Dakia moving them back automatically. Mailboxes connected later inherit your blocks; their older mail is left in place.
 
 ## Documentation
 

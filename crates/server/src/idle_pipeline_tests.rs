@@ -116,3 +116,61 @@ async fn disposable_idle_to_push_pipeline_replays_without_fresh_notification_ide
     listener.abort();
     let _ = listener.await;
 }
+
+#[tokio::test]
+async fn idle_arrival_applies_block_without_a_push_job() {
+    use dakia_domain::{CreateRule, RuleAction, RuleCondition, RulePreset, RuleScope};
+    let (_dir, app, user, a, provider) = paged(false).await;
+    provider.heads.store(true, Ordering::SeqCst);
+    provider.idle_hints.store(true, Ordering::SeqCst);
+    app.store
+        .create_rule(
+            &user,
+            CreateRule {
+                preset: RulePreset::BlockSender,
+                scope: RuleScope::AllMailboxes,
+                condition: RuleCondition::SenderIs {
+                    email: "fixture@example.invalid".into(),
+                },
+                actions: vec![RuleAction::Trash, RuleAction::SuppressNotifications],
+            },
+        )
+        .await
+        .unwrap();
+    app.store
+        .subscribe(&user, "blocked-idle", r#"{"id":"blocked-idle"}"#)
+        .await
+        .unwrap();
+    let listener = tokio::spawn(crate::idle::run(app.clone()));
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while app
+            .store
+            .provider_document(&a, "sync:head:INBOX")
+            .await
+            .unwrap()
+            .is_none()
+        {
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .unwrap();
+    provider.arrival_uid.store(1, Ordering::SeqCst);
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if !app.store.rule_executions(&a).await.unwrap().is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert!(app.store.next_push(&a).await.unwrap().is_none());
+    assert_eq!(
+        app.store.rule_executions(&a).await.unwrap()[0].state,
+        "pending"
+    );
+    listener.abort();
+    let _ = listener.await;
+}

@@ -19,6 +19,8 @@ mod operations;
 mod release_operations;
 #[path = "cases/removal.rs"]
 mod removal;
+#[path = "cases/rules.rs"]
+mod rules;
 #[path = "cases/scheduled.rs"]
 mod scheduled;
 #[path = "cases/sender_cleanup.rs"]

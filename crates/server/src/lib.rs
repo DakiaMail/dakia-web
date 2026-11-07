@@ -11,6 +11,7 @@ pub mod mail;
 pub mod models;
 mod mutations;
 pub mod push;
+mod rules;
 mod search;
 mod sender_cleanup;
 mod sender_mail;
@@ -218,6 +219,9 @@ pub fn router_with_shutdown(app: App, shutdown: tokio::sync::watch::Sender<bool>
             "/invitations/{id}",
             axum::routing::delete(local_users::revoke),
         )
+        .route("/rules", get(rules::list).post(rules::create))
+        .route("/rules/{id}", axum::routing::patch(rules::update))
+        .route("/accounts/{account}/rule-activity", get(rules::activity))
         .route("/accounts", get(accounts).post(connect))
         .route("/accounts/discover", post(discovery::discover))
         .route(
@@ -843,7 +847,7 @@ async fn metadata(app: &App, http: &reqwest::Client) -> Result<CoreProviderMetad
 }
 async fn login(State(app): State<App>) -> Result<Response> {
     if app.config.issuer.is_empty() {
-        return Ok(local_auth::page(&app).await?);
+        return local_auth::page(&app).await;
     }
     let http = http()?;
     let meta = metadata(&app, &http).await?;

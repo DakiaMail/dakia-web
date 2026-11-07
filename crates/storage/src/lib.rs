@@ -11,6 +11,7 @@ pub use models::ModelFailureReason;
 mod notifications;
 pub use jobs::PersistedMime;
 mod mutation_jobs;
+mod rules;
 mod sender_cleanup;
 pub use sender_cleanup::{CleanupJob, CleanupLocation, CleanupRequest, CleanupTarget};
 mod content_references;
@@ -97,6 +98,7 @@ pub struct Store {
     identity: Arc<()>,
     gate: Arc<RwLock<()>>,
     account_pools: Arc<Mutex<HashMap<String, SqlitePool>>>,
+    rules_gate: Arc<RwLock<()>>,
     attachment_budget: u64,
 }
 #[derive(Clone, Debug)]
@@ -162,6 +164,7 @@ impl Store {
             identity: Arc::new(()),
             gate: Arc::new(RwLock::new(())),
             account_pools: Arc::new(Mutex::new(HashMap::new())),
+            rules_gate: Arc::new(RwLock::new(())),
             attachment_budget,
         };
         store.cleanup_removed_accounts().await?;
@@ -270,13 +273,16 @@ impl Store {
             .map_err(|_| Error::Crypto)?;
         let mut sealed = nonce.to_vec();
         sealed.extend(encrypted);
-        sqlx::query("INSERT INTO accounts(id,user_id,metadata,credential) VALUES(?,?,?,?)")
-            .bind(&a.id)
-            .bind(user)
-            .bind(serde_json::to_string(&a)?)
-            .bind(sealed)
-            .execute(&self.control)
-            .await?;
+        sqlx::query(
+            "INSERT INTO accounts(id,user_id,metadata,credential,connected_at) VALUES(?,?,?,?,?)",
+        )
+        .bind(&a.id)
+        .bind(user)
+        .bind(serde_json::to_string(&a)?)
+        .bind(sealed)
+        .bind(Utc::now().to_rfc3339_opts(SecondsFormat::Nanos, true))
+        .execute(&self.control)
+        .await?;
         let scope = self.authorize(user, &a.id).await?;
         self.db(&scope).await?;
         Ok(a)

@@ -36,9 +36,14 @@ impl Store {
         if message.account_id != a.id {
             return Err(Error::Invalid);
         }
+        let _rules_guard = self.rules_gate.read().await;
+        let rules = self.rules(&a.user_id).await?;
         let db = self.db(a).await?;
         let mut tx = db.begin().await?;
-        let message = Self::upsert_message_tx(&mut tx, message).await?;
+        let known = Self::previous_inbox_tx(&mut tx, &message.id).await?;
+        let mut message = Self::upsert_message_tx(&mut tx, message).await?;
+        self.evaluate_rules_tx(&mut tx, a, &mut message, known, &rules)
+            .await?;
         tx.commit().await?;
         Ok(message)
     }
@@ -64,10 +69,14 @@ impl Store {
         {
             return Err(Error::Invalid);
         }
+        let _rules_guard = self.rules_gate.read().await;
+        let rules = self.rules(&a.user_id).await?;
         let db = self.db(a).await?;
         let mut tx = db.begin().await?;
         let mut rows = Vec::with_capacity(messages.len());
+        let mut known = Vec::with_capacity(messages.len());
         for message in messages {
+            known.push(Self::previous_inbox_tx(&mut tx, &message.id).await?);
             rows.push(Self::upsert_message_tx(&mut tx, message).await?);
         }
         for (key, document) in documents {
@@ -77,7 +86,9 @@ impl Store {
             sqlx::query("INSERT INTO provider_documents(key,document) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET document=excluded.document WHERE document<>excluded.document")
                 .bind(key).bind(document).execute(&mut *tx).await?;
         }
-        for row in &rows {
+        for (row, known) in rows.iter_mut().zip(known) {
+            self.evaluate_rules_tx(&mut tx, a, row, known, &rules)
+                .await?;
             if let Some((_, reference)) = documents
                 .iter()
                 .rev()
@@ -93,6 +104,11 @@ impl Store {
         }
         tx.commit().await?;
         Ok(rows)
+    }
+
+    async fn previous_inbox_tx(tx: &mut sqlx::SqliteConnection, id: &str) -> Result<bool> {
+        Ok(sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM messages m, json_each(m.document,'$.folder_ids') f WHERE m.id=? AND lower(ltrim(f.value,'\\'))='inbox')")
+            .bind(id).fetch_one(&mut *tx).await?)
     }
 
     async fn upsert_message_tx(

@@ -30,9 +30,11 @@ impl Store {
         Ok(())
     }
     pub async fn next_push(&self, a: &AuthorizedAccount) -> Result<Option<serde_json::Value>> {
+        let _rules_guard = self.rules_gate.read().await;
         let db = self.db(a).await?;
         let mut tx = db.begin().await?;
         Self::suppress_push_tx(&mut tx).await?;
+        self.suppress_rule_push_tx(&mut tx, a).await?;
         // Pending classification does not consume delivery attempts or block
         // other eligible mail. A completed classification failure falls back to
         // ordinary mail notifications; it is not evidence of a newsletter.
@@ -57,9 +59,11 @@ impl Store {
         message: &str,
         subscription: &str,
     ) -> Result<bool> {
+        let _rules_guard = self.rules_gate.read().await;
         let db = self.db(a).await?;
         let mut tx = db.begin().await?;
         Self::suppress_push_tx(&mut tx).await?;
+        self.suppress_rule_push_tx(&mut tx, a).await?;
         let allowed: bool = sqlx::query_scalar(&format!("SELECT EXISTS(SELECT 1 FROM push_jobs WHERE message_id=? AND subscription_id=? AND state='running' AND EXISTS ({PUSH_ELIGIBLE}))"))
             .bind(message).bind(subscription).fetch_one(&mut *tx).await?;
         if !allowed {
@@ -89,9 +93,11 @@ impl Store {
         Ok(())
     }
     pub async fn recover_push(&self, a: &AuthorizedAccount) -> Result<()> {
+        let _rules_guard = self.rules_gate.read().await;
         let db = self.db(a).await?;
         let mut tx = db.begin().await?;
         Self::suppress_push_tx(&mut tx).await?;
+        self.suppress_rule_push_tx(&mut tx, a).await?;
         // Stable notification tag deduplicates a retry after an uncertain HTTP outcome.
         sqlx::query("UPDATE push_jobs SET state='pending' WHERE state='running'")
             .execute(&mut *tx)

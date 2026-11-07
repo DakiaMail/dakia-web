@@ -166,6 +166,7 @@ impl Store {
         page: &SearchPage,
     ) -> Result<()> {
         let _guard = self.gate.read().await;
+        let _rules_guard = self.rules_gate.read().await;
         let db = self.db(a).await?;
         let mut tx = db.begin().await?;
         // A partially exposed provider folder must never certify full coverage
@@ -215,6 +216,7 @@ impl Store {
         checkpoint: &str,
     ) -> Result<()> {
         let _guard = self.gate.read().await;
+        let _rules_guard = self.rules_gate.read().await;
         let db = self.db(a).await?;
         let mut tx = db.begin().await?;
         sqlx::query("INSERT OR IGNORE INTO folder_scans(folder) VALUES(?)")
@@ -257,6 +259,7 @@ impl Store {
                 .fetch_one(&mut *tx)
                 .await?;
         let subscriptions = self.subscriptions(a).await?;
+        let rules = self.rules(&a.user_id).await?;
         for message in rows {
             if message.account_id != a.id {
                 return Err(Error::Invalid);
@@ -270,6 +273,12 @@ impl Store {
             .await?;
             if !known
                 && folder.eq_ignore_ascii_case("INBOX")
+                && !rules.iter().any(|rule| {
+                    rule.enabled && {
+                        let RuleCondition::SenderIs { email } = &rule.condition;
+                        message.sender.email.trim().to_lowercase() == *email
+                    }
+                })
                 && boundary.is_some_and(|b| {
                     DateTime::parse_from_rfc3339(&message.received_at)
                         .is_ok_and(|d| d.timestamp() > b)

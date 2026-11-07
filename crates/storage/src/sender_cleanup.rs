@@ -111,10 +111,13 @@ impl Store {
                 .await?
                 .ok_or(Error::NotFound)?;
             let message: Message = serde_json::from_str(&raw)?;
-            if message.account_id != a.id || message.sender.email != source.sender.email {
+            if message.account_id != a.id
+                || message.sender.email.trim().to_lowercase()
+                    != source.sender.email.trim().to_lowercase()
+            {
                 return Err(Error::Invalid);
             }
-            let pending: i64 = sqlx::query_scalar("SELECT count(*) FROM operations WHERE json_extract(document,'$.target_id')=? AND json_extract(document,'$.status') IN ('pending','failed') AND json_extract(document,'$.change.kind') IN ('archive','trash','spam','move')").bind(&target.id).fetch_one(&mut *tx).await?;
+            let pending: i64 = sqlx::query_scalar("SELECT count(*) FROM operations WHERE json_extract(document,'$.target_id')=? AND json_extract(document,'$.status') IN ('pending','failed') AND json_extract(document,'$.change.kind') IN ('archive','trash','spam','move') AND id NOT IN (SELECT operation_id FROM rule_executions WHERE state='cancelled' AND operation_id IS NOT NULL)").bind(&target.id).fetch_one(&mut *tx).await?;
             if pending != 0 {
                 return Err(Error::CleanupMoveUnverified);
             }

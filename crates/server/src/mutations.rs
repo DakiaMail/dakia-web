@@ -30,7 +30,7 @@ async fn tick_one(app: &App, a: &AuthorizedAccount) -> dakia_storage::Result<boo
     let Some(mut op) = app.store.claim_mutation(a).await? else {
         return Ok(false);
     };
-    let cleanup = op.id.starts_with("sender-cleanup:");
+    let automation = op.id.starts_with("sender-cleanup:") || op.id.starts_with("rule:");
     // Opaque correlation keys only, never client IDs or message content.
     let span = tracing::info_span!(
         "mail_mutation",
@@ -77,7 +77,7 @@ async fn tick_one(app: &App, a: &AuthorizedAccount) -> dakia_storage::Result<boo
     }
     .instrument(span)
     .await?;
-    Ok(cleanup)
+    Ok(automation)
 }
 pub(crate) fn action_name(change: &Change) -> &'static str {
     match change {

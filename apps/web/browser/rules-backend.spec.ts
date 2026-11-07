@@ -99,7 +99,7 @@ test("keyboard cleanup, restoration and unblocking persist through the real back
   await expect(page.getByRole("button", { name: "Move", exact: true })).toBeFocused(); await page.keyboard.press("Enter");
   await expect(dialog.getByRole("heading", { name: "Move messages", exact: true })).toBeVisible();
   await reach(page, dialog.getByRole("combobox", { name: "Folder for Fixture", exact: true }));
-  await page.keyboard.press("ArrowDown"); await page.keyboard.press("i"); await page.keyboard.press("Enter"); await page.keyboard.press("Tab");
+  await page.keyboard.press("ArrowDown"); await page.keyboard.press("i"); await page.keyboard.press("Tab");
   await expect(dialog.getByRole("combobox", { name: "Folder for Fixture", exact: true })).toHaveValue("INBOX");
   await expect(dialog.getByRole("button", { name: "Move", exact: true })).toBeEnabled();
   const operation = page.waitForResponse(r => r.url().endsWith("/operations") && r.request().method() === "POST");

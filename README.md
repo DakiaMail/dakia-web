@@ -67,7 +67,7 @@ Four views of the running web frontend with fictional mail. Mobile scenes are br
 
 Open an email and choose **Block sender** beside the sender. Future emails from that exact address move to Trash across your mailboxes without notifications while Dakia syncs. Blocking does not reject delivery at your email provider.
 
-Choose **Review older emails** to find previous messages across your mailboxes, review each mailbox’s results, and confirm which emails to move to Trash. Search can be incomplete; Dakia shows the emails it found and reports pending or failed moves.
+Choose **Review older emails** to find previous messages across your mailboxes, review each mailbox’s results, and confirm the move to Trash. Search can be incomplete; Dakia shows the emails it found and reports pending or failed moves.
 
 Manage blocks in **Workspace → Blocked senders**. Unblocking lets future emails arrive normally and leaves existing Trash untouched. You can restore individual emails from Trash without Dakia moving them back automatically. Mailboxes connected later inherit your blocks; their older mail is left in place.
 

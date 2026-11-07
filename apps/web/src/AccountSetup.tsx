@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import type { Account, ConnectAccount, DiscoveredSettings } from "@dakia/api-types";
-import { api } from "./api";
+import { request, api } from "./api";
 import { Modal, ErrorNotice } from "./ui";
 export function AccountSetup({
   onClose,
@@ -14,6 +14,17 @@ export function AccountSetup({
   const [provider, setProvider] = useState<"gmail" | "imap">(
     account?.provider || "imap",
   );
+  const [gmailEnabled, setGmailEnabled] = useState<boolean | null>(null);
+  const [appPassword, setAppPassword] = useState(false);
+  useEffect(() => {
+    let active = true;
+    void request<{ enabled: boolean }>("/accounts/gmail").then((result) => {
+      if (active) setGmailEnabled(result.enabled);
+    }).catch(() => { if (active) setGmailEnabled(false); });
+    return () => { active = false; };
+  }, []);
+  const googleSignIn = provider === "gmail" && gmailEnabled === true && !appPassword;
+  const checkingGoogle = provider === "gmail" && gmailEnabled === null;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>();
   const [saved, setSaved] = useState<string>();
@@ -58,6 +69,14 @@ export function AccountSetup({
     const data = new FormData(form);
     const str = (key: string) => String(data.get(key) || "");
     try {
+      if (googleSignIn) {
+        const result = await request<{ url: string }>("/accounts/gmail", {
+          method: "POST",
+          body: JSON.stringify({ email: str("email"), display_name: str("display_name"), account_id: existingId || null }),
+        });
+        window.location.assign(result.url);
+        return;
+      }
       let id = saved;
       if (!id) {
         const payload: ConnectAccount = {
@@ -130,7 +149,7 @@ export function AccountSetup({
             defaultValue={account?.display_name}
             required
             placeholder="Personal"
-            disabled={!!saved}
+            disabled={busy || !!saved}
           />
         </label>
         <label>
@@ -148,19 +167,25 @@ export function AccountSetup({
             type="email"
             required
             autoComplete="username"
-            disabled={!!saved}
+            disabled={busy || !!saved}
           />
         </label>
-        <label>
+        {provider === "gmail" && gmailEnabled && <label className="checkbox-label">
+          <input type="checkbox" checked={appPassword} disabled={busy || !!saved} onChange={(e) => setAppPassword(e.target.checked)} />
+          Use an app password
+        </label>}
+        {checkingGoogle && <p role="status">Checking sign-in options…</p>}
+        {!googleSignIn && !checkingGoogle && <label>
           {provider === "gmail" ? "App password" : "Password"}
           <input
             name="password"
             type="password"
             required={!saved}
             autoComplete="new-password"
-            disabled={!!saved}
+            disabled={busy || !!saved}
           />
         </label>
+        }
         {provider === "imap" && (
           <>
             {discovering && <p role="status">Finding server settings…</p>}
@@ -214,9 +239,11 @@ export function AccountSetup({
               Edit connection
             </button>
           )}
-          <button title="Connect account" className="primary" disabled={busy || discovering || (provider === "imap" && !settings && !manual)}>
+          <button title="Connect account" className="primary" disabled={busy || checkingGoogle || discovering || (provider === "imap" && !settings && !manual)}>
             {busy
-              ? "Checking connection…"
+              ? googleSignIn ? "Opening Google…" : "Checking connection…"
+              : googleSignIn
+                ? "Continue with Google"
               : saved
                 ? "Retry connection"
                 : "Connect account"}

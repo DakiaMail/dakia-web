@@ -270,3 +270,9 @@ fn valid_date(s: &str) -> bool {
         && p[2].len() == 4
         && p[2].parse::<u16>().is_ok()
 }
+
+/// Supplies a current bearer token for each new authenticated connection.
+#[async_trait::async_trait]
+pub trait AccessToken: Send + Sync {
+    async fn access_token(&self) -> Result<String>;
+}

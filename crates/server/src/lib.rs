@@ -1,6 +1,7 @@
 pub mod diagnostics;
 mod discovery;
 pub mod executor;
+pub mod gmail_oauth;
 pub mod idle;
 mod images;
 mod language;
@@ -219,6 +220,11 @@ pub fn router_with_shutdown(app: App, shutdown: tokio::sync::watch::Sender<bool>
         )
         .route("/accounts", get(accounts).post(connect))
         .route("/accounts/discover", post(discovery::discover))
+        .route(
+            "/accounts/gmail",
+            get(gmail_oauth::status).post(gmail_oauth::start),
+        )
+        .route("/accounts/gmail/callback", get(gmail_oauth::callback))
         .route("/push/public-key", get(push::public_key))
         .route("/push/subscriptions", post(push::subscribe))
         .route(
@@ -676,6 +682,9 @@ async fn connect(
     Extension(id): Extension<Identity>,
     Json(input): Json<ConnectAccount>,
 ) -> Result<Json<Account>> {
+    if input.gmail_oauth.is_some() {
+        return Err(ApiFailure(StatusCode::BAD_REQUEST, "invalid_input"));
+    }
     Ok(Json(app.store.connect(&id.user, &input).await?))
 }
 async fn reconnect(
@@ -685,6 +694,9 @@ async fn reconnect(
     Json(input): Json<ConnectAccount>,
 ) -> Result<Json<Account>> {
     let a = app.store.authorize(&user.user, &account).await?;
+    if input.gmail_oauth.is_some() {
+        return Err(ApiFailure(StatusCode::BAD_REQUEST, "invalid_input"));
+    }
     Ok(Json(app.mail.reconnect(&app.store, &a, &input).await?))
 }
 async fn draft(

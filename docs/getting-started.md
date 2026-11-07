@@ -20,9 +20,9 @@ If the host uses a custom Compose project name, use that same name with every co
 
 1. Choose **Connect account** in the welcome screen or Workspace.
 2. Give the mailbox a name, such as Personal or Work, and enter its email address.
-3. Enter the mailbox password or the app password required by your email provider. This is not your Dakia password.
-4. Choose Gmail for Gmail settings, or Automatic for another provider. If automatic discovery cannot find settings, enter the provider's IMAP and SMTP hostnames, ports, username, and encryption settings manually.
-5. Choose **Connect account**. Dakia saves the account and checks its connection. If the check fails, use the error and your provider's settings to correct the connection and retry.
+3. Choose Gmail for Gmail settings, or Automatic for another provider. If automatic discovery cannot find settings, enter the provider's IMAP and SMTP hostnames, ports, username, and encryption settings manually.
+4. If the operator has [configured Gmail sign-in](gmail-oauth.md), choose **Continue with Google**, sign in to that same email account, and allow mail access. Otherwise, enter the mailbox password or app password and choose **Connect account**. This is separate from your Dakia password. To use an app password when Google sign-in is available, select **Use an app password**.
+5. Dakia saves the account and checks its connection. If the check fails, use the error and your provider's settings to correct the connection and retry.
 
 Use TLS or required STARTTLS as specified by your provider. Your host must be able to reach both the incoming IMAP server and outgoing SMTP server. Dakia uses your existing provider; you do not need to change MX records or run an incoming mail server.
 

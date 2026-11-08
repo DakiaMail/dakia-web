@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQueries } from "@tanstack/react-query";
 import type { Account, MailRule, Message } from "@dakia/api-types";
 import { ShieldBan } from "lucide-react";
+import { MoreActions } from "./MessageActions";
 import { Modal, ErrorNotice } from "./ui";
 import { announceRuleUpdate, ruleEmail, rulesApi, senderAddress, useMailRules } from "./mailRules";
 import { findSenderMail, type CleanupResult } from "./SenderCleanup";
@@ -38,10 +39,10 @@ export function SenderBlock({ message, accounts, onCleanup }: {
     finally { submitting.current = false; setBusy(false); }
   }
   return <div className="sender-block">
-    <button type="button" className="sender-block-trigger" disabled={rules.isPending || rules.isError} title={blocked ? "Unblock sender" : "Block sender"} onClick={() => {
-      setActionRule(blocked); setSaved(false); setReview(false); setError(undefined); cutoff.current = Date.now(); setOpen(true);
+    <MoreActions label={false} name={`More actions for ${message.sender.email}`}>{closeMenu => <><button type="button" className="sender-block-trigger" disabled={rules.isPending || rules.isError} title={blocked ? "Unblock sender" : "Block sender"} onClick={() => {
+      closeMenu(); setActionRule(blocked); setSaved(false); setReview(false); setError(undefined); cutoff.current = Date.now(); setOpen(true);
     }}><ShieldBan size={15} aria-hidden="true" />{blocked ? "Unblock sender" : "Block sender"}</button>
-    {rules.isError && <button type="button" onClick={() => void rules.refetch()}>Retry sender controls</button>}
+    {rules.isError && <button type="button" onClick={() => void rules.refetch()}>Retry sender controls</button>}</>}</MoreActions>
     {open && <Modal title={saved ? actionRule ? "Sender unblocked" : "Sender blocked" : actionRule ? "Unblock sender?" : "Block sender?"} onClose={close}>
       <div className="rules-dialog-content">
       <p className="blocked-address">{message.sender.email}</p>

@@ -7,6 +7,8 @@ async function reach(page: Page, target: Locator) {
   }
   throw new Error("Control could not be reached using Tab");
 }
+function senderMore(page: Page) { return page.getByRole("button", { name: /^More actions for / }).first(); }
+async function senderMenu(page: Page) { await reach(page, senderMore(page)); await page.keyboard.press("Enter"); }
 test.beforeEach(async ({ context }) => {
   await context.addCookies([{ name: "__Host-dakia", value: "release-browser-fixture", url: "https://127.0.0.1:4327/", secure: true, sameSite: "Lax" }]);
 });
@@ -18,6 +20,7 @@ for (const theme of ["light", "dark"]) for (const size of [{ width: 1480, height
     await expect(page.locator(".message-open").first()).toBeVisible();
     const row = page.locator(".message-open").filter({ hasText: "Synthetic 7" });
     await reach(page, row); await page.keyboard.press("Enter");
+    await senderMenu(page);
     const trigger = page.getByRole("button", { name: "Block sender", exact: true }).first();
     await reach(page, trigger); await page.keyboard.press("Enter");
     let dialog = page.getByRole("dialog");
@@ -33,9 +36,11 @@ for (const theme of ["light", "dark"]) for (const size of [{ width: 1480, height
     await expect(dialog.getByRole("button", { name: /Move \d+ emails? to Trash/ })).toBeVisible();
     await dialog.screenshot({ animations: "disabled", path: info.outputPath("older-mail-review.png") });
     await page.keyboard.press("Escape"); await expect(dialog).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Unblock sender", exact: true }).first()).toBeFocused();
+    await expect(senderMore(page)).toBeFocused();
     await page.reload();
+    await senderMenu(page);
     await expect(page.getByRole("button", { name: "Unblock sender", exact: true }).first()).toBeVisible();
+    await page.keyboard.press("Escape");
     await page.keyboard.press("Escape");
     if (size.width < 600) { await reach(page, page.getByRole("button", { name: "Open navigation", exact: true })); await page.keyboard.press("Enter"); }
     await reach(page, page.getByRole("button", { name: "Manage workspace", exact: true })); await page.keyboard.press("Enter");
@@ -62,6 +67,7 @@ test("sender block changes reach other open tabs", async ({ page, context }) => 
   const peer = await context.newPage();
   for (const tab of [page, peer]) {
     await tab.goto("/"); await tab.locator(".message-open").filter({ hasText: "Synthetic 7" }).click();
+    await senderMenu(tab);
     await expect(tab.getByRole("button", { name: "Block sender", exact: true })).toBeVisible();
   }
   await page.getByRole("button", { name: "Block sender", exact: true }).click();
@@ -70,6 +76,7 @@ test("sender block changes reach other open tabs", async ({ page, context }) => 
   await peer.getByRole("button", { name: "Unblock sender", exact: true }).click();
   await peer.getByRole("dialog").getByRole("button", { name: "Unblock sender", exact: true }).click();
   await page.keyboard.press("Escape");
+  await senderMenu(page);
   await expect(page.getByRole("button", { name: "Block sender", exact: true })).toBeVisible(); await peer.close();
 });
 
@@ -77,6 +84,7 @@ test("keyboard cleanup, restoration and unblocking persist through the real back
   await page.goto("/");
   const row = page.locator(".message-open").filter({ hasText: "Synthetic 7" });
   await expect(row).toBeVisible(); await reach(page, row); await page.keyboard.press("Enter");
+  await senderMenu(page);
   await reach(page, page.getByRole("button", { name: "Block sender", exact: true })); await page.keyboard.press("Enter");
   const dialog = page.getByRole("dialog");
   await reach(page, dialog.getByRole("button", { name: "Block sender", exact: true })); await page.keyboard.press("Enter");
@@ -112,6 +120,7 @@ test("keyboard cleanup, restoration and unblocking persist through the real back
   await expect(page.locator(".message-open").filter({ hasText: "Synthetic 7" })).toBeVisible();
   await page.screenshot({ animations: "disabled", path: info.outputPath("restored-inbox.png") });
   await reach(page, page.locator(".message-open").filter({ hasText: "Synthetic 7" })); await page.keyboard.press("Enter");
+  await senderMenu(page);
   await reach(page, page.getByRole("button", { name: "Unblock sender", exact: true })); await page.keyboard.press("Enter");
   await reach(page, dialog.getByRole("button", { name: "Unblock sender", exact: true })); await page.keyboard.press("Enter");
   await expect(dialog.getByRole("heading", { name: "Sender unblocked", exact: true })).toBeVisible();

@@ -31,7 +31,7 @@ npm run test:parity
 
 Browser tests use installed Google Chrome; set `CHROME_PATH` on macOS. The
 parity check renders the normal production build against the same sample API
-and compares screenshots byte for byte. Acceptance tests exercise the sandbox
+and compares screenshots with a 50-pixel allowance for browser rasterization noise. Acceptance tests exercise the sandbox
 without request mocking and reject API/auth traffic. Captures cover both themes,
 narrow screens, and short viewports. To check an existing deployment:
 

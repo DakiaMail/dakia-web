@@ -7,7 +7,8 @@ import { seed } from "../src/demo/seed";
 test("normal and sandbox builds render identical inbox and reader", async ({ page, browser }, testInfo) => {
   test.skip(!!process.env.DEMO_URL, "Local production-build comparison only");
   const normal = await browser.newPage({ viewport: { width: 1480, height: 980 } });
-  let state = seed();
+  const sceneTime = new Date("2026-11-08T12:00:00Z");
+  let state = seed(sceneTime.getTime());
   const mailbox = new DemoMailbox({ read: async () => structuredClone(state), write: async value => { state = structuredClone(value); } });
   await normal.route("**/api/**", async route => {
     if (new URL(route.request().url()).pathname.endsWith("/events")) {
@@ -26,7 +27,10 @@ test("normal and sandbox builds render identical inbox and reader", async ({ pag
     // Bound that noise to 50 pixels out of 1.45 million, with a strict threshold.
     expect(actual).toMatchSnapshot(`${name}.png`, { threshold: 0.01, maxDiffPixels: 50 });
   }
-  for (const p of [normal, page]) await p.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" });
+  for (const p of [normal, page]) {
+    await p.clock.setFixedTime(sceneTime);
+    await p.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" });
+  }
   await normal.goto("http://127.0.0.1:4176"); await page.goto("/");
   for (const p of [normal, page]) {
     await expect(p.getByRole("button", { name: /Unread Maya Chen/ }).first()).toBeVisible();

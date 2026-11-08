@@ -1,3 +1,4 @@
+import { localTransport } from "./localTransport";
 import type {
   Account,
   ApiError,
@@ -171,7 +172,7 @@ export const api = {
       body: file,
     }),
   download: (account: string, id: string) =>
-    `/api${accountPath(account)}/attachments/${key(id)}`,
+    localTransport ? localTransport.download(account, id) : `/api${accountPath(account)}/attachments/${key(id)}`,
 };
 export function optimistic(message: Message, change: Change): Message {
   switch (change.kind) {

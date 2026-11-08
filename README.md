@@ -122,3 +122,7 @@ are prefetched serially without marking them read or loading external images.
 Signing out or removing an account clears saved mail in this browser and other
 updated tabs. See [persistent local caching](docs/persistent-local-cache.md) for
 limits, authorization, retention and offline behavior.
+
+## Try Dakia
+
+Explore the app at [demo.dakiamail.com](https://demo.dakiamail.com). For the sandbox build, checks, and deployment, see [the demo guide](docs/demo.md).

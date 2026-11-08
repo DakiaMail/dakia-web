@@ -3,8 +3,10 @@ impl Store {
     /// Claim exactly once. A process lost after claim must reconcile, never replay a move.
     pub async fn claim_mutation(&self, a: &AuthorizedAccount) -> Result<Option<Operation>> {
         let _guard = self.gate.read().await;
+        let _rules_guard = self.rules_gate.read().await;
         let db = self.db(a).await?;
         let mut tx = db.begin().await?;
+        self.cancel_disabled_rules_tx(&mut tx, a).await?;
         let target: Option<String> = sqlx::query_scalar("UPDATE outbox SET state='running' WHERE id=(SELECT q.id FROM outbox q JOIN operations o ON o.id=q.target_id WHERE q.kind='mutation' AND q.state='pending' AND (q.lease_until IS NULL OR q.lease_until<=?) AND NOT EXISTS(SELECT 1 FROM outbox prior JOIN operations p ON p.id=prior.target_id WHERE prior.kind='mutation' AND prior.state IN ('pending','running') AND prior.id<q.id AND json_extract(p.document,'$.target_id')=json_extract(o.document,'$.target_id')) ORDER BY q.id LIMIT 1) AND state='pending' RETURNING target_id")
             .bind(now()).fetch_optional(&mut *tx).await?;
         let Some(target) = target else {

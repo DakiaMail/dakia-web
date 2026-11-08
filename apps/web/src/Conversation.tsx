@@ -7,6 +7,7 @@ import { api, ApiFailure } from "./api";
 import { KeyHint } from "./KeyboardHints";
 import { ErrorNotice } from "./ui";
 import { Translation } from "./Translation";
+import { SenderBlock } from "./BlockedSenders";
 import { Unsubscribe } from "./Unsubscribe";
 
 import type { ReplyMode } from "./reply";
@@ -121,6 +122,7 @@ function ConversationMessage({ message, initiallyOpen, multiple, ...props }: Pro
       <ChevronDown className="conversation-chevron" size={16} aria-hidden="true" />
     </button>
     <div id={region} hidden={!expanded} className="conversation-body">
+      {expanded && <SenderBlock message={message} accounts={props.accounts} onCleanup={props.onCleanup} />}
       <p className="conversation-recipients" dir="auto">to {message.to.map(a => a.name || a.email).join(", ") || "undisclosed recipients"}{content.data?.cc.length ? ` · cc ${content.data.cc.map(a => a.name || a.email).join(", ")}` : ""}</p>
       <ErrorNotice error={content.error} />
       {content.isError && <button title="Retry message" onClick={() => void content.refetch()}>Retry message</button>}

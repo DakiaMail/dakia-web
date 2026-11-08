@@ -16,7 +16,7 @@ export async function findSenderMail(message: Message, signal: AbortSignal, onPr
     try {
       const page = await api.search(q, [message.account_id], token, undefined, signal, true);
       for (const row of page.rows) {
-        if (row.account_id === message.account_id && row.sender.email === message.sender.email
+        if (row.account_id === message.account_id && row.sender.email.toLowerCase() === message.sender.email.toLowerCase()
           && Date.parse(row.received_at) <= cutoff) rows.set(row.id, row);
       }
       if (signal.aborted) throw new DOMException("Aborted", "AbortError");
@@ -64,7 +64,7 @@ export function SenderCleanup({ message, account, cached, cacheFailed, onClose }
     const cutoff = cached ? Date.parse(cached.cutoff) : Date.now();
     const known = new Map<string, Message>();
     const add = (rows: Message[]) => {
-      for (const row of rows) if (row.account_id === message.account_id && row.sender.email === message.sender.email
+      for (const row of rows) if (row.account_id === message.account_id && row.sender.email.toLowerCase() === message.sender.email.toLowerCase()
         && Date.parse(row.received_at) <= cutoff) known.set(row.id, row);
     };
     const publish = () => { if (!abort.signal.aborted) setFound({ rows: [...known.values()], complete: false }); };

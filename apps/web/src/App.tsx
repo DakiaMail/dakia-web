@@ -1,3 +1,4 @@
+import { useRuleUpdates } from "./mailRules";
 import { localMailCache } from "./localMailCache";
 import { useMessagePrefetch } from "./useMessagePrefetch";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -239,6 +240,7 @@ export function App() {
         setRemoved(old => Object.fromEntries(Object.entries(old).filter(([, value]) => value !== token)));
       });
   }, [session.data?.user_id, accounts.data, client]);
+  useRuleUpdates();
   useMailEvents(accounts.data || []);
   const cleanupRows = useCleanupProjection(accounts.data || []);
   const deepLinkOpened = useRef(false);

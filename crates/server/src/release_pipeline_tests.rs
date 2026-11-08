@@ -4,6 +4,8 @@ use super::*;
 use dakia_mail_provider::MailProvider;
 #[path = "full_text_tests.rs"]
 mod full_text_tests;
+#[path = "rules_pipeline_tests.rs"]
+mod rules_pipeline_tests;
 #[path = "search_preview_tests.rs"]
 mod search_preview_tests;
 #[path = "sender_cleanup_pipeline_tests.rs"]
@@ -135,7 +137,8 @@ impl p::MailProvider for Controlled {
         if matches!(
             &change,
             p::Mutation::Archive | p::Mutation::Trash | p::Mutation::Spam | p::Mutation::Move(_)
-        ) {
+        ) && std::env::var_os("DAKIA_RULES_FIXTURE").is_none()
+        {
             page.rows.retain(|m| m.reference != *r);
         }
         let destination = match change {
@@ -146,9 +149,19 @@ impl p::MailProvider for Controlled {
             p::Mutation::Move(f) => Some(f),
             _ => None,
         };
+        let mut destination_reference = None;
+        if std::env::var_os("DAKIA_RULES_FIXTURE").is_some() {
+            if let Some(folder) = &destination {
+                for message in page.rows.iter_mut().filter(|m| m.reference == *r) {
+                    message.reference.folder = folder.clone();
+                    message.identity = p::Identity::Imap(message.reference.clone());
+                    destination_reference = Some(message.reference.clone());
+                }
+            }
+        }
         Ok(p::MutationResult {
             destination,
-            destination_reference: None,
+            destination_reference,
             requires_rescan: false,
         })
     }
@@ -178,7 +191,9 @@ async fn browser_release_fixture() {
     {
         let mut page = provider.page.lock().await;
         let template = page.rows[0].clone();
-        let count = if std::env::var_os("DAKIA_CLEANUP_FIXTURE").is_some() {
+        let count = if std::env::var_os("DAKIA_CLEANUP_FIXTURE").is_some()
+            && std::env::var_os("DAKIA_RULES_FIXTURE").is_none()
+        {
             48
         } else {
             8

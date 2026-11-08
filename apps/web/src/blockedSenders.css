@@ -1,0 +1,26 @@
+.sender-block { margin: 0 0 12px; display: flex; flex-wrap: wrap; gap: 8px; }
+.sender-block-trigger { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+.blocked-address { overflow-wrap: anywhere; }
+.blocked-senders-list, .blocked-review-list { padding: 0; list-style: none; }
+.blocked-senders-list > li { display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--color-border); padding: 14px 0; }
+.blocked-senders-list > li > div { min-width: 0; }
+.blocked-senders-list small { display: block; margin-top: 6px; color: var(--color-secondary); }
+.blocked-cleanup-groups { display: grid; gap: 16px; margin-top: 16px; }
+.blocked-cleanup-account { border-top: 1px solid var(--color-border); padding-top: 12px; }
+.blocked-cleanup-account h3, .blocked-cleanup-account p { margin: 0 0 10px; }
+.blocked-review-list { max-height: 220px; overflow: auto; }
+.blocked-review-list li { padding: 8px 0; overflow-wrap: anywhere; }
+.blocked-review-list small { display: block; color: var(--color-secondary); }
+.blocked-cleanup-account details { margin-bottom: 12px; }
+.blocked-cleanup-account summary { cursor: pointer; padding: 6px 0; }
+@media (max-width: 600px) { .conversation-body > .sender-block { margin-inline: 16px; } }
+
+.rules-dialog-content { padding: 22px; line-height: 1.6; }
+.rules-dialog-content .form-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 24px; }
+.rules-dialog-content button { min-height: 44px; }
+.rules-dialog-content > p:first-child { margin-top: 0; }
+
+.blocked-senders { margin-top: 28px; padding: 26px 22px; border: 1px solid var(--color-border); border-radius: 12px; }
+.blocked-senders > p { margin: 8px 0 12px; color: var(--color-secondary); line-height: 1.6; }
+.blocked-senders-list > li > button { flex-shrink: 0; }
+@media (max-width: 600px) { .blocked-senders { padding: 20px 14px; } }

@@ -2,6 +2,7 @@ import { ArrowLeft, Bell, Keyboard, Mail, Plus, Settings2, Shield } from "lucide
 import type { Account } from "@dakia/api-types";
 import { useEffect, useRef, useState } from "react";
 import { Invitations } from "./Invitations";
+import { BlockedSenders } from "./BlockedSenders";
 import { InstallApp } from "./InstallApp";
 
 export function Workspace({ userId, accounts, onBack, onConnect, onSettings, onRemove, onReconnect, onNotifications, notificationStatus, alwaysLoadImages, onImagePrivacyChange, blockHiddenImages, onHiddenImagesChange, keyboardHints, onKeyboardHintsChange, keyboardShortcuts, onKeyboardShortcutsChange, onShortcutHelp }: {
@@ -46,6 +47,7 @@ export function Workspace({ userId, accounts, onBack, onConnect, onSettings, onR
       <section className="workspace-notifications" aria-labelledby="workspace-privacy">
         <span className="workspace-account-icon"><Shield size={20} /></span><div><h2 id="workspace-privacy">Email privacy</h2><p>Recent mail is saved on this browser for faster opening. Signing out clears saved mail.</p><label className="privacy-toggle"><input type="checkbox" checked={!alwaysLoadImages} onChange={(event) => { try { onImagePrivacyChange(!event.target.checked); setPrivacyError(""); } catch { setPrivacyError("Could not save this preference. Check browser storage permissions."); } }} />Block external images by default</label><p>Off by default. Loading external images can tell senders when you open mail. Turn on to load images only when you choose.</p><label className="privacy-toggle"><input type="checkbox" checked={blockHiddenImages} onChange={(event) => { try { onHiddenImagesChange(event.target.checked); setPrivacyError(""); } catch { setPrivacyError("Could not save this preference. Check browser storage permissions."); } }} />Block hidden images and tracking pixels</label><p>Off by default. Skips explicitly hidden and zero/one-pixel images, including some legitimate assets. This cannot detect every tracker. Applies even when you choose Load images.</p><p>Saved separately for your signed-in user, for all your accounts on this browser. Existing image-loading choices are preserved. Network isolation and message sandboxing are always enforced.</p>{privacyError && <p role="alert">{privacyError}</p>}</div>
       </section>
+      <BlockedSenders accounts={accounts} />
       {userId && <Invitations key={userId} userId={userId} />}
       <section className="workspace-notifications workspace-keyboard" aria-labelledby="workspace-keyboard">
         <span className="workspace-account-icon"><Keyboard size={20} /></span>

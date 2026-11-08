@@ -36,7 +36,7 @@ export function cleanupProjection(intents: CleanupIntent[], jobs: CleanupJob[]) 
   for (const job of jobs) {
     const targets = new Set(job.request.targets.map(t => t.id));
     for (const row of job.projected_rows || []) {
-      if (row.account_id === job.account_id && row.sender.email === job.sender && targets.has(row.id)) rows[identity(row)] = optimistic(row, { kind: "trash" });
+      if (row.account_id === job.account_id && row.sender.email.toLowerCase() === job.sender.toLowerCase() && targets.has(row.id)) rows[identity(row)] = optimistic(row, { kind: "trash" });
     }
   }
   for (const intent of intents) {
@@ -44,7 +44,7 @@ export function cleanupProjection(intents: CleanupIntent[], jobs: CleanupJob[]) 
     const job = jobs.find(job => job.account_id === intent.account_id && job.request.id === intent.request.id);
     const targets = new Set(intent.request.targets.map(t => t.id));
     for (const row of intent.rows || []) {
-      if (row.account_id !== intent.account_id || row.sender.email !== intent.sender || !targets.has(row.id) || job?.failed_targets.includes(row.id)) continue;
+      if (row.account_id !== intent.account_id || row.sender.email.toLowerCase() !== intent.sender.toLowerCase() || !targets.has(row.id) || job?.failed_targets.includes(row.id)) continue;
       rows[identity(row)] = optimistic(row, { kind: "trash" });
     }
   }
@@ -77,7 +77,7 @@ export function useSenderCleanup(account: string) {
   const jobs = useQuery(jobOptions(user, account));
   return { jobs, submissions: intents.filter(row => row.account_id === account),
     start: (source: Message, rows: Message[], complete: boolean) => {
-      if (!user || source.account_id !== account || !rows.length || rows.some(row => row.account_id !== account || row.sender.email !== source.sender.email)) return;
+      if (!user || source.account_id !== account || !rows.length || rows.some(row => row.account_id !== account || row.sender.email.toLowerCase() !== source.sender.email.toLowerCase())) return;
       const intent: CleanupIntent = { account_id: account, sender: source.sender.email, rows, request: {
         id: crypto.randomUUID(), source_id: source.id, search_complete: complete,
         targets: rows.map(row => ({ id: row.id, expected_revision: row.revision,
@@ -96,6 +96,7 @@ export function useSenderCleanup(account: string) {
         save(client, user, current().map(row => row.request.id === intent.request.id ? { ...row, rejected, error: error instanceof ApiFailure ? error.code : "acceptance_unknown" } : row));
         if (rejected) void invalidateMail(client).catch(() => {});
       }).finally(() => { void client.invalidateQueries({ queryKey: jobOptions(user, account).queryKey }); });
+      return intent.request.id;
     },
   };
 }

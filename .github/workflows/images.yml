@@ -55,6 +55,7 @@ jobs:
         run: |
           image="$IMAGE@$DIGEST"
           docker pull "$image"
+          docker run --rm --network none --read-only --entrypoint /app/dakia-classifier-check "$image"
           docker run --rm --network none --entrypoint node "$image" /app/workers/translation/smoke.mjs
           name="dakia-smoke-${{ matrix.arch }}"
           trap 'docker rm -f "$name" >/dev/null' EXIT

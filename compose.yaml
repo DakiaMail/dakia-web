@@ -1,7 +1,7 @@
 name: dakia
 services:
   dakia:
-    image: ${DAKIA_IMAGE:-ghcr.io/dakiamail/dakia-web@sha256:70ddb24c20017341a3116aa1e6a7db704e1170625c6ed82a731d8be102ede8d9}
+    image: ${DAKIA_IMAGE:-ghcr.io/dakiamail/dakia-web@sha256:0145db0d8be7b8310e5b0fe25ca68d02c9de0d353c426bbdaffd9413b65a6bd0}
     restart: unless-stopped
     environment:
       DAKIA_ORIGIN: ${DAKIA_ORIGIN:?Set the external HTTPS address in .env}

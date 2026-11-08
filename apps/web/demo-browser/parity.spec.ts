@@ -21,12 +21,12 @@ test("normal and sandbox builds render identical inbox and reader", async ({ pag
     await expect(p.getByRole("button", { name: /Unread Maya Chen/ }).first()).toBeVisible();
     await p.evaluate(() => document.fonts.ready);
   }
-  expect(await page.screenshot({ animations: "disabled" })).toEqual(await normal.screenshot({ animations: "disabled" }));
+  expect(Buffer.compare(await page.screenshot({ animations: "disabled", path: "artifacts/demo/parity-demo-inbox.png" }), await normal.screenshot({ animations: "disabled", path: "artifacts/demo/parity-app-inbox.png" }))).toBe(0);
   for (const p of [normal, page]) {
     await p.getByRole("button", { name: /Unread Maya Chen/ }).first().click();
     await expect(p.getByRole("link", { name: /Launch review.txt/ })).toBeVisible();
     await expect(p.frameLocator('iframe[title="Message body"]').first().locator("body")).toContainText("Hi Alex");
   }
-  expect(await page.screenshot({ animations: "disabled" })).toEqual(await normal.screenshot({ animations: "disabled" }));
+  expect(Buffer.compare(await page.screenshot({ animations: "disabled", path: "artifacts/demo/parity-demo-reader.png" }), await normal.screenshot({ animations: "disabled", path: "artifacts/demo/parity-app-reader.png" }))).toBe(0);
   await normal.close();
 });

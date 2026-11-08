@@ -79,6 +79,28 @@ test("local search, reading, download, translation, unsubscribe, and blocked ext
   expect(requests).toEqual([]);
 });
 
+test("keyboard workspace settings persist and notifications never request permission", async ({ page }) => {
+  await page.goto("/");
+  await tabTo(page, "Manage workspace"); await page.keyboard.press("Enter");
+  await expect(page.getByRole("heading", { name: "Workspace", exact: true })).toBeVisible();
+  await tabTo(page, "Mailbox settings"); await page.keyboard.press("Enter");
+  const dialog = page.getByRole("dialog", { name: "Mailbox settings: Work" });
+  await expect(dialog).toBeVisible();
+  await tabTo(page, "Archive folder"); await page.keyboard.press("p");
+  await expect(page.getByRole("combobox", { name: "Archive folder" })).toHaveValue("Projects");
+  await tabTo(page, "Save settings"); await page.keyboard.press("Enter");
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Mailbox settings", exact: true }).first()).toBeFocused();
+  await page.reload();
+  await tabTo(page, "Manage workspace"); await page.keyboard.press("Enter");
+  await tabTo(page, "Mailbox settings"); await page.keyboard.press("Enter");
+  await expect(page.getByRole("combobox", { name: "Archive folder" })).toHaveValue("Projects");
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => { Notification.requestPermission = () => { throw new Error("Permission prompt was called"); }; });
+  await tabTo(page, "Enable notifications"); await page.keyboard.press("Enter");
+  await expect(page.getByRole("status")).toContainText("Notifications are not available in this browser.");
+});
+
 for (const theme of ["light", "dark"] as const) {
   for (const viewport of [{ width: 1480, height: 980 }, { width: 390, height: 640 }, { width: 980, height: 480 }]) {
     test(`shared app screens ${theme} ${viewport.width}x${viewport.height}`, async ({ page }) => {

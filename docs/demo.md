@@ -43,7 +43,8 @@ DEMO_URL=https://demo.dakiamail.com npm run test:demo
 
 GitHub Actions `Demo` runs on every main update and pull request. It tests both
 builds, then deploys the exact verified demo artifact from main to the separate
-Cloudflare Pages project `dakia-demo`. Its version endpoint records the source
+Cloudflare Pages project `dakia-demo`. A candidate deployment must also pass
+Chrome acceptance before the live branch is updated. Its version endpoint records the source
 commit. A failed check never replaces the live demo. No local deployments.
 
 Required Actions secrets in `DakiaMail/dakia-web`:

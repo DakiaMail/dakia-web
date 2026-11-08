@@ -138,8 +138,7 @@ async fn queued_user_actions_that_never_acquire_a_connection_are_safe_to_retry()
     );
 }
 
-#[path = "../tests/common/mod.rs"]
-mod connection_fixture;
+use crate::test_common as connection_fixture;
 
 #[tokio::test]
 async fn failed_handshake_suppresses_both_lanes_then_clean_read_restores_pooling() {

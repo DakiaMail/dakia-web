@@ -20,6 +20,7 @@ def main():
     target = ASSETS / "model.onnx"
     expected = manifest["files"][target.name]
     if target.is_file() and digest(target) == expected:
+        target.chmod(0o644)
         print("Classifier already verified")
         return
     url = (f"https://huggingface.co/{manifest['model']}/resolve/"
@@ -33,6 +34,7 @@ def main():
                     output.write(chunk)
         if digest(temporary) != expected:
             raise ValueError("Classifier SHA-256 mismatch; existing model left unchanged")
+        temporary.chmod(0o644)
         temporary.replace(target)
         print("Classifier downloaded and verified")
     finally:

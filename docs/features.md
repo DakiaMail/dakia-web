@@ -16,7 +16,7 @@ Conversations, search, smart categories, stars, snooze, and bulk actions help or
 
 ## Block unwanted senders
 
-Choose **Block sender** beside the sender of an open email. Future emails from that address move to Trash across your mailboxes without notifications while Dakia syncs. Older mail stays in place unless you review it and confirm cleanup. Manage blocks in **Workspace → Blocked senders**. Restored emails stay restored, and unblocking does not empty or restore Trash.
+Open an email and choose **More actions → Block sender** in its message header. Future emails from that address move to Trash across your mailboxes without notifications while Dakia syncs. Older mail stays in place unless you review it and confirm cleanup. Manage blocks in **Workspace → Blocked senders**. Restored emails stay restored, and unblocking does not empty or restore Trash.
 
 ## Write and send
 

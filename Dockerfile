@@ -12,7 +12,7 @@ COPY --from=rust /usr/local/rustup /usr/local/rustup
 ENV CARGO_HOME=/usr/local/cargo RUSTUP_HOME=/usr/local/rustup PATH=/usr/local/cargo/bin:$PATH
 WORKDIR /src
 COPY . .
-RUN python3 scripts/fetch-classifier.py && cargo build --release --locked -p dakia-server && mkdir /runtime && cp target/release/dakia-server target/release/dakia-admin target/release/dakia-healthcheck /runtime/ && find target/release -maxdepth 1 -name 'libonnxruntime.so*' -exec cp -P {} /runtime/ \;
+RUN python3 scripts/fetch-classifier.py && cargo build --release --locked -p dakia-server && mkdir /runtime && cp target/release/dakia-server target/release/dakia-admin target/release/dakia-healthcheck target/release/dakia-classifier-check /runtime/ && find target/release -maxdepth 1 -name 'libonnxruntime.so*' -exec cp -P {} /runtime/ \;
 
 FROM ubuntu:24.04
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libssl3t64 libstdc++6 libatomic1 && rm -rf /var/lib/apt/lists/* && mkdir -p /data /secrets && chown 1000:1000 /data /secrets
@@ -28,7 +28,7 @@ COPY crates/inference/assets/DESKTOP_THIRD_PARTY_NOTICES.md /app/licenses/
 COPY --from=web /src/node_modules/@fontsource/inter/LICENSE /app/licenses/Inter-OFL-1.1.txt
 ENV LD_LIBRARY_PATH=/app DAKIA_DATA_DIR=/data DAKIA_CREDENTIAL_KEY_FILE=/secrets/credential-key DAKIA_WEB_ROOT=/app/web DAKIA_WORKERS=/app/workers DAKIA_CLASSIFIER_DIR=/app/classifier DAKIA_MODEL_CACHE=/data/models DAKIA_LISTEN=0.0.0.0:3025
 USER 1000:1000
-RUN node /app/workers/translation/smoke.mjs
+RUN node /app/workers/translation/smoke.mjs && /app/dakia-classifier-check
 EXPOSE 3025
 HEALTHCHECK --interval=30s --timeout=5s CMD ["/app/dakia-healthcheck"]
 ENTRYPOINT ["/app/dakia-server"]

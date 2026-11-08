@@ -65,7 +65,7 @@ Four views of the running web frontend with fictional mail. Mobile scenes are br
 
 ## Block unwanted senders
 
-Open an email and choose **Block sender** beside the sender. Future emails from that exact address move to Trash across your mailboxes without notifications while Dakia syncs. Blocking does not reject delivery at your email provider.
+Open an email and choose **More actions → Block sender** in its message header. Future emails from that exact address move to Trash across your mailboxes without notifications while Dakia syncs. Blocking does not reject delivery at your email provider.
 
 Choose **Review older emails** to find previous messages across your mailboxes, review each mailbox’s results, and confirm the move to Trash. Search can be incomplete; Dakia shows the emails it found and reports pending or failed moves.
 

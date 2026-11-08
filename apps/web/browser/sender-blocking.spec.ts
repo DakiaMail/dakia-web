@@ -46,7 +46,8 @@ async function fixture(page: Page, bodyFails = false, previousCleanup = false) {
 }
 
 async function senderMenu(page: Page) {
-  await page.getByRole("button", { name: /^More actions for / }).first().press("Enter");
+  await page.getByRole("button", { name: "More actions", exact: true }).first().press("Enter");
+  await page.keyboard.press("End");
 }
 
 test("blocking works before body loading succeeds and does not clean up implicitly", async ({ page }) => {
@@ -98,18 +99,19 @@ for (const theme of ["light", "dark"]) for (const viewport of [{ width: 1480, he
     await page.setViewportSize(viewport);
     await page.addInitScript(theme => localStorage.setItem("dakia-theme", theme), theme);
     await page.goto("/"); await page.locator(".message-open").first().click();
-    const more = page.getByRole("button", { name: /^More actions for / }).first();
+    await expect(page.getByRole("button", { name: "More actions", exact: true })).toHaveCount(1);
+    const more = page.getByRole("button", { name: "More actions", exact: true }).first();
     await expect(page.getByRole("button", { name: "Block sender", exact: true })).toHaveCount(0);
     // Reach the sender menu using Tab, then use only keys for the whole dialog journey.
     for (let n = 0; n < 100 && !await more.evaluate(el => el === document.activeElement); n++) await page.keyboard.press("Tab");
-    await expect(more).toBeFocused(); await page.keyboard.press("Enter");
+    await expect(more).toBeFocused(); await page.keyboard.press("Enter"); await page.keyboard.press("End");
     const block = page.getByRole("button", { name: "Block sender", exact: true });
     await expect(block).toBeFocused();
     await page.screenshot({ path: info.outputPath("sender-more.png") });
     const bounds = await block.boundingBox(); expect(bounds!.x).toBeGreaterThanOrEqual(0); expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(viewport.width);
-    await page.keyboard.press("ArrowDown"); await expect(block).toBeFocused();
+    await page.keyboard.press("ArrowUp"); await page.keyboard.press("ArrowDown"); await expect(block).toBeFocused();
     await page.keyboard.press("Escape"); await expect(more).toBeFocused();
-    await page.keyboard.press("Enter"); await page.keyboard.press("Enter");
+    await page.keyboard.press("Enter"); await page.keyboard.press("End"); await page.keyboard.press("Enter");
     const dialog = page.getByRole("dialog"); await expect(dialog.getByRole("button", { name: "Close", exact: true })).toBeFocused();
     await page.screenshot({ path: info.outputPath("sender-confirm.png") });
     await page.keyboard.press("e"); expect(state.getRules()).toEqual([]);
@@ -124,3 +126,28 @@ for (const theme of ["light", "dark"]) for (const viewport of [{ width: 1480, he
     await page.keyboard.press("Escape"); await expect(more).toBeFocused();
   });
 }
+
+test("the single existing toolbar menu targets the selected message in a mixed conversation", async ({ page }) => {
+  const state = await fixture(page, true);
+  const selected = { ...mail.rows[0], unread: false };
+  await page.route("**/api/accounts/*/messages/*/conversation*", route => route.fulfill({ json: { rows: [selected, { ...selected, id: "other-sender", sender: { email: "other@example.invalid", name: "Other sender" } }], complete: true, continuation: null } }));
+  await page.route("**/messages/other-sender", route => route.fulfill({ status: 503, json: { code: "unavailable" } }));
+  await page.goto("/"); await page.locator(".message-open").first().click();
+  await expect(page.locator(".conversation-message")).toHaveCount(2);
+  await expect(page.getByRole("button", { name: "More actions", exact: true })).toHaveCount(1);
+  await expect(page.locator(".conversation-message").getByRole("button", { name: /More actions|Block sender/ })).toHaveCount(0);
+  await senderMenu(page); await page.getByRole("button", { name: "Block sender", exact: true }).click();
+  const dialog = page.getByRole("dialog"); await expect(dialog.getByText(selected.sender.email, { exact: true })).toBeVisible();
+  await dialog.getByRole("button", { name: "Block sender", exact: true }).click();
+  expect(state.getRules()[0].condition).toEqual({ kind: "sender_is", email: selected.sender.email });
+});
+
+test("bulk selection never offers a sender block in the toolbar", async ({ page }) => {
+  await fixture(page); await page.goto("/"); await page.locator(".message-open").first().click();
+  await page.getByRole("tab", { name: "List", exact: true }).click();
+  await page.locator(".message-select input").first().check();
+  await page.getByRole("button", { name: "More actions", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Move", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Block sender", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Unblock sender", exact: true })).toHaveCount(0);
+});

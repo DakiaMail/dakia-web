@@ -7,9 +7,7 @@
 .message-body-placeholder { display: grid; gap: 10px; padding: 8px 0; }
 .message-body-placeholder span { height: 10px; border-radius: 4px; background: var(--color-subtle); }
 .message-body-placeholder span:last-child { width: 60%; }
-.conversation-message { border: 1px solid var(--color-border); border-radius: 12px; margin-bottom: 14px; }
-.conversation-message-header { display: flex; align-items: flex-start; position: relative; }
-.conversation-message-header .conversation-summary { flex: 1; min-width: 0; }
+.conversation-message { border: 1px solid var(--color-border); border-radius: 12px; margin-bottom: 14px; overflow: hidden; }
 .conversation-summary { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto 16px; align-items: center; gap: 12px; width: 100%; text-align: start; padding: 16px; background: transparent; color: inherit; border-radius: 0; }
 .conversation-summary:hover { background: var(--color-subtle); }
 .conversation-sender { display: grid; min-width: 0; gap: 4px; }

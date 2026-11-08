@@ -25,3 +25,5 @@
 /secrets/
 
 /crates/inference/assets/email-classifier-v2/.model-*
+
+**/dist-demo/

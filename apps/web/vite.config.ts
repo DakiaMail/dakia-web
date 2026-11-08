@@ -6,12 +6,16 @@ import { readFileSync } from "node:fs";
 const local = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 const buildId = process.env.DAKIA_BUILD_ID || randomUUID();
 if (!/^[a-zA-Z0-9_-]{1,100}$/.test(buildId)) throw new Error("Invalid DAKIA_BUILD_ID");
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   define: { "import.meta.env.VITE_DAKIA_BUILD_ID": JSON.stringify(buildId) },
   plugins: [react(), {
     name: "dakia-release-version",
     apply: "build",
     generateBundle(_options, bundle) {
+      if (mode === "demo") {
+        this.emitFile({ type: "asset", fileName: "_headers", source: "/*\n  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; frame-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'\n  Referrer-Policy: no-referrer\n  X-Content-Type-Options: nosniff\n  X-Robots-Tag: noindex, nofollow\n  Permissions-Policy: camera=(), microphone=(), geolocation=()\n/app-version.json\n  Cache-Control: no-store\n/index.html\n  Cache-Control: no-cache\n" });
+        this.emitFile({ type: "asset", fileName: "404.html", source: "<!doctype html><title>Not found</title>Not found" });
+      }
       this.emitFile({ type: "asset", fileName: "app-version.json", source: JSON.stringify({ version: buildId }) });
       // A UI-only release must also produce a byte-different worker.
       this.emitFile({ type: "asset", fileName: "sw.js", source: `/* Dakia build ${buildId} */\n${readFileSync(local("./public/sw.js"), "utf8").replace("/* DAKIA_STATIC_ASSETS */ []", JSON.stringify(Object.keys(bundle).filter(path => /^assets\//.test(path)).map(path => "/" + path)))}` });
@@ -38,4 +42,4 @@ export default defineConfig({
     },
   },
   test: { environment: "jsdom", include: ["src/**/*.test.{ts,tsx}"] },
-});
+}));

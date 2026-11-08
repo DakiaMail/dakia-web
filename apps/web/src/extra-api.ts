@@ -8,6 +8,7 @@ import type {
   ScheduledMessage,
 } from "@dakia/api-types";
 import { accountPath, key, request } from "./api";
+import { localTransport } from "./localTransport";
 // These thin routes reuse the generated Rust DTOs. See API-INTEGRATION.md for unimplemented backend surfaces.
 const messagePath = (m: Message) =>
   `${accountPath(m.account_id)}/messages/${key(m.id)}`;
@@ -42,6 +43,7 @@ export const extraApi = {
     }),
 };
 export async function enableNotifications() {
+  if (localTransport) throw new Error("Notifications are not available in this browser.");
   if (!("serviceWorker" in navigator) || !("PushManager" in window))
     throw new Error("Notifications are not available in this browser.");
   if ((await Notification.requestPermission()) !== "granted")

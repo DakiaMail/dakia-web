@@ -18,10 +18,17 @@ window.addEventListener("dakia-auth-expired", event => {
   void localMailCache.clear();
   if ((event as CustomEvent).detail !== "/session") void client.invalidateQueries({ queryKey: ["session"] });
 });
-createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <QueryClientProvider client={client}>
-      <InstallProvider><AppUpdateProvider><App /></AppUpdateProvider></InstallProvider>
-    </QueryClientProvider>
-  </React.StrictMode>,
-);
+async function start() {
+  if (import.meta.env.MODE === "demo") {
+    const { installDemo } = await import("./demo/bootstrap");
+    await installDemo();
+  }
+  createRoot(document.getElementById("root")!).render(
+    <React.StrictMode>
+      <QueryClientProvider client={client}>
+        <InstallProvider><AppUpdateProvider><App /></AppUpdateProvider></InstallProvider>
+      </QueryClientProvider>
+    </React.StrictMode>,
+  );
+}
+void start();

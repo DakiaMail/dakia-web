@@ -1,4 +1,7 @@
-.sender-block { margin: 0 0 12px; display: flex; flex-wrap: wrap; gap: 8px; }
+.sender-block { flex-shrink: 0; padding: 12px 8px 0 0; }
+.sender-block .message-actions-more { position: relative; }
+.sender-block .message-actions-more > button { width: 44px; min-height: 44px; color: var(--color-secondary); }
+.sender-block .message-actions-popover { right: 0; }
 .sender-block-trigger { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
 .blocked-address { overflow-wrap: anywhere; }
 .blocked-senders-list, .blocked-review-list { padding: 0; list-style: none; }
@@ -13,7 +16,7 @@
 .blocked-review-list small { display: block; color: var(--color-secondary); }
 .blocked-cleanup-account details { margin-bottom: 12px; }
 .blocked-cleanup-account summary { cursor: pointer; padding: 6px 0; }
-@media (max-width: 600px) { .conversation-body > .sender-block { margin-inline: 16px; } }
+@media (max-width: 600px) { .sender-block { padding: 4px 8px 0 0; } }
 
 .rules-dialog-content { padding: 22px; line-height: 1.6; }
 .rules-dialog-content .form-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 24px; }

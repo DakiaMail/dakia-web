@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Archive, Clock, FolderInput, Mail, MoreHorizontal, ShieldAlert, Star, Trash2 } from "lucide-react";
 import { KeyHint } from "./KeyboardHints";
 import { plainKey } from "./keyboard";
@@ -20,6 +20,32 @@ interface Props {
 }
 
 export function MessageActions(props: Props) {
+  const extras = (close: () => void) => <>
+    <button aria-label="Move" title="Move" disabled={props.pending} onClick={() => { close(); props.move(); }}><FolderInput size={18} />Move<KeyHint keys="M" /></button>
+    <button aria-label="Mark as spam" title="Mark as spam" disabled={props.pending} onClick={() => { close(); props.spam(); }}><ShieldAlert size={18} />Mark as spam<KeyHint keys="!" /></button>
+    {props.category !== undefined && <label>Category <select aria-label="Category" title="Change category" value={props.category} disabled={props.pending} onChange={event => { props.setCategory(event.target.value); close(); }}>
+      <option value="" disabled>Category</option>
+      {props.categories.map(category => <option key={category}>{category}</option>)}
+    </select></label>}
+    <button aria-label="Mark read" title="Mark read" disabled={props.pending} onClick={() => { close(); props.read(); }}><Mail size={18} />Mark read<KeyHint keys="Shift+U" /></button>
+    <button aria-label={props.starred ? "Unstar selected messages" : "Star selected messages"} title={props.starred ? "Unstar" : "Star"} disabled={props.pending} onClick={() => { close(); props.toggleStar(); }}><Star size={18} fill={props.starred ? "currentColor" : "none"} />{props.starred ? "Unstar" : "Star"}<KeyHint keys="S" /></button>
+  </>;
+  return <div className="reader-toolbar" aria-label="Message actions">
+    <button aria-label="Archive" title="Archive" disabled={props.pending} onClick={props.archive}><Archive size={18} /><span className="message-action-label">Archive</span><KeyHint keys="E" /></button>
+    <button aria-label="Mark unread" title="Mark unread" disabled={props.pending} onClick={props.unread}><Mail size={18} /><span className="message-action-label">Mark unread</span><KeyHint keys="U" /></button>
+    <button aria-label="Move to trash" title="Move to trash" disabled={props.pending} onClick={props.trash}><Trash2 size={18} /><span className="message-action-label">Delete</span><KeyHint keys="Delete" /></button>
+    <button aria-label="Snooze" title="Snooze" disabled={props.pending} onClick={props.snooze}><Clock size={18} /><span className="message-action-label">Snooze</span><KeyHint keys="B" /></button>
+    <MoreActions disabled={props.pending}>{close => extras(close)}</MoreActions>
+
+  </div>;
+}
+
+export function MoreActions({ children, disabled = false, label = true, name = "More actions" }: {
+  children: (close: () => void) => ReactNode;
+  disabled?: boolean;
+  label?: boolean;
+  name?: string;
+}) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -43,22 +69,7 @@ export function MessageActions(props: Props) {
       window.removeEventListener("resize", resize);
     };
   }, [open]);
-  const extras = <>
-    <button aria-label="Move" title="Move" disabled={props.pending} onClick={() => { close(true); props.move(); }}><FolderInput size={18} />Move<KeyHint keys="M" /></button>
-    <button aria-label="Mark as spam" title="Mark as spam" disabled={props.pending} onClick={() => { close(true); props.spam(); }}><ShieldAlert size={18} />Mark as spam<KeyHint keys="!" /></button>
-    {props.category !== undefined && <label>Category <select aria-label="Category" title="Change category" value={props.category} disabled={props.pending} onChange={event => { props.setCategory(event.target.value); close(true); }}>
-      <option value="" disabled>Category</option>
-      {props.categories.map(category => <option key={category}>{category}</option>)}
-    </select></label>}
-    <button aria-label="Mark read" title="Mark read" disabled={props.pending} onClick={() => { close(true); props.read(); }}><Mail size={18} />Mark read<KeyHint keys="Shift+U" /></button>
-    <button aria-label={props.starred ? "Unstar selected messages" : "Star selected messages"} title={props.starred ? "Unstar" : "Star"} disabled={props.pending} onClick={() => { close(true); props.toggleStar(); }}><Star size={18} fill={props.starred ? "currentColor" : "none"} />{props.starred ? "Unstar" : "Star"}<KeyHint keys="S" /></button>
-  </>;
-  return <div className="reader-toolbar" aria-label="Message actions">
-    <button aria-label="Archive" title="Archive" disabled={props.pending} onClick={props.archive}><Archive size={18} /><span className="message-action-label">Archive</span><KeyHint keys="E" /></button>
-    <button aria-label="Mark unread" title="Mark unread" disabled={props.pending} onClick={props.unread}><Mail size={18} /><span className="message-action-label">Mark unread</span><KeyHint keys="U" /></button>
-    <button aria-label="Move to trash" title="Move to trash" disabled={props.pending} onClick={props.trash}><Trash2 size={18} /><span className="message-action-label">Delete</span><KeyHint keys="Delete" /></button>
-    <button aria-label="Snooze" title="Snooze" disabled={props.pending} onClick={props.snooze}><Clock size={18} /><span className="message-action-label">Snooze</span><KeyHint keys="B" /></button>
-    <div className="message-actions-more" ref={root} onBlur={event => {
+  return <div className="message-actions-more" ref={root} onBlur={event => {
       if (!event.currentTarget.contains(event.relatedTarget as Node)) close();
     }} onKeyDown={event => {
       if (!plainKey(event.nativeEvent)) return;
@@ -70,9 +81,7 @@ export function MessageActions(props: Props) {
       const next = event.key === "Home" ? 0 : event.key === "End" ? controls.length - 1 : (index + (event.key === "ArrowDown" ? 1 : -1) + controls.length) % controls.length;
       controls[next]?.focus();
     }}>
-      <button ref={trigger} aria-label="More actions" title="More actions" aria-expanded={open} aria-controls={id} disabled={props.pending} onClick={() => setOpen(value => !value)}><MoreHorizontal size={18} /><span className="message-action-label">More</span></button>
-      {open && <div id={id} ref={panel} className="message-actions-popover" role="group" aria-label="More message actions">{extras}</div>}
-    </div>
-
-  </div>;
+      <button ref={trigger} aria-label={name} title="More actions" aria-expanded={open} aria-controls={id} disabled={disabled} onClick={() => setOpen(value => !value)}><MoreHorizontal size={18} />{label && <span className="message-action-label">More</span>}</button>
+      {open && <div id={id} ref={panel} className="message-actions-popover" role="group" aria-label="More message actions">{children(() => close(true))}</div>}
+    </div>;
 }

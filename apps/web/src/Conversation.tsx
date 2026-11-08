@@ -115,14 +115,16 @@ function ConversationMessage({ message, initiallyOpen, multiple, ...props }: Pro
   const sender = self ? "You" : message.sender.name || message.sender.email || "Unknown sender";
   const region = useId();
   return <section className={`conversation-message ${expanded ? "expanded" : "collapsed"}`} aria-label={`Message from ${sender}`}>
+    <div className="conversation-message-header">
     <button title={expanded ? "Collapse message" : "Expand message"} className="conversation-summary" aria-expanded={expanded} aria-controls={region} onClick={() => setUserExpanded(!expanded)}>
       <span className={`avatar ${self ? "self-avatar" : ""}`} aria-hidden="true">{sender.slice(0, 2).toUpperCase()}</span>
       <span className="conversation-sender"><b dir="auto">{sender}</b><small dir="auto">{expanded ? message.sender.email : message.preview || message.subject}</small></span>
       <time dateTime={message.received_at}>{new Date(message.received_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", year: "numeric" })}</time>
       <ChevronDown className="conversation-chevron" size={16} aria-hidden="true" />
     </button>
+    {expanded && <SenderBlock message={message} accounts={props.accounts} onCleanup={props.onCleanup} />}
+    </div>
     <div id={region} hidden={!expanded} className="conversation-body">
-      {expanded && <SenderBlock message={message} accounts={props.accounts} onCleanup={props.onCleanup} />}
       <p className="conversation-recipients" dir="auto">to {message.to.map(a => a.name || a.email).join(", ") || "undisclosed recipients"}{content.data?.cc.length ? ` · cc ${content.data.cc.map(a => a.name || a.email).join(", ")}` : ""}</p>
       <ErrorNotice error={content.error} />
       {content.isError && <button title="Retry message" onClick={() => void content.refetch()}>Retry message</button>}

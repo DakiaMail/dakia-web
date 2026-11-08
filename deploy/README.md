@@ -82,6 +82,9 @@ Keep the previous image and a matching backup before replacing the application. 
 
 Preserve incident stdout privately before replacement. Mail diagnostics are also retained in a bounded private ring under `DAKIA_DATA_DIR/diagnostics`, on the existing persistent mount. Keep Docker stdout rotation separately bounded. See the private diagnostics directory for correlation, uncertainty semantics, limits and privacy rules.
 
+IMAP connection failures use an account-wide cooldown shared by command and IDLE lanes: 5 seconds initially, doubling to at most 5 minutes. Clean commands reset it; replacing account credentials creates a fresh provider. Cancelled handshakes also retain the cooldown. Diagnostics distinguish `connection_attempt` stage/outcome and safe transport reason, `connection_backoff` suppressed attempts, and `provider_backoff` cached/suppressed caller work. These are separate from checked wire commands. A successful authenticated connection alone does not prove a mail operation succeeded. The daily analyzer reports connection attempts and suppressions separately, without logging endpoints, credentials or reply content.
+
+
 Worker updates must include their locked production dependencies. A healthy Rust
 server does not establish that a Node subprocess can start. Run
 `node /app/workers/translation/smoke.mjs` inside the final image with networking

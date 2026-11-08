@@ -9,3 +9,7 @@ pub use provider::{AccountProvider, MailProvider, MetadataLookup, SubmissionGate
 pub use types::*;
 
 mod telemetry;
+
+#[cfg(test)]
+#[path = "../tests/common/mod.rs"]
+mod test_common;

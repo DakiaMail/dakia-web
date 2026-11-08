@@ -1,6 +1,5 @@
 use super::*;
-#[path = "../tests/common/mod.rs"]
-mod common;
+use crate::test_common as common;
 use common::*;
 
 #[tokio::test]
@@ -153,6 +152,10 @@ async fn failed_folder_discovery_is_briefly_cached_not_reported_as_empty() {
     // Expiry really allows a new attempt; the closed endpoint now fails transport.
     p.folder_cache.lock().await.as_mut().unwrap().0 = Instant::now() - Duration::from_secs(6);
     assert_eq!(p.folders().await.unwrap_err().kind, ErrorKind::Retryable);
+    assert_eq!(
+        p.folders().await.unwrap_err().message,
+        "IMAP reconnect cooling down"
+    );
 }
 
 #[tokio::test]
@@ -166,6 +169,8 @@ async fn interrupted_reads_retry_once_but_auth_deadlines_throttles_and_uncertain
         ),
         (ErrorKind::Retryable, "IMAP transport interrupted", 2),
         (ErrorKind::Retryable, "IMAP protocol/transport failed", 2),
+        (ErrorKind::Retryable, "IMAP connection failed", 1),
+        (ErrorKind::Retryable, "IMAP reconnect cooling down", 1),
         (ErrorKind::Retryable, "IMAP operation deadline exceeded", 1),
         (ErrorKind::Retryable, "IMAP provider throttled", 1),
         (ErrorKind::Authentication, "IMAP authentication failed", 1),

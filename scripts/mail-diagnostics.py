@@ -93,6 +93,9 @@ EVENTS = (
     "mail diagnostic retention write failed",
 )
 AUXILIARY = {
+    "connection_attempt",
+    "connection_backoff",
+    "provider_backoff",
     "reconcile_budget",
     "storage_wait",
     "idle_wait",
@@ -286,6 +289,14 @@ def analyze(events, window):
             ),
             "model_failures": sum(
                 e["event"] == "model job attempt failed" for e in rows
+            ),
+            "connection_attempt_outcomes": dict(collections.Counter(
+                e.get("outcome", "unknown") for e in rows
+                if e.get("event") == "provider_io" and e.get("operation") == "connection_attempt"
+            )),
+            "connections_suppressed": sum(
+                e.get("event") == "provider_io" and e.get("operation") == "connection_backoff"
+                for e in rows
             ),
             "new_connections": sum(e.get("reused") is False for e in connections),
             "reused_connections": sum(e.get("reused") is True for e in connections),

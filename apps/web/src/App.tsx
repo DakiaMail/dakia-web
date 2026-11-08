@@ -760,6 +760,9 @@ export function App() {
       : [];
   const allStarred = bulk.every(message => message.starred);
   const messageActions = bulk.length > 0 ? <MessageActions
+    sender={checked.size === 0 ? active || undefined : undefined}
+    accounts={accounts.data || []}
+    onCleanup={targets => { clearSelection(); if (active && targets.some(m => identity(m) === identity(active))) closeReader(); }}
     pending={bulk.some(message => pendingTargets[identity(message)] > 0 || !!cleanupRows[identity(message)])}
     archive={() => removeFromReader("archive")}
     unread={() => void act(bulk, { kind: "read", value: false })}

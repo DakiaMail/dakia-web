@@ -1,16 +1,18 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useQueries } from "@tanstack/react-query";
 import type { Account, MailRule, Message } from "@dakia/api-types";
 import { ShieldBan } from "lucide-react";
-import { MoreActions } from "./MessageActions";
 import { Modal, ErrorNotice } from "./ui";
 import { announceRuleUpdate, ruleEmail, rulesApi, senderAddress, useMailRules } from "./mailRules";
 import { findSenderMail, type CleanupResult } from "./SenderCleanup";
 import { useSenderCleanup } from "./cleanupJobs";
 import "./blockedSenders.css";
 
-export function SenderBlock({ message, accounts, onCleanup }: {
+export type SenderAction = (closeMenu: () => void) => ReactNode;
+
+export function SenderBlock({ message, accounts, onCleanup, children }: {
   message: Message; accounts: Account[]; onCleanup?: (rows: Message[]) => void;
+  children: (action?: SenderAction) => ReactNode;
 }) {
   const rules = useMailRules();
   const blocked = rules.data?.find(rule => rule.enabled && ruleEmail(rule) === senderAddress(message.sender.email));
@@ -26,7 +28,7 @@ export function SenderBlock({ message, accounts, onCleanup }: {
   useEffect(() => { if (saved) savedFocus.current?.focus(); }, [saved]);
   useEffect(() => { if (review) reviewFocus.current?.focus(); }, [review]);
   const cutoff = useRef(Date.now());
-  if (!message.sender.email || accounts.some(a => senderAddress(a.email) === senderAddress(message.sender.email))) return null;
+  if (!message.sender.email || accounts.some(a => senderAddress(a.email) === senderAddress(message.sender.email))) return <>{children()}</>;
   const close = () => { if (!submitting.current) setOpen(false); };
   async function submit() {
     if (submitting.current) return;
@@ -38,11 +40,11 @@ export function SenderBlock({ message, accounts, onCleanup }: {
     } catch (error) { setError(error); await rules.refresh().catch(() => {}); }
     finally { submitting.current = false; setBusy(false); }
   }
-  return <div className="sender-block">
-    <MoreActions label={false} name={`More actions for ${message.sender.email}`}>{closeMenu => <><button type="button" className="sender-block-trigger" disabled={rules.isPending || rules.isError} title={blocked ? "Unblock sender" : "Block sender"} onClick={() => {
+  return <>
+    {children(closeMenu => <><button type="button" disabled={rules.isPending || rules.isError} title={blocked ? "Unblock sender" : "Block sender"} onClick={() => {
       closeMenu(); setActionRule(blocked); setSaved(false); setReview(false); setError(undefined); cutoff.current = Date.now(); setOpen(true);
-    }}><ShieldBan size={15} aria-hidden="true" />{blocked ? "Unblock sender" : "Block sender"}</button>
-    {rules.isError && <button type="button" onClick={() => void rules.refetch()}>Retry sender controls</button>}</>}</MoreActions>
+    }}><ShieldBan size={18} aria-hidden="true" />{blocked ? "Unblock sender" : "Block sender"}</button>
+    {rules.isError && <button type="button" onClick={() => void rules.refetch()}>Retry sender controls</button>}</>)}
     {open && <Modal title={saved ? actionRule ? "Sender unblocked" : "Sender blocked" : actionRule ? "Unblock sender?" : "Block sender?"} onClose={close}>
       <div className="rules-dialog-content">
       <p className="blocked-address">{message.sender.email}</p>
@@ -61,7 +63,7 @@ export function SenderBlock({ message, accounts, onCleanup }: {
       </>}
       </div>
     </Modal>}
-  </div>;
+  </>;
 }
 
 function OlderSenderMail({ account, message, cutoff, onCleanup, onDone }: { account: Account; message: Message; cutoff: number; onCleanup?: (rows: Message[]) => void; onDone: () => void }) {

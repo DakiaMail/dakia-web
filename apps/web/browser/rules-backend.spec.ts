@@ -7,8 +7,8 @@ async function reach(page: Page, target: Locator) {
   }
   throw new Error("Control could not be reached using Tab");
 }
-function senderMore(page: Page) { return page.getByRole("button", { name: /^More actions for / }).first(); }
-async function senderMenu(page: Page) { await reach(page, senderMore(page)); await page.keyboard.press("Enter"); }
+function senderMore(page: Page) { return page.getByRole("button", { name: "More actions", exact: true }).first(); }
+async function senderMenu(page: Page) { await reach(page, senderMore(page)); await page.keyboard.press("Enter"); await page.keyboard.press("End"); }
 test.beforeEach(async ({ context }) => {
   await context.addCookies([{ name: "__Host-dakia", value: "release-browser-fixture", url: "https://127.0.0.1:4327/", secure: true, sameSite: "Lax" }]);
 });

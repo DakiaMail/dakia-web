@@ -3,6 +3,9 @@ mod body_batch;
 #[path = "verify_mutation.rs"]
 mod verify_mutation;
 use crate::*;
+#[path = "connection_backoff.rs"]
+mod connection_backoff;
+use connection_backoff::ConnectionBackoff;
 #[path = "mutation_timing.rs"]
 mod mutation_timing;
 #[cfg(test)]
@@ -47,6 +50,7 @@ impl std::ops::DerefMut for Connection {
 // error drop it; only explicit successful completion returns a clean stream.
 struct CommandLease<'a> {
     retired: &'a std::sync::atomic::AtomicBool,
+    backoff: &'a ConnectionBackoff,
     slot: tokio::sync::MutexGuard<'a, Option<(std::time::Instant, Connection)>>,
     connection: Option<Connection>,
 }
@@ -63,6 +67,7 @@ impl std::ops::DerefMut for CommandLease<'_> {
 }
 impl CommandLease<'_> {
     fn recycle(mut self) {
+        self.backoff.recovered();
         if !self.retired.load(std::sync::atomic::Ordering::Acquire) {
             *self.slot = Some((std::time::Instant::now(), self.connection.take().unwrap()));
         }
@@ -78,6 +83,7 @@ pub struct ImapProvider {
     pub(crate) oauth: Option<std::sync::Arc<dyn AccessToken>>,
     lane: Mutex<Option<(std::time::Instant, Connection)>>,
     idle_lane: Mutex<()>,
+    connection_backoff: ConnectionBackoff,
     reconcile_batch: std::sync::atomic::AtomicUsize,
     tls: native_tls::TlsConnector,
     retired: std::sync::atomic::AtomicBool,
@@ -97,6 +103,7 @@ impl ImapProvider {
             oauth: None,
             lane: Mutex::new(None),
             idle_lane: Mutex::new(()),
+            connection_backoff: ConnectionBackoff::default(),
             reconcile_batch: std::sync::atomic::AtomicUsize::new(50),
             tls,
             retired: std::sync::atomic::AtomicBool::new(false),
@@ -117,10 +124,32 @@ impl ImapProvider {
             .map_err(|_| error(ErrorKind::Retryable, "IMAP operation deadline exceeded"))?
     }
     async fn connect(&self) -> Result<Connection> {
+        // Shared by command and IDLE lanes. The permit also backs off cancelled
+        // handshakes; a task deadline must not reopen the connection floodgate.
+        let mut attempt = self.connection_backoff.begin(&self.config.account_id)?;
+        let result = self.connect_inner(&mut attempt).await;
+        attempt.finished(&result);
+        result
+    }
+    async fn connect_inner(
+        &self,
+        attempt: &mut connection_backoff::Attempt<'_>,
+    ) -> Result<Connection> {
         let endpoint = &self.config.imap;
         let tcp = TcpStream::connect((endpoint.host.as_str(), endpoint.port))
             .await
-            .map_err(io_error)?;
+            .map_err(|e| {
+                attempt.reason(match e.kind() {
+                    std::io::ErrorKind::ConnectionRefused => "connection_refused",
+                    std::io::ErrorKind::TimedOut => "connect_timeout",
+                    std::io::ErrorKind::ConnectionReset => "connection_reset",
+                    std::io::ErrorKind::AddrNotAvailable => "address_unavailable",
+                    std::io::ErrorKind::NotFound => "address_not_found",
+                    _ => "connect_io",
+                });
+                error(ErrorKind::Retryable, "IMAP connection failed")
+            })?;
+        attempt.stage("tls");
         let connector = TlsConnector::from(self.tls.clone());
         let (stream, greeted) = match endpoint.security {
             Security::Tls => (
@@ -171,6 +200,7 @@ impl ImapProvider {
                 )
             }
         };
+        attempt.stage("greeting");
         let mut client = Client::new(stream);
         if !greeted {
             let greeting = client
@@ -188,6 +218,7 @@ impl ImapProvider {
                 return Err(error(ErrorKind::Retryable, "invalid IMAP greeting"));
             }
         }
+        attempt.stage("authentication");
         let authenticated = if let Some(source) = &self.oauth {
             let token = source.access_token().await?;
             let auth = Xoauth2(format!(
@@ -227,13 +258,11 @@ impl ImapProvider {
                 tracing::info!(target: "dakia_server::provider_io", account_key = %crate::telemetry::key(&self.config.account_id), reused = true, "imap_connection");
                 connection
             }
-            _ => {
-                tracing::info!(target: "dakia_server::provider_io", account_key = %crate::telemetry::key(&self.config.account_id), reused = false, "imap_connection");
-                self.connect().await?
-            }
+            _ => self.connect().await?,
         };
         Ok(CommandLease {
             retired: &self.retired,
+            backoff: &self.connection_backoff,
             slot,
             connection: Some(connection),
         })
@@ -316,6 +345,7 @@ impl ImapProvider {
                 select(&mut s, folder, true).await?;
                 let mut idle = s.session.idle();
                 idle.init().await.map_err(imap_error)?;
+                self.connection_backoff.recovered();
                 tracing::info!(target: "dakia_server::provider_io", operation = "idle_wait", "provider_io");
                 Ok(idle)
             })

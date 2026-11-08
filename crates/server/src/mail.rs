@@ -51,6 +51,8 @@ fn provider_reason(detail: &str) -> &'static str {
     match detail {
         "IMAP operation deadline exceeded" => "imap_deadline",
         "IMAP transport interrupted" => "imap_transport",
+        "IMAP connection failed" => "imap_connect",
+        "IMAP reconnect cooling down" => "imap_backoff",
         "IMAP connection closed before tagged completion" => "imap_eof",
         "IMAP protocol/transport failed" => "imap_protocol_transport",
         "unexpected IMAP completion tag" => "imap_completion_tag",
@@ -100,7 +102,18 @@ pub(crate) fn provider_error(e: p::ProviderError) -> ApiFailure {
         ("mail_operation", e.message.as_str())
     };
     let reason = provider_reason(detail);
-    tracing::warn!(stage, reason, kind = ?e.kind, "mail provider request failed");
+    if reason == "imap_backoff" {
+        // Suppressed work is not another provider call or failure.
+        tracing::info!(
+            stage,
+            reason,
+            operation = "provider_backoff",
+            outcome = "skipped",
+            "provider_io"
+        );
+    } else {
+        tracing::warn!(stage, reason, kind = ?e.kind, "mail provider request failed");
+    }
     if detail == "message exceeds content limit" {
         return ApiFailure(StatusCode::PAYLOAD_TOO_LARGE, "message_too_large");
     }

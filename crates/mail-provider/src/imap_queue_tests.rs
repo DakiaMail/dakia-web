@@ -137,3 +137,91 @@ async fn queued_user_actions_that_never_acquire_a_connection_are_safe_to_retry()
         "a pre-write queue timeout must not tell the user their mail action might have happened"
     );
 }
+
+#[path = "../tests/common/mod.rs"]
+mod connection_fixture;
+
+#[tokio::test]
+async fn failed_handshake_suppresses_both_lanes_then_clean_read_restores_pooling() {
+    use connection_fixture::{command, credentials, imap_login, Fixture};
+    let f = Fixture::new().await;
+    let provider = ImapProvider::new(f.config(Security::Tls), credentials())
+        .unwrap()
+        .with_root(native_tls::Certificate::from_der(&f.cert).unwrap())
+        .unwrap();
+    let task = tokio::spawn(async move {
+        // One failed TLS handshake. Keep listening so any unwanted retry is
+        // observable as an extra accept rather than hidden by connection refusal.
+        let (socket, _) = f.listener.accept().await.unwrap();
+        drop(socket);
+        f
+    });
+    assert!(provider.probe().await.is_err());
+    let f = task.await.unwrap();
+    for _ in 0..20 {
+        let (folders, head, idle) = tokio::join!(
+            provider.probe(),
+            provider.head("INBOX", None),
+            provider.wait_for_change("INBOX", Duration::from_secs(1)),
+        );
+        for failure in [folders.unwrap_err(), head.unwrap_err(), idle.unwrap_err()] {
+            assert_eq!(failure.message, "IMAP reconnect cooling down");
+        }
+    }
+    assert!(
+        tokio::time::timeout(Duration::from_millis(30), f.listener.accept())
+            .await
+            .is_err()
+    );
+    // Advance only the private test clock boundary, not the provider instance.
+    provider.connection_backoff.expire();
+    let task = tokio::spawn(async move {
+        let mut w = f.accept(false, false).await;
+        imap_login(&mut w, false).await;
+        command(
+            &mut w,
+            "CAPABILITY",
+            "* CAPABILITY IMAP4rev1\r\n$TAG OK caps\r\n",
+        )
+        .await;
+        command(
+            &mut w,
+            "LIST \"\" *",
+            "* LIST () \"/\" \"INBOX\"\r\n$TAG OK list\r\n",
+        )
+        .await;
+        // Second probe uses the same authenticated socket and cached capabilities.
+        command(
+            &mut w,
+            "LIST \"\" *",
+            "* LIST () \"/\" \"INBOX\"\r\n$TAG OK list\r\n",
+        )
+        .await;
+    });
+    assert_eq!(provider.probe().await.unwrap().folders.len(), 1);
+    assert_eq!(provider.probe().await.unwrap().folders.len(), 1);
+    task.await.unwrap();
+}
+
+#[tokio::test]
+async fn cancelled_handshake_keeps_cooldown_without_holding_connection_gate() {
+    use connection_fixture::{credentials, Fixture};
+    let f = Fixture::new().await;
+    let provider = ImapProvider::new(f.config(Security::Tls), credentials()).unwrap();
+    // No TLS response: cancel the connect future itself before its own deadline.
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), provider.probe())
+            .await
+            .is_err()
+    );
+    assert_eq!(
+        provider.probe().await.unwrap_err().message,
+        "IMAP reconnect cooling down"
+    );
+    provider.connection_backoff.expire();
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), provider.probe())
+            .await
+            .is_err()
+    );
+}

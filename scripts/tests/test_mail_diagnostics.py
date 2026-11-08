@@ -8,6 +8,17 @@ spec.loader.exec_module(m)
 
 
 class Diagnostics(unittest.TestCase):
+    def test_connection_attempts_and_suppressed_work_are_not_wire_commands(self):
+        account = "a" * 64
+        events = [m.parse(f'2026-11-08T07:00:00Z INFO x: provider_io account_key="{account}" operation="{operation}" outcome="{outcome}" stage="connect" wait_ms=5000')
+                  for operation, outcome in [("connection_attempt", "failed"), ("connection_backoff", "skipped"), ("provider_backoff", "skipped")]]
+        summary = m.analyze(events, {"coverage_complete": True})["accounts"][account]
+        self.assertEqual(summary["connection_attempt_outcomes"], {"failed": 1})
+        self.assertEqual(summary["connections_suppressed"], 1)
+        self.assertEqual(summary["wire_commands"], {})
+        self.assertEqual(summary["operation_events"], {})
+        self.assertEqual(summary["failure_reasons"], {})
+
     def test_export_redacts_and_preserves_context(self):
         a = "a" * 64
         b = "b" * 64

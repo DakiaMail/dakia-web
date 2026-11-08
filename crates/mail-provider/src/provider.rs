@@ -224,6 +224,10 @@ impl MailProvider for AccountProvider {
         if let Some((at, result)) = cached.as_ref() {
             let ttl = if result.is_ok() { 60 } else { 5 };
             if at.elapsed() < Duration::from_secs(ttl) {
+                // A cached outage is suppressed work, not a new provider failure.
+                if matches!(result, Err(e) if e.kind == ErrorKind::Retryable) {
+                    return Err(error(ErrorKind::Retryable, "IMAP reconnect cooling down"));
+                }
                 return result.clone();
             }
         }

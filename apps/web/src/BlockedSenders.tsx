@@ -52,7 +52,7 @@ export function SenderBlock({ message, accounts, onCleanup }: {
       </> : <>
         {!actionRule && <>
           <p>Older emails are unchanged. You can unblock this sender in Workspace.</p>
-          {!review ? <button ref={savedFocus} type="button" onClick={() => setReview(true)}>Review older emails</button> : <div ref={reviewFocus} tabIndex={-1} aria-label="Older sender mail" className="blocked-cleanup-groups">
+          {!review ? <button ref={savedFocus} type="button" onClick={() => setReview(true)}>Review older emails</button> : <div ref={reviewFocus} role="region" tabIndex={-1} aria-label="Older sender mail" className="blocked-cleanup-groups">
             {accounts.map(account => <OlderSenderMail key={account.id} account={account} message={message} cutoff={cutoff.current} onCleanup={onCleanup} onDone={close} />)}
           </div>}
         </>}

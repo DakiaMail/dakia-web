@@ -371,7 +371,7 @@ async fn existing_databases_upgrade_without_changing_mail_or_ownership() {
     ))
     .await
     .unwrap();
-    sqlx::raw_sql("DROP TABLE mail_rules; ALTER TABLE accounts DROP COLUMN connected_at; DELETE FROM _sqlx_migrations WHERE version=7;").execute(&control).await.unwrap();
+    sqlx::raw_sql("DROP TABLE mail_rules; ALTER TABLE accounts DROP COLUMN connected_at; DELETE FROM _sqlx_migrations WHERE version=8;").execute(&control).await.unwrap();
     control.close().await;
     let db = sqlx::SqlitePool::connect(&format!(
         "sqlite:{}",

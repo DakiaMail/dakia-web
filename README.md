@@ -44,6 +44,10 @@ To add another person, open **Workspace → Invite someone → Create invitation
 
 Compose pulls a verified preview image for Linux AMD64 or ARM64. It is pinned by digest so an upstream rebuild cannot silently change your installation. Platform-specific NAS and Proxmox walkthroughs are still being validated.
 
+## Keep Dakia updated
+
+Run `sh scripts/upgrade.sh` from your installation directory. It checks published releases, makes a backup, and verifies the upgraded server. Use `--check` to review a release first. The local owner also sees a quiet notice when a release is available. [Upgrade and recovery guide](docs/upgrading.md).
+
 ## A quick look
 
 ![Nine-second tour: desktop inbox, open message, mobile inbox, then the same message on mobile](docs/images/inbox-tour.gif)

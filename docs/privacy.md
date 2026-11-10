@@ -23,3 +23,7 @@ Invitation links contain a single-use secret. Share them privately. The server s
 Your host and reverse proxy can keep their own logs. Operational diagnostics are retained locally and may contain sensitive metadata; keep diagnostics and backups private. A field-by-field diagnostics review and retention guide are planned.
 
 A remote image policy, provider-side retention, and copies in backups can affect deletion. Removing something from Dakia does not necessarily erase every copy held by your provider or backups.
+
+## Release checks
+
+When a local owner opens Dakia, the server can check GitHub for published releases. Successful checks are cached for 24 hours and failures for one hour. GitHub receives the server's network address and an application User-Agent; requests do not contain mailbox data, credentials, or user identifiers. Browser tabs ask only the Dakia server. Set `DAKIA_RELEASE_CHECKS=false` in the server environment to disable automatic checks. Manual host upgrade checks still contact GitHub. See [upgrading](upgrading.md).

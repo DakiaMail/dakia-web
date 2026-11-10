@@ -1380,10 +1380,13 @@ button.destructive {
     width: 260px;
     z-index: 15;
     transform: translateX(-100%);
-    transition: transform 0.18s;
+    visibility: hidden;
+    transition: transform 0.18s, visibility 0s 0.18s;
   }
   .nav-open .sidebar {
     transform: translateX(0);
+    visibility: visible;
+    transition-delay: 0s;
   }
   .nav-scrim {
     display: block;
@@ -1670,6 +1673,11 @@ body {
 .app-update { position: fixed; z-index: 45; left: 50%; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); width: min(360px, calc(100vw - 32px)); padding: 16px; border: 1px solid var(--color-border); border-radius: 12px; background: var(--color-bg, white); box-shadow: 0 8px 30px #0002; }
 .app-update p { margin: 0 0 12px; line-height: 1.5; }
 .app-update > div { display: flex; gap: 12px; align-items: center; }
+.release-notice { flex: 0 0 auto; margin: -6px 2px 16px; padding: 10px; border: 1px solid var(--color-border); border-radius: 8px; font-size: 12px; }
+.release-notice p { margin: 0 0 6px; line-height: 1.5; overflow-wrap: anywhere; }
+.release-notice > div { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.release-notice button { min-height: 32px; padding: 4px 8px; }
+#workspace-updates:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 4px; }
 
 .workspace-invitations { margin-top: 28px; }
 .workspace-invitations p { color: var(--color-secondary); line-height: 1.6; }
@@ -1724,3 +1732,6 @@ body {
 @container (min-width: 760px) {
   .reader-toolbar:has(.key-hint) .message-action-label { display: inline; }
 }
+
+.release-settings { margin-bottom: 28px; padding-bottom: 16px; border-bottom: 1px solid var(--color-border); }
+.release-settings p { margin: 10px 0; line-height: 1.6; }

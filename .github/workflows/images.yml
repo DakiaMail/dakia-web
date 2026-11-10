@@ -1,6 +1,7 @@
 name: Container images
 on:
   workflow_dispatch:
+  pull_request:
   push:
     branches: [main]
     tags: ['v*']
@@ -16,7 +17,23 @@ env:
   IMAGE: ghcr.io/dakiamail/dakia-web
   VERSION: ${{ github.ref_type == 'tag' && github.ref_name || format('sha-{0}', github.sha) }}
 jobs:
+  upgrade-checks:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Check upgrade orchestration and release format
+        run: |
+          sh -n scripts/upgrade.sh
+          node --test scripts/tests/upgrade*.test.mjs
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            node --input-type=module -e 'import {version} from "./scripts/upgrade.mjs"; if(!version(process.env.VERSION)) throw Error("Expected a semantic vX.Y.Z release tag")'
+          fi
   image:
+    if: github.event_name != 'pull_request'
+    needs: upgrade-checks
     strategy:
       fail-fast: false
       matrix:
@@ -44,9 +61,13 @@ jobs:
           platforms: linux/${{ matrix.arch }}
           push: true
           tags: ${{ env.IMAGE }}:${{ env.VERSION }}-${{ matrix.arch }}
+          build-args: |
+            DAKIA_RELEASE_VERSION=${{ env.VERSION }}
+            DAKIA_BUILD_ID=${{ github.sha }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ env.VERSION }}
           cache-from: type=gha,scope=image-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=image-${{ matrix.arch }}
       - name: Check the packaged runtime
@@ -61,6 +82,8 @@ jobs:
           trap 'docker rm -f "$name" >/dev/null' EXIT
           docker run -d --name "$name" --network none \
             -e DAKIA_ORIGIN=https://mail.test \
+            -e DAKIA_RELEASE_CHECKS=false \
+            -e DAKIA_EXPECTED_RELEASE_VERSION="$VERSION" \
             -e DAKIA_GMAIL_CLIENT_ID=image-fixture.apps.googleusercontent.com \
             -e DAKIA_GMAIL_CLIENT_SECRET=synthetic-image-smoke-only "$image"
           ready=false
@@ -86,7 +109,12 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       packages: write
+      contents: write
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
@@ -100,3 +128,23 @@ jobs:
             docker buildx imagetools create -t "$IMAGE:edge" "$IMAGE:$VERSION"
           fi
           docker buildx imagetools inspect "$IMAGE:$VERSION" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Publish the verified release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          node --input-type=module -e 'import {version} from "./scripts/upgrade.mjs"; if(!version(process.env.VERSION)) throw Error("Expected a semantic vX.Y.Z release tag")'
+          digest=$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{json .Manifest}}' | node --input-type=module -e 'let s="";for await(const c of process.stdin)s+=c;const m=JSON.parse(s);if(!/^sha256:[a-f0-9]{64}$/.test(m.digest))throw Error("Invalid digest");console.log(m.digest)')
+          export RELEASE_IMAGE="$IMAGE@$digest"
+          node --input-type=module -e 'import fs from "node:fs";import {validate} from "./scripts/upgrade.mjs";const m={format:1,version:process.env.VERSION,revision:process.env.GITHUB_SHA,image:process.env.RELEASE_IMAGE};validate(m,m.version);fs.writeFileSync("dakia-release.json",JSON.stringify(m,null,2)+"\n")'
+          if gh release view "$VERSION" --json isDraft > release-state.json 2>/dev/null; then
+            node --input-type=module -e 'import fs from "node:fs";if(!JSON.parse(fs.readFileSync("release-state.json")).isDraft)throw Error("Published releases cannot be replaced")'
+          else
+            gh release create "$VERSION" --draft --verify-tag --generate-notes
+          fi
+          gh release upload "$VERSION" dakia-release.json scripts/upgrade.sh scripts/upgrade.mjs --clobber
+          case "$VERSION" in
+            *-*) gh release edit "$VERSION" --draft=false --prerelease ;;
+            *) gh release edit "$VERSION" --draft=false --latest ;;
+          esac

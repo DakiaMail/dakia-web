@@ -3,9 +3,11 @@ import type { Account } from "@dakia/api-types";
 import { useEffect, useRef, useState } from "react";
 import { Invitations } from "./Invitations";
 import { BlockedSenders } from "./BlockedSenders";
+import { ReleaseSettings } from "./Releases";
 import { InstallApp } from "./InstallApp";
 
-export function Workspace({ userId, accounts, onBack, onConnect, onSettings, onRemove, onReconnect, onNotifications, notificationStatus, alwaysLoadImages, onImagePrivacyChange, blockHiddenImages, onHiddenImagesChange, keyboardHints, onKeyboardHintsChange, keyboardShortcuts, onKeyboardShortcutsChange, onShortcutHelp }: {
+export function Workspace({ updatesFocus = 0, userId, accounts, onBack, onConnect, onSettings, onRemove, onReconnect, onNotifications, notificationStatus, alwaysLoadImages, onImagePrivacyChange, blockHiddenImages, onHiddenImagesChange, keyboardHints, onKeyboardHintsChange, keyboardShortcuts, onKeyboardShortcutsChange, onShortcutHelp }: {
+  updatesFocus?: number;
   userId?: string;
   keyboardHints: boolean;
   onKeyboardHintsChange: (enabled: boolean) => void;
@@ -28,12 +30,13 @@ export function Workspace({ userId, accounts, onBack, onConnect, onSettings, onR
   const heading = useRef<HTMLHeadingElement>(null);
   const [privacyError, setPrivacyError] = useState("");
   const [keyboardError, setKeyboardError] = useState("");
-  useEffect(() => { heading.current?.focus(); }, []);
+  useEffect(() => { if (!updatesFocus) heading.current?.focus(); }, [updatesFocus]);
   return <main className="workspace-page" aria-label="Workspace management">
     <header className="workspace-header"><button title="Back to mail" onClick={onBack}><ArrowLeft size={18} />Back to mail</button></header>
     <div className="workspace-content">
       <h1 ref={heading} tabIndex={-1}>Workspace</h1>
       <p className="workspace-intro">Your accounts and preferences, in one place.</p>
+      <ReleaseSettings userId={userId} focusRequest={updatesFocus} />
       <section aria-labelledby="workspace-accounts">
         <div className="workspace-section-heading"><h2 id="workspace-accounts">Email accounts</h2><button title="Connect account" className="primary" onClick={onConnect}><Plus size={16} />Connect account</button></div>
         <div className="workspace-accounts">

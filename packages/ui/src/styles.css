@@ -1,0 +1,59 @@
+/* Import only the styles used by this library. No Mantine global reset. */
+@import "@mantine/core/styles/UnstyledButton.css";
+@import "@mantine/core/styles/Button.css";
+@import "@mantine/core/styles/ActionIcon.css";
+@import "@mantine/core/styles/Loader.css";
+@import "./tokens.css";
+
+.dakia-button.dakia-button,
+.dakia-icon-button.dakia-icon-button {
+  border-radius: var(--ui-control-radius);
+  font-family: var(--ui-font-family);
+  font-size: var(--ui-font-size);
+  min-height: var(--ui-control-height);
+  transition: background-color var(--ui-motion-duration), color var(--ui-motion-duration);
+}
+.dakia-button.dakia-button {
+  height: auto;
+  max-width: 100%;
+  padding: 7px var(--ui-control-padding);
+  font-weight: 600;
+}
+.dakia-button-label { white-space: normal; line-height: 1.4; }
+.dakia-icon-button.dakia-icon-button { width: var(--ui-control-height); padding: 0; }
+.dakia-icon-button-content { display: inline-flex; align-items: center; justify-content: center; }
+.dakia-button.dakia-button:focus-visible,
+.dakia-icon-button.dakia-icon-button:focus-visible {
+  outline: var(--ui-focus-width) solid var(--color-accent);
+  outline-offset: 3px;
+}
+.dakia-button.dakia-button[data-disabled],
+.dakia-icon-button.dakia-icon-button[data-disabled] {
+  opacity: .55;
+  cursor: default;
+  background: var(--button-bg, var(--ai-bg));
+  color: var(--button-color, var(--ai-color));
+  border-color: var(--button-bd, var(--ai-bd));
+}
+.dakia-button.dakia-button[data-confirmed] { opacity: 1; }
+.dakia-confirmation-labels { display: grid; }
+.dakia-confirmation-labels > span {
+  grid-area: 1 / 1;
+  opacity: 0;
+  transform: translateY(-5px);
+  transition: opacity var(--ui-motion-duration), transform var(--ui-motion-duration);
+}
+.dakia-confirmation-labels[data-state="idle"] > [data-label="idle"],
+.dakia-confirmation-labels[data-state="pending"] > [data-label="pending"],
+.dakia-confirmation-labels[data-state="success"] > [data-label="success"] {
+  opacity: 1;
+  transform: translateY(0);
+}
+.dakia-sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dakia-button.dakia-button, .dakia-icon-button.dakia-icon-button,
+  .dakia-confirmation-labels > span { transition: none; transform: none; }
+}

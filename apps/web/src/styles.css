@@ -1,35 +1,11 @@
 :root {
-  font-family: Inter, system-ui, sans-serif;
-  font-size: 13px;
+  font-family: var(--ui-font-family);
+  font-size: var(--ui-font-size);
   font-synthesis: none;
   color: var(--color-text);
   background: var(--color-bg);
-  --color-bg: #fff;
-  --color-sidebar: #f8f9fb;
-  --color-surface: #fff;
-  --color-subtle: #f3f4f6;
-  --color-border: #e5e7eb;
-  --color-text: #20232b;
-  --color-secondary: #606874;
-  --color-accent: #585cc4;
-  --color-selected: #eff0fd;
-  --color-on-accent: #fff;
-  color-scheme: light;
 }
 
-:root[data-theme="dark"] {
-  --color-bg: #151619;
-  --color-sidebar: #1c1d21;
-  --color-surface: #202126;
-  --color-subtle: #26272d;
-  --color-border: #303238;
-  --color-text: #f1f2f4;
-  --color-secondary: #a9adb7;
-  --color-accent: #a3a6ff;
-  --color-selected: #2b2c40;
-  --color-on-accent: #161620;
-  color-scheme: dark;
-}
 * {
   box-sizing: border-box;
 }

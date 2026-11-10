@@ -11,7 +11,8 @@
     "apps/web",
     "packages/api-types",
     "packages/mail-renderer",
-    "packages/mail-composer"
+    "packages/mail-composer",
+    "packages/ui"
   ],
   "scripts": {
     "build": "npm run build --workspace @dakia/web",

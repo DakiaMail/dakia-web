@@ -132,3 +132,7 @@ limits, authorization, retention and offline behavior.
 Explore the app at [demo.dakiamail.com](https://demo.dakiamail.com). For the sandbox build, checks, and deployment, see [the demo guide](docs/demo.md).
 
 Translation can run on the host or on devices, with an administrator-controlled host fallback option. Choose the policy in Workspace → Translation. [Language packs, administration and verification](docs/on-device-translation.md).
+
+## UI component library
+
+Reusable buttons and the central Mantine theme live in [`@dakia/ui`](packages/ui/README.md). New component migrations should use this package. The development gallery is available at `/ui-gallery.html` while the web dev server is running.

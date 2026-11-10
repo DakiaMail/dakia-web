@@ -25,6 +25,8 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     dedupe: ["react", "react-dom"],
     alias: {
+      "@dakia/ui/styles.css": local("../../packages/ui/src/styles.css"),
+      "@dakia/ui": local("../../packages/ui/src/index.ts"),
       "@dakia/api-types": local("../../packages/api-types/src/index.ts"),
       "@dakia/mail-renderer": local(
         "../../packages/mail-renderer/src/index.tsx",

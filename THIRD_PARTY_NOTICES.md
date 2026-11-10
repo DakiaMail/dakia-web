@@ -44,7 +44,7 @@ Its SQLite amalgamation is the unmodified public-domain SQLite 3.54.1 release,
 replacing the wrapper's bundled 3.46.0. See `vendor/libsqlite3-sys/DAKIA.md` for
 source verification, supported features and the reason for the local Cargo patch.
 
-Inter is supplied by `@fontsource/inter` under SIL Open Font License 1.1. React, TanStack, Radix, Lucide, DOMPurify, Squire, Node workers and Rust dependencies retain their package licenses. Their exact versions are recorded in the Cargo and npm lockfiles. Preserve applicable notices when distributing dependency code. This file summarizes known provenance and is not a replacement for the upstream license texts.
+Inter is supplied by `@fontsource/inter` under SIL Open Font License 1.1. React, TanStack, Radix, Mantine (MIT), Lucide, DOMPurify, Squire, Node workers and Rust dependencies retain their package licenses. Their exact versions are recorded in the Cargo and npm lockfiles. Preserve applicable notices when distributing dependency code. This file summarizes known provenance and is not a replacement for the upstream license texts.
 
 ## Browser translation
 

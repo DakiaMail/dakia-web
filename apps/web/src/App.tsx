@@ -1,3 +1,4 @@
+import { useDakiaColorScheme } from "@dakia/ui";
 import { deviceTranslator } from "./deviceTranslation";
 import { useRuleUpdates } from "./mailRules";
 import { localMailCache } from "./localMailCache";
@@ -151,9 +152,8 @@ export function App() {
   const [overrides, setOverrides] = useState<Record<string, Message>>({});
   const [removed, setRemoved] = useState<Record<string, symbol>>({});
   const [restoredRows, setRestoredRows] = useState<Record<string, { message: Message; scope: string; token: symbol }>>({});
-  const [dark, setDark] = useState(
-    () => localStorage.getItem("dakia-theme") === "dark",
-  );
+  const { colorScheme, setColorScheme } = useDakiaColorScheme();
+  const dark = colorScheme === "dark";
   const [sidebar, setSidebar] = useState(false);
   const [workspace, setWorkspace] = useState(false);
   const [updatesFocus, setUpdatesFocus] = useState(0);
@@ -457,10 +457,6 @@ export function App() {
       listRef.current.scrollTop =
         positions.current[`${account}/${nav}/${q}/${view}`] || 0;
   }, [account, nav, q, view, mail.isPending, selected, listHeight]);
-  useEffect(() => {
-    document.documentElement.dataset.theme = dark ? "dark" : "light";
-    localStorage.setItem("dakia-theme", dark ? "dark" : "light");
-  }, [dark]);
   useEffect(() => {
     const t = setTimeout(() => applySearch(search.trim()), 350);
     return () => clearTimeout(t);
@@ -909,7 +905,7 @@ export function App() {
           <button title="Manage workspace" className="workspace-link" aria-label="Manage workspace" aria-current={workspace ? "page" : undefined} onClick={() => { if (!workspace) navigation.push({ ...route, workspace: true }); setSidebar(false); }}><span className="avatar">D</span><span>Private workspace</span></button>
           <button title={dark ? "Light theme" : "Dark theme"}
             aria-label={dark ? "Light theme" : "Dark theme"}
-            onClick={() => setDark(!dark)}
+            onClick={() => setColorScheme(dark ? "light" : "dark")}
           >
             {dark ? <Sun size={17} /> : <Moon size={17} />}
           </button>

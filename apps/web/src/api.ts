@@ -68,7 +68,9 @@ export async function request<T>(
 export const key = (value: string) => encodeURIComponent(value);
 export const accountPath = (id: string) => `/accounts/${key(id)}`;
 export type SenderMailPage = { rows: Message[]; count: number; cutoff: string; after: string | null };
+export type SnoozedThread = { thread_id: string; until: string; message_count: number };
 export const api = {
+  snoozes: (account: string, signal?: AbortSignal) => request<SnoozedThread[]>(`${accountPath(account)}/snoozes`, { signal }),
   senderMail: (message: Message, signal?: AbortSignal, cutoff?: string, after?: string) =>
     request<SenderMailPage>(`${accountPath(message.account_id)}/messages/${key(message.id)}/sender-mail?${new URLSearchParams({ ...(cutoff ? { cutoff } : {}), ...(after ? { after } : {}) })}`, { signal }),
   session: async () => {

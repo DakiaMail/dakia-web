@@ -9,6 +9,7 @@ export function eventAffects(query: Query, id: string, kinds: Set<string>, targe
   const all = kinds.has("reset");
   const mail = all || [...kinds].some(k => ["message_changed", "operation_changed", "snooze_woke", "rules_changed"].includes(k));
   if (resource === "sender-cleanups") return query.queryKey[2] === id && (all || (kinds.has("operation_changed") && Array.isArray(query.state.data) && query.state.data.some(job => job.pending > 0)));
+  if (resource === "snoozes") return mail && Array.isArray(account) && account.includes(id);
   if (resource === "search-page") return mail && Array.isArray(query.queryKey[2]) && query.queryKey[2].includes(id);
   if (resource === "mail") return mail && Array.isArray(query.queryKey[5]) && query.queryKey[5].includes(id);
   if (resource === "content") return account === id && (all || kinds.has("operation_changed") || (kinds.has("message_changed") && targets.has(String(query.queryKey[2]))));

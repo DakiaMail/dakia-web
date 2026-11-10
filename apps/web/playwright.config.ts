@@ -1,7 +1,7 @@
 import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: "./browser",
-  testIgnore: ["device-translation-backend.spec.ts", "rules-backend.spec.ts", "keyboard-backend.spec.ts", "pwa.spec.ts", "release-backend.spec.ts", "full-text-backend.spec.ts", "image-redirects.spec.ts", "lifecycle.spec.ts", "translation-backend.spec.ts", "unsubscribe-backend.spec.ts", "silent-cleanup-backend.spec.ts"], // Dedicated production/backend fixtures.
+  testIgnore: ["snooze-backend.spec.ts", "device-translation-backend.spec.ts", "rules-backend.spec.ts", "keyboard-backend.spec.ts", "pwa.spec.ts", "release-backend.spec.ts", "full-text-backend.spec.ts", "image-redirects.spec.ts", "lifecycle.spec.ts", "translation-backend.spec.ts", "unsubscribe-backend.spec.ts", "silent-cleanup-backend.spec.ts"], // Dedicated production/backend fixtures.
   workers: 1,
   use: {
     baseURL: "http://127.0.0.1:4173",

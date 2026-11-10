@@ -9,6 +9,7 @@ mod lists;
 mod models;
 pub use models::ModelFailureReason;
 mod notifications;
+mod snoozes;
 pub use jobs::PersistedMime;
 mod mutation_jobs;
 mod rules;

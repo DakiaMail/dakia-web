@@ -1,4 +1,5 @@
-import { useDakiaColorScheme } from "@dakia/ui";
+import { snoozeTime } from "./snoozeTime";
+import { IconButton, Toast, useDakiaColorScheme } from "@dakia/ui";
 import { DateTimeDialog } from "./DateTimeDialog";
 import { deviceTranslator } from "./deviceTranslation";
 import { useRuleUpdates } from "./mailRules";
@@ -15,6 +16,7 @@ import {
 import { measureElement, useVirtualizer } from "@tanstack/react-virtual";
 import {
   Archive,
+  FolderInput,
   ArrowUp,
   ArrowDown,
   ArrowLeft,
@@ -187,6 +189,8 @@ export function App() {
   const attemptedReads = useRef(new Set<string>());
   const [pendingTargets, setPendingTargets] = useState<Record<string, number>>({});
   const [submission, setSubmission] = useState<Submission | null>(null);
+  const [toast, setToast] = useState<{ id: string; message: string } | null>(null);
+  useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(null), 7000); return () => clearTimeout(timer); }, [toast]);
   const [snooze, setSnooze] = useState<Message[] | null>(null);
   const [move, setMove] = useState<Message[] | null>(null);
   const [notificationStatus, setNotificationStatus] = useState("");
@@ -264,6 +268,21 @@ export function App() {
       })
       .catch(error => { if (deepLinkPending.current) setDeepLinkError(error); });
   }, [accounts.data, client]);
+  const snoozeState = useQuery({
+    queryKey: ["snoozes", ids], enabled: !!session.data && ids.length > 0,
+    queryFn: async ({ signal }) => (await Promise.all(ids.map(async account_id =>
+      (await api.snoozes(account_id, signal)).map(row => ({ ...row, account_id }))))).flat(),
+    refetchInterval: 30000, retry: false,
+  });
+  const [snoozeClock, setSnoozeClock] = useState(Date.now);
+  useEffect(() => {
+    if (!snoozeState.data?.length) return;
+    const timer = setInterval(() => setSnoozeClock(Date.now()), 30000);
+    return () => clearInterval(timer);
+  }, [snoozeState.data?.length]);
+  const snoozedThreads = useMemo(() => Object.fromEntries((snoozeState.data || [])
+    .filter(row => Date.parse(row.until) > Date.now()).map(row => [`${row.account_id}/${row.thread_id}`, row])), [snoozeState.data, snoozeClock]);
+  const snoozedCount = Object.values(snoozedThreads).reduce((sum, row) => sum + row.message_count, 0);
   const listKey = ["mail", account, nav, q, categoryFilter, ids];
   const explicitRefresh = useRef(false);
   const mail = useInfiniteQuery<SearchPage, Error, InfiniteData<SearchPage>, typeof listKey, string | null>({
@@ -317,11 +336,12 @@ export function App() {
     else all = all.filter(m => !cleanupRows[identity(m)]);
     if (!q && nav === "INBOX")
       all = all.filter((m) =>
-        m.folder_ids.some((f) => f.toUpperCase() === "INBOX"),
+        m.folder_ids.some((f) => f.toUpperCase() === "INBOX") && !snoozedThreads[`${m.account_id}/${m.thread_id}`],
       );
+    if (nav === "Snoozed" && snoozeState.isSuccess) all = all.filter(m => !!snoozedThreads[`${m.account_id}/${m.thread_id}`]);
     if (nav === "Starred") all = all.filter((m) => m.starred);
     return all;
-  }, [mail.data, overrides, removed, restoredRows, nav, q, account, categoryFilter, accounts.data, cleanupRows]);
+  }, [mail.data, overrides, removed, restoredRows, nav, q, account, categoryFilter, accounts.data, cleanupRows, snoozedThreads, snoozeState.isSuccess]);
   const lastContinuation = mail.data?.pages.at(-1)?.continuation;
   // Start provider reconciliation after a preview without waiting for scroll.
   useEffect(() => {
@@ -610,7 +630,7 @@ export function App() {
     try {
       await client.cancelQueries({ queryKey: ["mail"] });
       const completed = new Map(settledTokens.current);
-      await client.invalidateQueries({ queryKey: ["mail"] }, { throwOnError: true });
+      await Promise.all([client.invalidateQueries({ queryKey: ["mail"] }, { throwOnError: true }), client.invalidateQueries({ queryKey: ["snoozes"] })]);
       setOverrides(old => {
         const next = { ...old };
         for (const [id, done] of completed) {
@@ -630,6 +650,19 @@ export function App() {
         return next;
       });
     } catch (error) { if (!quiet) setError(error); }
+  }
+  async function snoozeMessages(messages: Message[], until: string) {
+    const result = await act(messages, { kind: "snooze", until: new Date(until).toISOString() });
+    if (!result.applied) return;
+    const count = result.applied;
+    setToast({ id: crypto.randomUUID(), message: `${count === 1 ? "Email" : `${count} emails`} snoozed until ${snoozeTime(until)}.` });
+    if (active && messages.some(m => identity(m) === identity(active))) closeReader();
+  }
+  async function restoreInbox(messages: Message[]) {
+    const result = await act(messages, { kind: "move", folder_id: "INBOX" });
+    if (!result.applied) return;
+    setToast({ id: crypto.randomUUID(), message: `${result.applied === 1 ? "Email" : `${result.applied} emails`} moved back to Inbox.` });
+    if (active && messages.some(m => identity(m) === identity(active))) closeReader();
   }
   function navigateMessage(direction: number, from: Message | null = active) {
     const visible = items.flatMap(item => item.kind === "mail" ? [item.message] : []);
@@ -771,6 +804,7 @@ export function App() {
     toggleStar={() => void act(bulk, { kind: "star", value: !allStarred })}
     trash={() => removeFromReader("trash")}
     spam={() => removeFromReader("spam")}
+    restore={bulk.every(m => !!snoozedThreads[`${m.account_id}/${m.thread_id}`]) ? () => void restoreInbox([...bulk]) : undefined}
     snooze={() => setSnooze([...bulk])} move={() => setMove([...bulk])}
     category={bulk.every(message => message.category === bulk[0].category) ? bulk[0].category || "" : ""}
     categories={groups.filter(g => g !== "pending" && g !== "other")}
@@ -850,6 +884,8 @@ export function App() {
         <nav aria-label="Mailboxes">
           {navs.map(({ id, label, icon: Icon }) => (
             <button title={label}
+              aria-label={id === "Snoozed" ? "Snoozed" : undefined}
+              aria-describedby={id === "Snoozed" ? "snoozed-count" : undefined}
               key={id}
               className={!workspace && nav === id && !q ? "selected" : ""}
               aria-current={!workspace && nav === id && !q ? "page" : undefined}
@@ -857,6 +893,7 @@ export function App() {
             >
               <Icon size={17} />
               {label}
+              {id === "Snoozed" && <><span className="count" aria-hidden="true">{snoozeState.isSuccess ? snoozedCount : "…"}</span><span className="sr-only" id="snoozed-count">{snoozeState.isSuccess ? `${snoozedCount} snoozed emails` : "Snoozed count unavailable"}</span></>}
               {id === "INBOX" && rows.some((m) => m.unread) && (
                 <span className="count">
                   {rows.filter((m) => m.unread).length}
@@ -1245,13 +1282,16 @@ export function App() {
                             <span className="subject" title={item.message.subject || "(No subject)"} dir="auto">
                               {item.message.subject || "(No subject)"}
                             </span>
-                            {item.message.preview && <span className="preview" dir="auto">{item.message.preview}</span>}
+                            {snoozedThreads[`${item.message.account_id}/${item.message.thread_id}`]
+                              ? <span className="preview snooze-deadline">Snoozed until {snoozeTime(snoozedThreads[`${item.message.account_id}/${item.message.thread_id}`].until)}</span>
+                              : item.message.preview && <span className="preview" dir="auto">{item.message.preview}</span>}
                           </span>
                           <span className="account-label" title={accounts.data?.find((a) => a.id === item.message.account_id)?.display_name || item.message.account_id} dir="auto">
                             {accounts.data?.find((a) => a.id === item.message.account_id)?.display_name || item.message.account_id}
                           </span>
                         </button>
                         <div className="row-quick-actions" role="group" aria-label="Quick message actions">
+                          {snoozedThreads[`${item.message.account_id}/${item.message.thread_id}`] && <IconButton label="Move back to Inbox" disabled={pendingTargets[identity(item.message)] > 0} onClick={() => void restoreInbox([item.message])}><FolderInput size={16} /></IconButton>}
                           {([
                             ["archive", "Archive message", "Archive", Archive],
                             ["trash", "Move message to trash", "Move to Trash", Trash2],
@@ -1354,6 +1394,7 @@ export function App() {
         {active && checked.size > 0 && <button title="Clear selection" onClick={clearSelection}>{checked.size} selected messages · Clear</button>}
 
         {active && messageActions}
+        {active && snoozedThreads[`${active.account_id}/${active.thread_id}`] && <p className="snooze-notice">Snoozed until {snoozeTime(snoozedThreads[`${active.account_id}/${active.thread_id}`].until)}</p>}
         {active ? (
           <Conversation key={identity(active)} selected={active} accounts={accounts.data || []} cleanupRows={cleanupRows}
             readFailed={!!readFailures[identity(active)] && active.unread}
@@ -1393,8 +1434,9 @@ export function App() {
           }}
         />
       )}
+      <Toast announcementKey={toast?.id}>{toast?.message}</Toast>
       {snooze && <DateTimeDialog title="Snooze until" confirmLabel="Snooze"
-        onChoose={until => { void act(snooze, { kind: "snooze", until: new Date(until).toISOString() }); }}
+        onChoose={until => { void snoozeMessages([...snooze], until); }}
         onClose={() => setSnooze(null)} />}
       {move && <MoveMessages messages={move} accounts={accounts.data || []}
         onMove={(messages, destinations) => void act(messages, { kind: "move", folder_id: "" }, destinations)}

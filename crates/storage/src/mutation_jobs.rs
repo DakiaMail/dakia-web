@@ -69,6 +69,14 @@ impl Store {
         if let Some(folders) = folders {
             message.folder_ids = folders;
         }
+        // Clear the thread's snooze only after the provider confirms Inbox restoration.
+        // A rejected or uncertain move must retain the original snooze and deadline.
+        if op.status == OperationStatus::Applied
+            && matches!(&op.change, Change::Move { folder_id } if folder_id.eq_ignore_ascii_case("INBOX"))
+        {
+            sqlx::query("DELETE FROM snoozes WHERE thread_id=?")
+                .bind(&message.thread_id).execute(&mut *tx).await?;
+        }
         message.revision = message.revision.checked_add(1).ok_or(Error::Invalid)?;
         op.revision = message.revision;
         sqlx::query("UPDATE messages SET revision=?,document=? WHERE id=?")

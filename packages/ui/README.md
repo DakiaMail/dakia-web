@@ -72,3 +72,7 @@ Values use `YYYY-MM-DDTHH:mm` in the device's local timezone. Convert to an ISO 
 The dialog initially focuses the first preset. Custom selection focuses Date; Back returns focus to the custom-option button. Tab and Shift+Tab stay inside the dialog and plain Escape closes it. The default portal and focus return work for standalone use. When nesting inside another dialog, set `withinPortal={false}` to remain inside its focus boundary. A host that removes the trigger on selection can set `returnFocus={false}` and restore focus to its next meaningful control. The mail adapter handles this alongside app history and reload guards.
 
 The development gallery includes standalone snooze and send-later examples. Chrome tests cover standalone reuse, nested composer focus, presets, validation, custom selection, theme tokens, narrow/short layouts, and disposable-demo snooze persistence.
+
+## Action feedback
+
+`Toast` provides non-interactive, polite status feedback using Mantine Notification. Keep `<Toast announcementKey={confirmation?.id}>{confirmation?.message}</Toast>` mounted so screen readers can observe new confirmations. The caller controls its lifetime; the mail app clears confirmations after seven seconds. It does not move focus or block pointer actions, and it stays below interactive overlays. Its colors, shape and motion use the central theme. Compact layouts position it above the mail toolbar.

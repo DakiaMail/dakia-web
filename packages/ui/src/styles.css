@@ -3,6 +3,7 @@
 @import "@mantine/core/styles/Button.css";
 @import "@mantine/core/styles/ActionIcon.css";
 @import "@mantine/core/styles/Loader.css";
+@import "@mantine/core/styles/Notification.css";
 @import "./tokens.css";
 @import "./date-time.css";
 
@@ -57,4 +58,22 @@
 @media (prefers-reduced-motion: reduce) {
   .dakia-button.dakia-button, .dakia-icon-button.dakia-icon-button,
   .dakia-confirmation-labels > span { transition: none; transform: none; }
+}
+
+.dakia-toast-container {
+  position: fixed; z-index: 4; inset: auto 24px 24px auto;
+  max-width: min(420px, calc(100vw - 32px)); pointer-events: none;
+}
+.dakia-toast {
+  padding: 14px 18px;
+  background: var(--color-surface); color: var(--color-text);
+  border: 1px solid var(--color-border); border-radius: var(--ui-control-radius);
+  box-shadow: 0 4px 24px #0003;
+  animation: dakia-toast-in var(--ui-motion-duration) ease-out;
+}
+@keyframes dakia-toast-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .dakia-toast { animation: none; } }
+
+@media (max-width: 600px) {
+  .dakia-toast-container { inset: auto 16px calc(80px + env(safe-area-inset-bottom, 0px)) 16px; max-width: none; }
 }

@@ -259,6 +259,13 @@ impl Store {
             // A deliberate restore overrides automation even if this message
             // was first discovered in Spam/Trash and has no arrival receipt yet.
             Change::Move { folder_id } if folder_id.eq_ignore_ascii_case("INBOX") => {
+                // Snoozed is a local view. Restoring an existing Inbox member
+                // only clears that view state; do not move/copy it onto itself.
+                if m.folder_ids.iter().any(|folder| folder.eq_ignore_ascii_case("INBOX")) {
+                    let cleared = sqlx::query("DELETE FROM snoozes WHERE thread_id=?")
+                        .bind(&m.thread_id).execute(&mut *tx).await?;
+                    if cleared.rows_affected() > 0 { op.status = OperationStatus::Applied; }
+                }
                 sqlx::query("INSERT OR IGNORE INTO rule_inbox_observations(message_id) VALUES(?)")
                     .bind(&m.id)
                     .execute(&mut *tx)

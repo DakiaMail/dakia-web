@@ -510,6 +510,9 @@ async fn restoring_a_snoozed_inbox_member_does_not_copy_it_to_the_same_provider_
     let restored = s.operation(&a, Operation { id: "local-restore".into(), account_id: a.id().into(), target_id: m.id.clone(), expected_revision: snoozed.revision,
         change: Change::Move { folder_id: "INBOX".into() }, status: OperationStatus::Pending, revision: 0 }).await.unwrap();
     assert_eq!(restored.status, OperationStatus::Applied);
+    let repeated = s.operation(&a, Operation { id: "already-restored".into(), account_id: a.id().into(), target_id: m.id.clone(), expected_revision: restored.revision,
+        change: Change::Move { folder_id: "INBOX".into() }, status: OperationStatus::Pending, revision: 0 }).await.unwrap();
+    assert_eq!(repeated.status, OperationStatus::Applied, "repeat and same-thread bulk restores must not queue a copy to Inbox");
     assert!(s.claim_mutation(&a).await.unwrap().is_none());
     assert!(s.active_snoozes(&a).await.unwrap().is_empty());
     assert_eq!(s.inbox_rows(&a, None, None).await.unwrap().len(), 1);

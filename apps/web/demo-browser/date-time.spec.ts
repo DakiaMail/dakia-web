@@ -42,9 +42,9 @@ test("snooze keyboard presets and custom bulk selection persist after reload", a
   await expect(dialog).toHaveCount(0);
   await waitForAppliedActions(page);
   await page.reload();
-  await expect(page.locator(".message-open").filter({ hasText: firstSubject })).toHaveCount(0);
+  await expect(page.getByTitle(`Open ${firstSubject}`, { exact: true })).toHaveCount(0);
   await tabTo(page, "Snoozed"); await page.keyboard.press("Enter");
-  await expect(page.locator(".message-open").filter({ hasText: firstSubject })).toBeVisible();
+  await expect(page.getByTitle(`Open ${firstSubject}`, { exact: true })).toBeVisible();
   await tabToElement(page, page.getByRole("navigation", { name: "Mailboxes" }).getByRole("button", { name: /^Unified inbox/ })); await page.keyboard.press("Enter");
   const subjects: string[] = [];
   for (let i = 0; i < 2; i++) {
@@ -68,5 +68,5 @@ test("snooze keyboard presets and custom bulk selection persist after reload", a
   await waitForAppliedActions(page);
   await page.reload();
   await tabTo(page, "Snoozed"); await page.keyboard.press("Enter");
-  for (const subject of subjects) await expect(page.locator(".message-open").filter({ hasText: subject })).toBeVisible();
+  for (const subject of subjects) await expect(page.getByTitle(`Open ${subject}`, { exact: true })).toBeVisible();
 });

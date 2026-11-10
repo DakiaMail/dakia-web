@@ -1,4 +1,5 @@
 import { useDakiaColorScheme } from "@dakia/ui";
+import { DateTimeDialog } from "./DateTimeDialog";
 import { deviceTranslator } from "./deviceTranslation";
 import { useRuleUpdates } from "./mailRules";
 import { localMailCache } from "./localMailCache";
@@ -187,7 +188,6 @@ export function App() {
   const [pendingTargets, setPendingTargets] = useState<Record<string, number>>({});
   const [submission, setSubmission] = useState<Submission | null>(null);
   const [snooze, setSnooze] = useState<Message[] | null>(null);
-  const [until, setUntil] = useState("");
   const [move, setMove] = useState<Message[] | null>(null);
   const [notificationStatus, setNotificationStatus] = useState("");
   const [manualRefreshing, setManualRefreshing] = useState(false);
@@ -1393,36 +1393,9 @@ export function App() {
           }}
         />
       )}
-      {snooze && (
-        <Modal title="Snooze until" initialFocus='input[type="datetime-local"]' onClose={() => setSnooze(null)}>
-          <form
-            className="setup"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (new Date(until).getTime() <= Date.now()) {
-                setError(new Error("Choose a future snooze time."));
-                return;
-              }
-              void act(snooze, {
-                kind: "snooze",
-                until: new Date(until).toISOString(),
-              });
-              setSnooze(null);
-            }}
-          >
-            <label>
-              Return to inbox
-              <input
-                type="datetime-local"
-                required
-                value={until}
-                onChange={(e) => setUntil(e.target.value)}
-              />
-            </label>
-            <button title="Snooze" className="primary">Snooze</button>
-          </form>
-        </Modal>
-      )}
+      {snooze && <DateTimeDialog title="Snooze until" confirmLabel="Snooze"
+        onChoose={until => { void act(snooze, { kind: "snooze", until: new Date(until).toISOString() }); }}
+        onClose={() => setSnooze(null)} />}
       {move && <MoveMessages messages={move} accounts={accounts.data || []}
         onMove={(messages, destinations) => void act(messages, { kind: "move", folder_id: "" }, destinations)}
         onClose={() => setMove(null)} />}

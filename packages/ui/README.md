@@ -15,7 +15,7 @@ Mantine core and hooks are pinned together at 8.3.18, compatible with the applic
 - `src/styles.css`: component structure, responsive labels, focus and reduced motion. Imports only the Mantine component styles used by the library, without its global reset.
 - `src/Provider.tsx`: theme provider and color scheme persistence. The current scale bridges Dakia's 13px root font to Mantine's rem units.
 
-Theme existing components here instead of setting colors and radii at call sites. Preserve native semantics, labels and keyboard interactions when adding wrappers. The initial migration includes the translation save button only.
+Theme existing components here instead of setting colors and radii at call sites. Preserve native semantics, labels and keyboard interactions when adding wrappers. The migrated controls include the translation save button and the snooze/send-later picker.
 
 ## Buttons
 
@@ -51,3 +51,24 @@ npm run build
 ```
 
 The browser tests use disposable API fixtures. They cover keyboard saves/retries, blocked duplicate submits, stable button dimensions, light/dark themes, narrow/short viewports, reading the saved policy after reload, theme persistence, shared token overrides and reduced motion. They do not claim backend storage verification.
+
+## Date and time selector
+
+`DateTimeSelector` combines future-only local-time presets with a custom date and time form. It uses Mantine Modal and TextInput, shared Dakia buttons, and central semantic tokens. Past or invalid values stay in the selector with an inline error. The local timezone is visible.
+
+```tsx
+<DateTimeSelector
+  opened={open}
+  title="Snooze until"
+  confirmLabel="Snooze"
+  value={localValue}
+  onChoose={setLocalValue}
+  onClose={() => setOpen(false)}
+/>
+```
+
+Values use `YYYY-MM-DDTHH:mm` in the device's local timezone. Convert to an ISO timestamp at the application boundary. `dateTimePresets`, `localDateTime`, and `validFutureDateTime` are exported for callers that need the same date rules. No mail APIs, router, or app reload guards are imported by the library.
+
+The dialog initially focuses the first preset. Custom selection focuses Date; Back returns focus to the custom-option button. Tab and Shift+Tab stay inside the dialog and plain Escape closes it. The default portal and focus return work for standalone use. When nesting inside another dialog, set `withinPortal={false}` to remain inside its focus boundary. A host that removes the trigger on selection can set `returnFocus={false}` and restore focus to its next meaningful control. The mail adapter handles this alongside app history and reload guards.
+
+The development gallery includes standalone snooze and send-later examples. Chrome tests cover standalone reuse, nested composer focus, presets, validation, custom selection, theme tokens, narrow/short layouts, and disposable-demo snooze persistence.

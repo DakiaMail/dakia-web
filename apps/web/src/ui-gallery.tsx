@@ -1,7 +1,7 @@
 // Separate Vite development entry. This is not included in the production build.
 import { StrictMode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Button, ConfirmationButton, DakiaProvider, IconButton, useDakiaColorScheme } from "@dakia/ui";
+import { Button, ConfirmationButton, DateTimeSelector, DakiaProvider, IconButton, useDakiaColorScheme } from "@dakia/ui";
 import { SunMoon } from "lucide-react";
 import "@fontsource/inter/400.css";
 import "@fontsource/inter/600.css";
@@ -11,6 +11,8 @@ import "@dakia/ui/styles.css";
 function Gallery() {
   const { colorScheme, setColorScheme } = useDakiaColorScheme();
   const [status, setStatus] = useState<"idle" | "pending" | "success" | "error">("idle");
+  const [picker, setPicker] = useState<"Snooze until" | "Send later" | null>(null);
+  const [chosenTime, setChosenTime] = useState("");
   const [fail, setFail] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
@@ -25,6 +27,14 @@ function Gallery() {
     <label style={{ display: "block", marginBottom: 12 }}><input type="checkbox" checked={fail} onChange={event => setFail(event.target.checked)} />Simulate a failed save</label>
     <ConfirmationButton status={status} onClick={() => { setStatus("pending"); timer.current = setTimeout(() => setStatus(fail ? "error" : "success"), 700); }}>Save translation settings</ConfirmationButton>
     {status === "error" && <p role="alert">Couldn’t save. Try again.</p>}
+    <h2 style={{ marginTop: 24 }}>Date and time</h2>
+    <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+      <Button onClick={() => setPicker("Snooze until")}>Snooze</Button>
+      <Button variant="secondary" onClick={() => setPicker("Send later")}>Send later</Button>
+    </div>
+    {chosenTime && <p role="status">Selected: {chosenTime}</p>}
+    {picker && <DateTimeSelector opened title={picker} confirmLabel={picker === "Snooze until" ? "Snooze" : "Set send time"}
+      value={chosenTime} onChoose={setChosenTime} onClose={() => setPicker(null)} />}
   </main>;
 }
 createRoot(document.getElementById("root")!).render(<StrictMode><DakiaProvider><Gallery /></DakiaProvider></StrictMode>);

@@ -52,7 +52,6 @@ Run `sh scripts/upgrade.sh` from your installation directory. It checks publishe
 
 ![Nine-second tour: desktop inbox, open message, mobile inbox, then the same message on mobile](docs/images/inbox-tour.gif)
 
-Four views of the running web frontend with fictional mail. Mobile scenes are browser viewports, not native phone captures. [View the static desktop screenshot](docs/images/inbox-desktop.webp) or [the static mobile screenshot](docs/images/inbox-mobile.webp). [Capture details](docs/images/README.md).
 
 ## What you can do
 
@@ -66,14 +65,6 @@ Four views of the running web frontend with fictional mail. Mobile scenes are br
 - Use the responsive web app or install it as a PWA.
 
 [Features and screenshots](docs/features.md)
-
-## Block unwanted senders
-
-Open an email and choose **More actions → Block sender** in the toolbar. Future emails from that exact address move to Trash across your mailboxes without notifications while Dakia syncs. Blocking does not reject delivery at your email provider.
-
-Choose **Review older emails** to find previous messages across your mailboxes, review each mailbox’s results, and confirm the move to Trash. Search can be incomplete; Dakia shows the emails it found and reports pending or failed moves.
-
-Manage blocks in **Workspace → Blocked senders**. Unblocking lets future emails arrive normally and leaves existing Trash untouched. You can restore individual emails from Trash without Dakia moving them back automatically. Mailboxes connected later inherit your blocks; their older mail is left in place.
 
 ## Documentation
 

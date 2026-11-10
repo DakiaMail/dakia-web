@@ -13,12 +13,12 @@
   font-family: var(--ui-font-family);
   font-size: var(--ui-font-size);
   min-height: var(--ui-control-height);
-  transition: background-color var(--ui-motion-duration), color var(--ui-motion-duration);
+  transition: background-color var(--ui-motion-duration) ease-out, color var(--ui-motion-duration) ease-out, border-color var(--ui-motion-duration) ease-out;
 }
 .dakia-button.dakia-button {
   height: auto;
   max-width: 100%;
-  padding: 7px var(--ui-control-padding);
+  padding: 5px var(--ui-control-padding);
   font-weight: var(--ui-control-weight);
 }
 .dakia-button-label { white-space: normal; line-height: 1.4; }
@@ -26,8 +26,8 @@
 .dakia-icon-button-content { display: inline-flex; align-items: center; justify-content: center; }
 .dakia-button.dakia-button:focus-visible,
 .dakia-icon-button.dakia-icon-button:focus-visible {
-  outline: var(--ui-focus-width) solid var(--color-accent);
-  outline-offset: 3px;
+  outline: var(--ui-focus-width) solid var(--ui-focus-color);
+  outline-offset: 2px;
 }
 .dakia-button.dakia-button[data-disabled],
 .dakia-icon-button.dakia-icon-button[data-disabled] {
@@ -65,10 +65,10 @@
   max-width: min(420px, calc(100vw - 32px)); pointer-events: none;
 }
 .dakia-toast {
-  padding: 14px 18px;
-  background: var(--color-surface); color: var(--color-text);
-  border: 1px solid var(--color-border); border-radius: var(--ui-control-radius);
-  box-shadow: 0 4px 24px #0003;
+  padding: 12px 16px;
+  background: var(--ui-surface-raised); color: var(--color-text);
+  border: 1px solid var(--ui-surface-border); border-radius: var(--ui-panel-radius);
+  box-shadow: var(--ui-panel-shadow);
   animation: dakia-toast-in var(--ui-motion-duration) ease-out;
 }
 @keyframes dakia-toast-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
@@ -85,7 +85,11 @@
   padding: 6px var(--ui-mail-action-padding);
 }
 .dakia-mail-action .dakia-button-label { display: flex; gap: 7px; line-height: 1.4; }
-.dakia-mail-action-icon { display: inline-flex; flex-shrink: 0; }
+.dakia-mail-action-icon { display: inline-flex; flex-shrink: 0; color: var(--ui-muted); }
+.dakia-mail-action-icon svg { width: 16px; height: 16px; }
+.dakia-mail-action .key-hint { font-weight: 400; color: var(--ui-muted); border-color: var(--ui-surface-border); box-shadow: none; }
+.dakia-mail-action .dakia-button-label { overflow: visible; }
+.dakia-mail-action[data-disabled] .dakia-mail-action-icon { color: inherit; }
 .dakia-mail-action-text-compact { display: none; }
 @container (min-width: 560px) { .dakia-mail-action-text-compact { display: inline; } }
 .dakia-mail-action-menu { width: 100%; }
@@ -104,10 +108,26 @@
 .dakia-button.dakia-button:active:not([data-disabled]),
 .dakia-icon-button.dakia-icon-button:active:not([data-disabled]) {
   transform: none;
-  background: var(--ui-button-pressed);
-  color: var(--color-text);
+  background: var(--ui-control-pressed-bg, var(--ui-button-pressed));
+  color: var(--ui-control-pressed-text, var(--color-text));
 }
 @media (max-width: 600px), (pointer: coarse) {
   .dakia-button.dakia-button, .dakia-icon-button.dakia-icon-button { min-height: var(--ui-touch-target); }
   .dakia-icon-button.dakia-icon-button { min-width: var(--ui-touch-target); }
 }
+
+/* Emphasis remains consistent through press and loading states. */
+.dakia-button[data-variant="primary"], .dakia-icon-button[data-variant="primary"] {
+  --ui-control-pressed-bg: var(--ui-button-primary-pressed);
+  --ui-control-pressed-text: var(--ui-button-primary-text);
+}
+.dakia-button.dakia-button[aria-busy="true"], .dakia-icon-button.dakia-icon-button[aria-busy="true"] { opacity: 1; }
+.dakia-button[data-loading]::before { background: transparent; filter: none; }
+.dakia-button.dakia-button[data-tone="danger"] { --ui-control-pressed-bg: color-mix(in srgb, var(--color-danger), #000 14%); --ui-control-pressed-text: var(--color-on-danger); }
+.dakia-button.dakia-button[data-tone="danger"]:active:not([data-disabled]) { background: var(--ui-control-pressed-bg); color: var(--ui-control-pressed-text); }
+@media (hover: hover) {
+  .dakia-button[data-variant="secondary"]:hover:not([data-disabled]),
+  .dakia-icon-button[data-variant="secondary"]:hover:not([data-disabled]) { border-color: var(--ui-button-border-hover); }
+}
+
+.dakia-icon-button-loader { background: transparent; }

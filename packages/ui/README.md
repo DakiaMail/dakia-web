@@ -82,3 +82,5 @@ The development gallery includes standalone snooze and send-later examples. Chro
 Button emphasis uses three variants: `primary`, `secondary`, and `tertiary` (ghost). Destructive actions use `tone="danger"` independently of emphasis. Shared tokens control geometry, weights and touch targets. Focus uses a visible outline, hover changes color, pressed changes the surface without scaling, and disabled/loading states block duplicate activation. Loading reserves the existing label geometry.
 
 All components follow the [Linear visual direction and reference process](./DESIGN.md). Use the live product and official design articles as the benchmark when migrating each component.
+
+The Linear-style foundation uses 32px desktop controls, 44px touch targets, 500-weight labels and 400-weight mail actions. Theme the `--ui-button-*`, `--ui-surface-*` and `--ui-focus-color` tokens in `src/tokens.css`; the picker, toast and migrated menu use the same neutral surfaces and elevation.

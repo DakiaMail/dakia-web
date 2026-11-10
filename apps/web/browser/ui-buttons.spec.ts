@@ -113,7 +113,7 @@ test("gallery keyboard controls, theme persistence, central tokens and reduced m
   await expect(page.locator('[data-label="success"]')).toHaveCSS("transition-duration", "0s");
   await expect(page.locator('[data-label="success"]')).toHaveCSS("transform", "none");
   // Tokens recolor every primary control together, without component overrides.
-  await page.evaluate(() => document.documentElement.style.setProperty("--color-accent", "rgb(100, 60, 150)"));
+  await page.evaluate(() => document.documentElement.style.setProperty("--ui-button-primary-bg", "rgb(100, 60, 150)"));
   await expect(page.getByRole("button", { name: "Primary", exact: true })).toHaveCSS("background-color", "rgb(100, 60, 150)");
 });
 
@@ -123,29 +123,52 @@ for (const dark of [false, true]) test(`shared button interaction states and con
   const primary = page.getByRole("button", { name: "Primary", exact: true });
   const secondary = page.getByRole("button", { name: "Secondary", exact: true });
   const tertiary = page.getByRole("button", { name: "Tertiary", exact: true });
+  async function checkContrast(button: ReturnType<Page["getByRole"]>) {
+    const result = await button.evaluate(el => {
+      const parse = (s: string) => s.match(/[\d.]+/g)!.map(Number);
+      const luminance = (rgb: number[]) => {
+        const c = rgb.slice(0,3).map(v => { v /= 255; return v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; });
+        return c[0] * .2126 + c[1] * .7152 + c[2] * .0722;
+      };
+      const ratio = (a: number[], b: number[]) => { const x=luminance(a), y=luminance(b); return (Math.max(x,y)+.05)/(Math.min(x,y)+.05); };
+      let parent = el.parentElement;
+      let surface = [255,255,255];
+      while (parent) {
+        const bg = parse(getComputedStyle(parent).backgroundColor);
+        if (bg.length < 4 || bg[3] === 1) { surface = bg; break; }
+        parent = parent.parentElement;
+      }
+      const s = getComputedStyle(el), bg=parse(s.backgroundColor);
+      const background = bg.length < 4 || bg[3] === 1 ? bg : surface;
+      return { text: ratio(parse(s.color), background), focus: ratio(parse(s.outlineColor), surface) };
+    });
+    expect(result.text).toBeGreaterThanOrEqual(4.5);
+    return result;
+  }
   for (const button of [primary, secondary, tertiary]) {
-    await button.focus();
+    await page.mouse.move(0,0); await page.keyboard.press("Tab"); await button.focus();
     await expect(button).toHaveCSS("outline-style", "solid");
+    await expect(button).toHaveCSS("font-weight", "500");
+    expect((await checkContrast(button)).focus).toBeGreaterThanOrEqual(3);
     const idle = await button.evaluate(el => getComputedStyle(el).backgroundColor);
-    await button.hover(); await page.waitForTimeout(180);
+    await button.hover(); await page.waitForTimeout(150);
     expect(await button.evaluate(el => getComputedStyle(el).backgroundColor)).not.toBe(idle);
-    await page.mouse.down();
+    await checkContrast(button);
+    await page.screenshot({ path: info.outputPath(`${await button.getAttribute("data-variant")}-hover.png`) });
+    await page.mouse.down(); await page.waitForTimeout(150);
     await expect(button).toHaveCSS("transform", "none");
+    await checkContrast(button);
+    await page.screenshot({ path: info.outputPath(`${await button.getAttribute("data-variant")}-pressed.png`) });
     await page.mouse.up();
   }
-  const contrast = await primary.evaluate(el => {
-    const luminance = (s: string) => {
-      const rgb = s.match(/[\d.]+/g)!.slice(0,3).map(Number).map(v => { v /= 255; return v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; });
-      return rgb[0] * .2126 + rgb[1] * .7152 + rgb[2] * .0722;
-    };
-    const style = getComputedStyle(el);
-    const a = luminance(style.color), b = luminance(style.backgroundColor);
-    return (Math.max(a,b) + .05) / (Math.min(a,b) + .05);
-  });
-  expect(contrast).toBeGreaterThanOrEqual(4.5);
   for (const variant of ["primary", "secondary", "tertiary"]) {
     await expect(page.getByRole("button", { name: `${variant} disabled`, exact: true })).toBeDisabled();
     await expect(page.getByRole("button", { name: `${variant} loading`, exact: true })).toHaveAttribute("aria-busy", "true");
+    await expect(page.getByRole("button", { name: `${variant} loading`, exact: true })).toHaveCSS("opacity", "1");
+    const icon = page.getByRole("button", { name: `${variant} icon action`, exact: true });
+    await icon.focus(); await expect(icon).toHaveCSS("outline-style", "solid");
+    await expect(page.getByRole("button", { name: `${variant} icon disabled`, exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: `${variant} icon loading`, exact: true })).toHaveAttribute("aria-busy", "true");
   }
   await expect(page.getByRole("button", { name: "Delete", exact: true })).toHaveCSS("background-color", dark ? "rgb(255, 180, 171)" : "rgb(180, 35, 24)");
   const save = page.getByRole("button", { name: "Save changes", exact: true });

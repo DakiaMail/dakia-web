@@ -7,7 +7,7 @@ test("library date-time selector works standalone with focus return and theme to
   await opener.focus(); await page.keyboard.press("Enter");
   const dialog = page.getByRole("dialog", { name: "Snooze until" });
   await expect(dialog.getByRole("button", { name: "Later today" })).toBeFocused();
-  await page.evaluate(() => document.documentElement.style.setProperty("--color-accent", "rgb(22, 100, 80)"));
+  await page.evaluate(() => document.documentElement.style.setProperty("--ui-focus-color", "rgb(22, 100, 80)"));
   expect(await dialog.getByRole("button", { name: "Later today" }).evaluate(el => getComputedStyle(el).outlineColor)).toBe("rgb(22, 100, 80)");
   await page.keyboard.press("Shift+Escape"); await expect(dialog).toBeVisible();
   await page.keyboard.press("Tab"); await page.keyboard.press("Tab"); await page.keyboard.press("Tab");

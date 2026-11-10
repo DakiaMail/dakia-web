@@ -24,6 +24,6 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       if (blocked) { event.preventDefault(); return; }
       onClick?.(event);
     }}>
-      {keepFocusable && loading ? <><span style={{ opacity: 0 }}>{children}</span><span className="dakia-button-loader" aria-hidden="true"><Loader size="xs" color="currentColor" /></span></> : children}
+      {keepFocusable && loading ? <><span style={{ opacity: 0 }}>{children}</span><span className="dakia-button-loader" aria-hidden="true"><Loader size={14} color="currentColor" /></span></> : children}
     </MantineButton>;
 });

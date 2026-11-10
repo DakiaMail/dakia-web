@@ -15,14 +15,14 @@ export const dakiaTheme = createTheme({
   variantColorResolver(input) {
     const common = { border: "1px solid transparent" };
     switch (input.variant) {
-      case "primary": return { ...common, background: "var(--color-accent)", hover: "color-mix(in srgb, var(--color-accent), var(--color-text) 12%)", color: "var(--color-on-accent)", hoverColor: "var(--color-on-accent)" };
-      case "secondary": return { border: "1px solid var(--ui-button-border)", background: "var(--color-surface)", hover: "var(--color-subtle)", color: "var(--color-text)", hoverColor: "var(--color-text)" };
-      case "tertiary": return { ...common, background: "transparent", hover: "var(--color-subtle)", color: "var(--color-text)", hoverColor: "var(--color-text)" };
+      case "primary": return { ...common, background: "var(--ui-button-primary-bg)", hover: "var(--ui-button-primary-hover)", color: "var(--ui-button-primary-text)", hoverColor: "var(--ui-button-primary-text)" };
+      case "secondary": return { border: "1px solid var(--ui-button-border)", background: "var(--ui-button-secondary-bg)", hover: "var(--ui-button-secondary-hover)", color: "var(--color-text)", hoverColor: "var(--color-text)" };
+      case "tertiary": return { ...common, background: "transparent", hover: "var(--ui-button-ghost-hover)", color: "var(--ui-button-ghost-text)", hoverColor: "var(--color-text)" };
       default: return defaultVariantColorsResolver(input);
     }
   },
   components: {
-    Button: Button.extend({ defaultProps: { variant: "primary", size: "sm" }, classNames: { root: "dakia-button", inner: "dakia-button-inner", label: "dakia-button-label" } }),
-    ActionIcon: ActionIcon.extend({ defaultProps: { variant: "tertiary", size: "md" }, classNames: { root: "dakia-icon-button" } }),
+    Button: Button.extend({ defaultProps: { variant: "primary", size: "sm", loaderProps: { size: 14 } }, classNames: { root: "dakia-button", inner: "dakia-button-inner", label: "dakia-button-label" } }),
+    ActionIcon: ActionIcon.extend({ defaultProps: { variant: "tertiary", size: "md", loaderProps: { size: 14 } }, classNames: { root: "dakia-icon-button", loader: "dakia-icon-button-loader" } }),
   },
 });

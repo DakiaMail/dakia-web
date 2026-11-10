@@ -30,3 +30,9 @@ One observed desktop toolbar control, New issue, uses Inter Variable at 12px/500
 - Verify every migrated component in Chrome in light/dark themes and narrow/short layouts. Exercise keyboard access, popover/dialog focus and restoration, and persistence where relevant. Inspect screenshots as well as assertions.
 
 This direction applies to the custom library and its migrated consumers. It does not authorize a simultaneous redesign of the rest of Dakia.
+
+## Implemented foundation
+
+Shared controls use Inter at 13px/500, 32px desktop geometry and a 6px radius. Mail commands keep 400 weight and use 16px muted icons. Compact screens and coarse pointers get 44px targets. Primary, secondary and ghost controls each have explicit hover and pressed surfaces; loading retains geometry and contrast. The date-time panel, toast and action menu share neutral surfaces, a 10px panel radius and restrained elevation. These are Dakia's adaptations of the observed Linear language, not claimed copies of unpublished Linear tokens.
+
+Library surface, border, primary, secondary, ghost and focus colors live in `tokens.css`, with separate dark values. Use `--ui-button-primary-bg`, `--ui-button-primary-hover`, `--ui-button-primary-pressed`, `--ui-button-primary-text` and `--ui-focus-color` for control theme changes. Keep the rest of the app's legacy palette independent during gradual migration.

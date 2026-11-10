@@ -2,8 +2,9 @@
 import { StrictMode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { Button, ConfirmationButton, DateTimeSelector, DakiaProvider, IconButton, MailActionButton, useDakiaColorScheme } from "@dakia/ui";
-import { Archive, SunMoon } from "lucide-react";
+import { Archive, Plus, SunMoon } from "lucide-react";
 import "@fontsource/inter/400.css";
+import "@fontsource/inter/500.css";
 import "@fontsource/inter/600.css";
 import "./styles.css";
 import "@dakia/ui/styles.css";
@@ -29,6 +30,9 @@ function Gallery() {
       <Button variant={variant}>{variant} ready</Button>
       <Button variant={variant} disabled>{variant} disabled</Button>
       <Button variant={variant} loading>{variant} loading</Button>
+      <IconButton variant={variant} label={`${variant} icon action`}><Plus size={16} /></IconButton>
+      <IconButton variant={variant} label={`${variant} icon disabled`} disabled><Plus size={16} /></IconButton>
+      <IconButton variant={variant} label={`${variant} icon loading`} loading><Plus size={16} /></IconButton>
     </div>)}
     <Button keepFocusable loading={loading} onClick={() => { setLoading(true); timer.current = setTimeout(() => setLoading(false), 1200); }}>Save changes</Button>
     <div style={{ marginBlock: 16 }}><MailActionButton label="Archive" icon={<Archive size={18} />} shortcutHint={<kbd className="key-hint" aria-hidden="true">E</kbd>} /></div>

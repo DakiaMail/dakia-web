@@ -75,6 +75,12 @@ function sanitizedDocument(html: string, images?: ImageMap, discover?: Set<strin
     node.removeAttribute("style");
     if (style) node.setAttribute("style", style);
     if (node.tagName === "IMG" && !node.hasAttribute("src") && !discover) node.remove();
+    // Email templates commonly put CSS pixel units in HTML dimensions. Keep
+    // their native presentational hints, which sender CSS can still override.
+    for (const attr of ["width", "height"]) {
+      const value = node.getAttribute(attr)?.trim();
+      if (value && /^\d{1,5}(?:\.\d+)?px$/i.test(value)) node.setAttribute(attr, value.slice(0, -2));
+    }
     // Legacy presentation attributes only accept their literal grammars.
     for (const attr of ["width", "height", "cellpadding", "cellspacing", "border", "colspan", "rowspan", "span", "size"]) {
       const value = node.getAttribute(attr);

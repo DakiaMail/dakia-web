@@ -13,7 +13,7 @@ body{margin:0;padding:16px;font:16px/1.5 Arial;background:#fff;color:#111}
 </style></head><body class="receipt"><h1>Thanks for your order</h1><div class="desktop">Desktop receipt</div><div class="mobile">Mobile receipt</div><div class="tracker">${['Ordered','Dispatched','On the way','Delivered'].map(s=>`<div class="step"><div class="connector"></div>${s}</div>`).join('')}</div><div class="hero"></div><div class="columns"><div class="picture"><img class="product" src="https://images.example.org/product.png" alt="Product"></div><div class="details"><a href="https://example.org/order" style="text-decoration:none">Travel mug</a><div class="price">€11<sup>99</sup></div></div></div><p class="end">Receipt complete</p></body></html>`;
 const hostile = String.raw`<style>@import 'https://tracker.example/import';@font-face{font-family:evil;src:url(https://tracker.example/font)}.bad{background:u\72l(https://tracker.example/css);cursor:url(https://tracker.example/cursor),auto;behavior:url(https://tracker.example/htc);width:expression(alert(1))}.set{background:image-set('https://tracker.example/set' 1x)}.safe{display:grid;grid-template-columns:1fr 2fr}</style><meta http-equiv="refresh" content="0;url=https://tracker.example/redirect"><link rel="stylesheet" href="https://tracker.example/style"><base href="https://tracker.example"><script>parent.document.body.textContent='compromised';fetch('https://tracker.example/script')</script><form action="https://tracker.example/form"><input autofocus onfocus="alert(1)"></form><iframe src="https://tracker.example/frame"></iframe><svg onload="alert(1)"><image href="https://tracker.example/svg"></image></svg><math><mtext><table><mglyph><style><!--</style><img title="--><img src=x onerror=alert(1)>"></mglyph></table></mtext></math><div class="safe" onclick="alert(1)">Safe content</div><div class="bad">Blocked resources</div><div class="set">Blocked set</div><img src="https://tracker.example/pixel" hidden width="1" height="1"><a href="javascript:alert(1)">Unsafe</a><a href="data:text/html,broken">Data</a><a href="https://example.org/safe">Safe link</a>`;
 
-async function openMail(page: Page, html: string, images: Record<string,string> = {}, block = false) {
+async function openMail(page: Page, html: string, images: Record<string,string> = {}, block = false, keyboard = false) {
   const external: string[] = [], imageRequests: string[] = [], writes: string[] = [];
   await page.addInitScript(block => {
     localStorage.setItem('dakia:layout-fixture:always-load-images', 'false');
@@ -38,7 +38,9 @@ async function openMail(page: Page, html: string, images: Record<string,string> 
     if (path.endsWith('/messages/m0')) return respond({ ...content, message:root, html, text:'Plain message', detected_language:'en' });
     return respond(null);
   });
-  await page.goto('/'); await page.locator('.message-open').click();
+  await page.goto('/');
+  if (keyboard) { await tabTo(page, '.message-open'); await page.keyboard.press('Enter'); }
+  else await page.locator('.message-open').click();
   const frame = page.frameLocator('iframe[title="Message body"]');
   await expect(frame.locator('body')).not.toBeEmpty();
   return { frame, external, imageRequests, writes };
@@ -237,4 +239,83 @@ for (const sizing of ['min-height:100vh', 'height:100vh', 'min-height:100%', 'mi
   await expect.poll(() => iframe.evaluate(node => (node as HTMLIFrameElement).clientHeight)).toBeGreaterThan(before + 1000);
   await frame.locator('#end').scrollIntoViewIfNeeded();
   await expect(frame.locator('#end')).toBeInViewport();
+});
+
+// The optional body/images are owner-approved local copies, never committed.
+// All provider APIs and external requests are intercepted by openMail.
+const shipmentDir = process.env.DAKIA_PRIVATE_SHIPMENT;
+const shipment = shipmentDir
+  ? JSON.parse(readFileSync(resolve(shipmentDir, 'message.json'), 'utf8')).html as string
+  : `<div style="max-width:600px;margin:auto"><table width="100%"><tr><td><img alt="Store" src="https://images.example.org/logo.png" width="100px" height="100px"></td><td>Shipment reference</td></tr></table><h1>Your order is on the way</h1><a href="https://example.org/order">View your order</a><table style="width:100%;border-collapse:collapse">${Array.from({length:5}, (_, i) => `<tr><td style="padding:18px 10px;border-bottom:1px solid #ddd"><img alt="Product ${i}" src="https://images.example.org/product.png" width="60px" height="60px" style="margin-right:15px;border:1px solid #e5e5e5;border-radius:8px"></td><td>Printing supplies × 1</td></tr>`).join('')}</table><p>Shipment complete</p></div>`;
+const shipmentImages: Record<string,string> = shipmentDir ? JSON.parse(readFileSync(resolve(shipmentDir, 'images.json'), 'utf8')) : {};
+
+async function tabTo(page: Page, selector: string) {
+  for (let i = 0; i < 100; i++) {
+    await page.keyboard.press('Tab');
+    if (await page.locator(selector).evaluateAll(nodes => nodes.some(node => node === document.activeElement))) return;
+  }
+  throw new Error(`Keyboard could not reach ${selector}`);
+}
+for (const width of [320,390,600,900,1480,1920]) for (const dark of [false,true]) test(`pixel-sized shipment ${width} ${dark ? 'dark' : 'light'}`, async ({page}) => {
+  await page.setViewportSize({width,height:width <= 390 ? 600 : 980});
+  await page.addInitScript(dark => localStorage.setItem('dakia-theme', dark ? 'dark' : 'light'), dark);
+  const {frame,external,imageRequests,writes} = await openMail(page,shipment,shipmentImages,true,true);
+  await expect(page.getByRole('button',{name:'Load images',exact:true})).toBeVisible();
+  const countBefore = imageRequests.length;
+  await tabTo(page, 'button[title="Load images"]');
+  await page.keyboard.press('Enter');
+  await expect.poll(() => frame.locator('img[src]').count()).toBe(6);
+  await expect.poll(() => frame.locator('img[src]').evaluateAll(nodes => nodes.every(n => (n as HTMLImageElement).naturalWidth > 0))).toBe(true);
+  const dimensions = await frame.locator('img').evaluateAll(nodes => nodes.map(n => {
+    const r=n.getBoundingClientRect(); return {width:r.width,height:r.height};
+  }));
+  await expect.poll(async () => (await page.locator('iframe[title="Message body"]').boundingBox())!.height).toBeGreaterThan(100);
+  await frame.locator('img').first().scrollIntoViewIfNeeded();
+  const output = shipmentDir || 'artifacts/email-layouts';
+  mkdirSync(output,{recursive:true});
+  const label = `shipment-${process.env.DAKIA_BASELINE ? 'before' : 'after'}-${width}-${dark ? 'dark' : 'light'}`;
+  await page.screenshot({path:resolve(output,`${label}.png`)});
+  const viewport = await frame.locator('body').evaluate(() => innerWidth);
+  const original = await page.context().newPage();
+  await original.route('**/*', route => route.abort());
+  await original.setViewportSize({width:viewport,height:980});
+  const reference = await page.evaluate(({shipment,shipmentImages,png}) => {
+    const doc = new DOMParser().parseFromString(shipment,'text/html');
+    doc.querySelectorAll('script,link,meta,base,iframe,object,embed').forEach(n=>n.remove());
+    for (const n of doc.querySelectorAll('*')) for (const a of [...n.attributes]) if (/^on/i.test(a.name)) n.removeAttribute(a.name);
+    for (const img of doc.querySelectorAll('img')) {
+      if (img.style.display === 'none') { img.remove(); continue; }
+      img.src = shipmentImages[img.src] || png;
+    }
+    const csp=doc.createElement('meta');csp.httpEquiv='Content-Security-Policy';csp.content="default-src 'none';script-src 'none';style-src 'unsafe-inline';img-src data:;base-uri 'none';form-action 'none'";doc.head.prepend(csp);
+    return '<!doctype html>'+doc.documentElement.outerHTML;
+  },{shipment,shipmentImages,png});
+  await original.setContent(reference);
+  await expect.poll(()=>original.locator('img').evaluateAll(nodes=>nodes.every(n=>(n as HTMLImageElement).naturalWidth>0))).toBe(true);
+  const expected=await original.locator('img').evaluateAll(nodes=>nodes.map(n=>{const r=n.getBoundingClientRect();return {width:r.width,height:r.height};}));
+  await original.screenshot({path:resolve(output,`${label}-original.png`),fullPage:true});
+  await original.close();
+  writeFileSync(resolve(output,`${label}.json`),JSON.stringify({dimensions,expected,viewport},null,2));
+  if (!process.env.DAKIA_BASELINE) {
+    expect(dimensions).toEqual(expected);
+    expect(dimensions[0]).toEqual({width:100,height:100});
+    expect(dimensions.slice(1)).toEqual(Array(5).fill({width:62,height:62}));
+    await expect(page.getByRole('button',{name:'Original size',exact:true})).toHaveCount(0);
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth-innerWidth)).toBeLessThanOrEqual(1);
+  }
+  await frame.locator('img').last().scrollIntoViewIfNeeded();
+  await expect(frame.locator('img').last()).toBeInViewport();
+  await page.screenshot({path:resolve(output,`${label}-products.png`)});
+  expect(imageRequests.slice(countBefore)).toHaveLength(shipmentDir ? 6 : 2);
+  if (!process.env.DAKIA_BASELINE) {
+    await page.reload();
+    await expect(page.getByRole('button',{name:'Load images',exact:true})).toBeVisible();
+    await tabTo(page, 'button[title="Load images"]');
+    await page.keyboard.press('Enter');
+    await expect.poll(() => frame.locator('img[src]').count()).toBe(6);
+    await expect.poll(() => frame.locator('img').evaluateAll(nodes => nodes.map(n => {
+      const r=n.getBoundingClientRect(); return {width:r.width,height:r.height};
+    }))).toEqual(expected);
+  }
+  expect(external).toEqual([]); expect(writes).toEqual([]);
 });

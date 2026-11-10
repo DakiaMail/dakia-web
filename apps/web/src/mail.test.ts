@@ -65,6 +65,19 @@ describe("received HTML boundary", () => {
     expect(tables[0].style.marginLeft).toBe("auto");
     expect(tables[1].getAttribute("width")).toBe("600");
   });
+  it("normalizes pixel dimension attributes without overriding sender CSS", () => {
+    const images = { "https://images.example.org/product.png": "data:image/png;base64,AAAA" };
+    const doc = new DOMParser().parseFromString(sanitizeMail('<img src="https://images.example.org/product.png" width="60px" height=" 100PX " style="width:40px"><table width="600px"><tr><td height="20px">Body</td></tr></table>', images), "text/html");
+    expect(doc.querySelector("img")!.getAttribute("width")).toBe("60");
+    expect(doc.querySelector("img")!.getAttribute("height")).toBe("100");
+    expect(doc.querySelector("img")!.style.width).toBe("40px");
+    expect(doc.querySelector("table")!.getAttribute("width")).toBe("600");
+    expect(doc.querySelector("td")!.getAttribute("height")).toBe("20");
+  });
+  it("keeps pixel units restricted to literal width and height attributes", () => {
+    const doc = new DOMParser().parseFromString(sanitizeMail('<div width="60px; background:url(https://tracker.example)" height="calc(20px)"></div><div width="60em" height="-1px"></div><table cellpadding="10px" cellspacing="2px" border="1px"><tr><td colspan="2px" rowspan="3px">Body</td></tr></table>'), "text/html");
+    expect(doc.querySelectorAll("[width],[height],[cellpadding],[cellspacing],[border],[colspan],[rowspan]")).toHaveLength(0);
+  });
   it("provides a network-denying CSP independently of sanitation", () => {
     expect(mailDocument("<p>Body</p>")).toContain("default-src 'none'");
     expect(mailDocument("")).toContain("img-src 'none'");

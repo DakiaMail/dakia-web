@@ -1,0 +1,22 @@
+✓ Local translation prototype
+  http://127.0.0.1:4178/
+true
+✓ Done
+"run"
+✓ Done
+"offline"
+✓ Done
+"export"
+✓ Done
+"offline"
+✓ Chrome translation prototype
+  http://127.0.0.1:4178/native.html
+true
+✓ Done
+"source"
+✓ Done
+"Japanese selected by keyboard"
+✓ Done
+"run"
+✓ Done
+"source"

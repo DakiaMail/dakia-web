@@ -1,0 +1,10 @@
+{
+  "date": "2026-11-09T12:44:03.477Z",
+  "elapsedMs": 60369.159999996424,
+  "error": "AbortError: signal is aborted without reason",
+  "online": true,
+  "progress": [],
+  "samples": [],
+  "source": "de",
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/157.0.0.0 Safari/537.36"
+}

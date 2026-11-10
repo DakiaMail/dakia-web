@@ -1,0 +1,53 @@
+{
+  "complete": true,
+  "engine": "firefox",
+  "error": "Worker stopped",
+  "first": {
+    "inputCharacters": 107,
+    "inputUtf8Bytes": 263,
+    "ms": 1596.6049999985844,
+    "output": "Hello. The meeting will be held at 14:30 on Tuesday. Please send the invoice number 4821 by Friday. The total amount is 125 euros. Please do not pay until you receive confirmation. Contact: test@example.test."
+  },
+  "memoryAfterFirst": {
+    "originalBuffersDetached": true,
+    "runtime": "firefox-v0.6.0-wasm4",
+    "wasmHeapBytes": 455147520
+  },
+  "memoryAfterLoad": {
+    "originalBuffersDetached": true,
+    "runtime": "firefox-v0.6.0-wasm4",
+    "wasmHeapBytes": 95485952
+  },
+  "phase": "failed",
+  "source": "ja",
+  "started": "2026-11-09T13:17:28.650Z",
+  "startup": {
+    "allCacheHits": true,
+    "inputBuffersDetached": true,
+    "modelLoadMs": 329.2599999997765,
+    "packBytes": 70294993,
+    "packMs": 356.179999999702,
+    "runtimeInitMs": 107.1550000011921,
+    "totalMs": 793.0099999997765
+  },
+  "workloads": [
+    {
+      "inputCharacters": 107,
+      "medianMs": 543.722500000149,
+      "name": "short",
+      "p95Ms": 553.5299999993294,
+      "samplesMs": [
+        553.5299999993294,
+        547.3849999997765,
+        546.390000000596,
+        547.855000000447,
+        542.9600000008941,
+        544.3149999994785,
+        541.035000000149,
+        537.0500000007451,
+        539.109999999404,
+        543.1300000008196
+      ]
+    }
+  ]
+}

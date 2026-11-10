@@ -1,0 +1,55 @@
+{
+  "complete": true,
+  "controlled": true,
+  "networkBlocked": true,
+  "online": false,
+  "rows": [
+    {
+      "memory": {
+        "originalBuffersDetached": true,
+        "runtime": "firefox-v0.6.0-wasm4",
+        "wasmHeapBytes": 205193216
+      },
+      "source": "et",
+      "startup": {
+        "allCacheHits": true,
+        "inputBuffersDetached": true,
+        "modelLoadMs": 192.8149999994785,
+        "packBytes": 37005329,
+        "packMs": 181.49000000022352,
+        "runtimeInitMs": 114.18999999947846,
+        "totalMs": 488.80000000074506
+      },
+      "translation": {
+        "inputCharacters": 195,
+        "inputUtf8Bytes": 199,
+        "ms": 993.155000001192,
+        "output": "Hey! Hi! Our meeting will be held on Tuesday at 14:30. Please send invoice number 4821 by Friday at the latest. The total amount is 125 euros. Do not pay before getting confirmation. Contact us at test@example.test."
+      }
+    },
+    {
+      "memory": {
+        "originalBuffersDetached": true,
+        "runtime": "firefox-v0.6.0-wasm4",
+        "wasmHeapBytes": 455147520
+      },
+      "source": "ja",
+      "startup": {
+        "allCacheHits": true,
+        "inputBuffersDetached": true,
+        "modelLoadMs": 318.21000000089407,
+        "packBytes": 70294993,
+        "packMs": 378.4750000014901,
+        "runtimeInitMs": 93.089999999851,
+        "totalMs": 790.1699999999255
+      },
+      "translation": {
+        "inputCharacters": 107,
+        "inputUtf8Bytes": 263,
+        "ms": 1573.379999998957,
+        "output": "Hello. The meeting will be held at 14:30 on Tuesday. Please send the invoice number 4821 by Friday. The total amount is 125 euros. Please do not pay until you receive confirmation. Contact: test@example.test."
+      }
+    }
+  ],
+  "version": "firefox-mobile-idle-fixed-v1"
+}

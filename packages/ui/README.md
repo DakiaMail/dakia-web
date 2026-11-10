@@ -80,3 +80,5 @@ The development gallery includes standalone snooze and send-later examples. Chro
 `MailActionButton` is the shared regular-weight mail command control. Supply `label`, `icon`, and a `shortcutHint` from the app to retain shortcut preferences. `collapseLabel` hides toolbar labels in compact readers; `placement="menu"` keeps labels visible and aligns commands in the More menu. It forwards refs and native button accessibility props.
 
 Button emphasis uses three variants: `primary`, `secondary`, and `tertiary` (ghost). Destructive actions use `tone="danger"` independently of emphasis. Shared tokens control geometry, weights and touch targets. Focus uses a visible outline, hover changes color, pressed changes the surface without scaling, and disabled/loading states block duplicate activation. Loading reserves the existing label geometry.
+
+All components follow the [Linear visual direction and reference process](./DESIGN.md). Use the live product and official design articles as the benchmark when migrating each component.

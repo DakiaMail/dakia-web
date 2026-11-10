@@ -1,12 +1,17 @@
 // @vitest-environment jsdom
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Translation } from "./Translation";
 import { messages, content } from "../browser/fixtures";
 import { extraApi } from "./extra-api";
 import type { ModelJob } from "@dakia/api-types";
+import { deviceTranslator, DeviceTranslationError } from "./deviceTranslation";
 import registry from "../../../workers/translation/models.json";
+
+const policyFixture = vi.hoisted(() => ({ mode: "host" as "host" | "device" | "automatic" }));
+vi.mock("./translationPolicy", () => ({ useTranslationPolicy: () => ({ data: { mode: policyFixture.mode, can_manage: false }, isError: false, refetch: vi.fn() }) }));
+beforeEach(() => { policyFixture.mode = "host"; });
 
 // jsdom does not implement the reader's standard browser resize API.
 vi.stubGlobal("ResizeObserver", class { observe() {} disconnect() {} });
@@ -72,4 +77,77 @@ it("translates only on click, shows original, resets source selection and ignore
   expect(screen.queryByLabelText("Translate from")).toBeNull();
   await waitFor(() => expect(screen.queryByRole("status")).toBeNull());
   client.clear();
+});
+
+
+it("downloads locally with accessible progress and never queues a host job in device-only mode", async () => {
+  policyFixture.mode = "device";
+  const host = vi.spyOn(extraApi, "translate");
+  let finish!: (text: string) => void;
+  vi.spyOn(deviceTranslator, "translate").mockImplementation((_owner, _source, _text, _html, _signal, progress) => {
+    progress({ stage: "downloading", downloaded: 20_000_000, total: 40_000_000 });
+    return new Promise(resolve => { finish = resolve; });
+  });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<QueryClientProvider client={client}><Translation message={messages[0]} html={content.html} text={content.text} dark={false} detectedLanguage="et" /></QueryClientProvider>);
+  fireEvent.click(screen.getByRole("button", { name: "Translate to English" }));
+  expect(screen.getByRole("progressbar", { name: "Downloading Estonian" }).getAttribute("aria-valuenow")).toBe("50");
+  await act(async () => { finish("<p>Your meeting is tomorrow.</p>"); });
+  expect(screen.getByTitle("Translated message")).toBeTruthy();
+  expect(host).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Show original" }));
+  expect(screen.getByTitle("Message body")).toBeTruthy(); client.clear();
+});
+
+it("uses host fallback only when the administrator permits it", async () => {
+  policyFixture.mode = "automatic";
+  vi.spyOn(deviceTranslator, "translate").mockRejectedValue(new DeviceTranslationError("Not enough memory."));
+  const host = vi.spyOn(extraApi, "translate").mockResolvedValue({ ...job, status: "pending" });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<QueryClientProvider client={client}><Translation message={messages[0]} html={content.html} text={content.text} dark={false} detectedLanguage="et" /></QueryClientProvider>);
+  fireEvent.click(screen.getByRole("button", { name: "Translate to English" }));
+  await waitFor(() => expect(host).toHaveBeenCalledTimes(1));
+  expect(screen.getByText("Using host translation because this device could not finish.")).toBeTruthy(); client.clear();
+});
+
+it("does not fall back or show late local results after cancellation", async () => {
+  policyFixture.mode = "automatic";
+  const host = vi.spyOn(extraApi, "translate");
+  let signal!: AbortSignal, finish!: (text: string) => void;
+  vi.spyOn(deviceTranslator, "translate").mockImplementation((_o,_s,_t,_h,abort,progress) => {
+    signal = abort; progress({ stage:"downloading",downloaded:1,total:10 });
+    return new Promise(resolve => { finish = resolve; });
+  });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<QueryClientProvider client={client}><Translation message={messages[0]} html={content.html} text={content.text} dark={false} detectedLanguage="et" /></QueryClientProvider>);
+  fireEvent.click(screen.getByRole("button", { name: "Translate to English" }));
+  fireEvent.click(screen.getByRole("button", { name: "Cancel translation" }));
+  expect(signal.aborted).toBe(true);
+  await act(async () => { finish("<p>Late translation</p>"); });
+  expect(screen.queryByTitle("Translated message")).toBeNull(); expect(host).not.toHaveBeenCalled(); client.clear();
+});
+
+it("reports local failure without host fallback in device-only mode", async () => {
+  policyFixture.mode = "device";
+  const host = vi.spyOn(extraApi, "translate");
+  vi.spyOn(deviceTranslator, "translate").mockRejectedValue(new DeviceTranslationError("This device could not translate."));
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  render(<QueryClientProvider client={client}><Translation message={messages[0]} html={content.html} text={content.text} dark={false} detectedLanguage="et" /></QueryClientProvider>);
+  fireEvent.click(screen.getByRole("button", { name: "Translate to English" }));
+  await screen.findByText("This device could not translate."); expect(host).not.toHaveBeenCalled(); client.clear();
+});
+
+it("aborts a discarded local translation and ignores completion in another account", async()=>{
+  policyFixture.mode="device";
+  let signal!:AbortSignal, finish!:(text:string)=>void;
+  vi.spyOn(deviceTranslator,"translate").mockImplementation((_o,_s,_t,_h,abort)=>{
+    signal=abort;return new Promise(resolve=>{finish=resolve;});
+  });
+  const host=vi.spyOn(extraApi,"translate");
+  const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+  const ui=(account:string)=><QueryClientProvider client={client}><Translation message={{...messages[0],account_id:account}} html={content.html} text={content.text} dark={false} detectedLanguage="et" /></QueryClientProvider>;
+  const view=render(ui("work"));fireEvent.click(screen.getByRole("button",{name:"Translate to English"}));
+  view.rerender(ui("personal"));expect(signal.aborted).toBe(true);
+  await act(async()=>{finish("<p>Discarded account translation</p>");});
+  expect(screen.queryByTitle("Translated message")).toBeNull();expect(host).not.toHaveBeenCalled();client.clear();
 });

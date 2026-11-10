@@ -1,0 +1,654 @@
+{
+  "cacheOnly": false,
+  "chrome": {
+    "exposed": true,
+    "languages": {
+      "ar": "downloadable",
+      "de": "downloadable",
+      "et": "unavailable",
+      "ja": "downloadable",
+      "zh": "downloadable"
+    }
+  },
+  "complete": true,
+  "crossOriginIsolated": true,
+  "date": "2026-11-09T12:40:56.510Z",
+  "deviceMemoryGiB": 32,
+  "hardwareConcurrency": 10,
+  "heartbeatMaxDriftMs": 67.63500002026558,
+  "languages": [
+    {
+      "cachedFreshWorker": [
+        {
+          "allCacheHits": true,
+          "firstTranslationMs": 169.12000000476837,
+          "modelLoadMs": 54.375,
+          "packBytes": 37005329,
+          "packMs": 57.28000000119209,
+          "readyToResultMs": 305.94499999284744,
+          "runtimeInitMs": 25.069999992847443,
+          "totalMs": 136.82499998807907
+        },
+        {
+          "allCacheHits": true,
+          "firstTranslationMs": 172.05500000715256,
+          "modelLoadMs": 48.685000002384186,
+          "packBytes": 37005329,
+          "packMs": 43.21000000834465,
+          "readyToResultMs": 286.83500000834465,
+          "runtimeInitMs": 22.799999982118607,
+          "totalMs": 114.7800000011921
+        },
+        {
+          "allCacheHits": true,
+          "firstTranslationMs": 165.60499998927116,
+          "modelLoadMs": 49.90500000119209,
+          "packBytes": 37005329,
+          "packMs": 49.38499999046326,
+          "readyToResultMs": 287.3599999845028,
+          "runtimeInitMs": 22.359999984502792,
+          "totalMs": 121.75499999523164
+        }
+      ],
+      "first": {
+        "inputCharacters": 195,
+        "inputUtf8Bytes": 199,
+        "ms": 279.1899999976158,
+        "output": "Hey! Hi! Our meeting will be held on Tuesday at 14:30. Please send invoice number 4821 by Friday at the latest. The total amount is 125 euros. Do not pay before getting confirmation. Contact us at test@example.test."
+      },
+      "html": {
+        "inputCharacters": 511,
+        "inputUtf8Bytes": 519,
+        "ms": 176.50499999523163,
+        "output": "<html><body><table><tr><td><p>Hey! Hi! Our meeting will be held on Tuesday at 14:30. Please send invoice number 4821 by Friday at the latest. The total amount is 125 euros. Do not pay before getting confirmation. Contact us at test@example.test.</p></td></tr></table><a href=\"https://example.test/details?x=1&amp;y=2\">Hey! Hi! Our meeting will be held on Tuesday at 14:30. Please send invoice number 4821 by Friday at the latest. The total amount is 125 euros. Do not pay before getting confirmation. Contact us at test@example.test.</a></body></html>",
+        "structurePreserved": true
+      },
+      "memory": {
+        "wasmHeapBytes": 547553280
+      },
+      "reference": "Hello! Our meeting takes place on Tuesday at 14:30. Please send invoice no. 4821 by Friday at the latest. The total is 125 euros. Do not pay before receiving confirmation. Contact test@example.test.",
+      "source": "et",
+      "startup": {
+        "allCacheHits": false,
+        "modelLoadMs": 83.23999997973442,
+        "packBytes": 37005329,
+        "packMs": 199.4050000011921,
+        "runtimeInitMs": 21.314999997615818,
+        "totalMs": 304.1650000214577
+      },
+      "workloads": [
+        {
+          "inputCharacters": 195,
+          "inputUtf8Bytes": 199,
+          "maxMs": 100.4399999976158,
+          "medianMs": 95.59749999642372,
+          "minMs": 93.9350000023842,
+          "n": 10,
+          "name": "short",
+          "outputCharacters": 215,
+          "p95Ms": 100.4399999976158,
+          "samplesMs": [
+            95.91999998688698,
+            100.4399999976158,
+            96.61500000953674,
+            99.05500000715256,
+            94.3250000178814,
+            98.90000000596046,
+            93.9350000023842,
+            94.89500001072884,
+            95.27500000596046,
+            94.20500001311302
+          ]
+        },
+        {
+          "inputCharacters": 983,
+          "inputUtf8Bytes": 1003,
+          "maxMs": 440.9799999892712,
+          "medianMs": 431.2450000047684,
+          "minMs": 421.9699999988079,
+          "n": 10,
+          "name": "medium",
+          "outputCharacters": 1083,
+          "p95Ms": 440.9799999892712,
+          "samplesMs": [
+            436.5050000250339,
+            434.4650000035763,
+            440.9799999892712,
+            433.09999999403954,
+            426.4599999785423,
+            425.5450000166893,
+            421.9699999988079,
+            426.21000000834465,
+            429.3900000154972,
+            439.675000011921
+          ]
+        },
+        {
+          "inputCharacters": 4923,
+          "inputUtf8Bytes": 5023,
+          "maxMs": 1818.1599999964235,
+          "medianMs": 1781.7649999856949,
+          "minMs": 1776.7849999964235,
+          "n": 3,
+          "name": "long",
+          "outputCharacters": 5423,
+          "p95Ms": 1818.1599999964235,
+          "samplesMs": [
+            1818.1599999964235,
+            1776.7849999964235,
+            1781.7649999856949
+          ]
+        }
+      ]
+    },
+    {
+      "cachedFreshWorker": [
+        {
+          "allCacheHits": true,
+          "firstTranslationMs": 171.07499998807907,
+          "modelLoadMs": 56.02000001072883,
+          "packBytes": 37049022,
+          "packMs": 54.10499998927117,
+          "readyToResultMs": 305.8449999988079,
+          "runtimeInitMs": 24.544999986886975,
+          "totalMs": 134.77000001072884
+        },
+        {
+          "allCacheHits": true,
+          "firstTranslationMs": 168.1550000011921,
+          "modelLoadMs": 52.314999997615814,
+          "packBytes": 37049022,
+          "packMs": 206.66499999165535,
+          "readyToResultMs": 455.4350000023842,
+          "runtimeInitMs": 28.19999998807907,
+          "totalMs": 287.2800000011921
+        },
+        {
+          "allCacheHits": true,
+          "firstTranslationMs": 165.92999997735023,
+          "modelLoadMs": 53.599999994039536,
+          "packBytes": 37049022,
+          "packMs": 44.78000000119209,
+          "readyToResultMs": 322.88499996066093,
+          "runtimeInitMs": 58.44999998807907,
+          "totalMs": 156.9549999833107
+        }
+      ],
+      "first": {
+        "inputCharacters": 176,
+        "inputUtf8Bytes": 292,
+        "ms": 163.03999999165535,
+        "output": "Hi, our meeting will be on Tuesday at 14:30. Please send invoice 4821 before Friday. Total amount is 125 euros. Do not pay before receiving the confirmation. To connect: test@example.test."
+      },
+      "html": {
+        "inputCharacters": 473,
+        "inputUtf8Bytes": 705,
+        "ms": 170.25,
+        "output": "<html><body><table><tr><td><p>Hi, our meeting will be on Tuesday at 14:30. Please send invoice 4821 before Friday. Total amount is 125 euros. Do not pay before receiving the confirmation. To connect: test@example.test.</p></td></tr></table><a href=\"https://example.test/details?x=1&amp;y=2\">Hi, our meeting will be on Tuesday at 14:30. Please send invoice 4821 before Friday. Total amount is 125 euros. Do not pay before receiving the confirmation. To connect: test@example.test.</a></body></html>",
+        "structurePreserved": true
+      },
+      "memory": {
+        "wasmHeapBytes": 548077568
+      },
+      "reference": "Hello, our meeting will be held on Tuesday at 14:30. Please send invoice number 4821 before Friday. The total amount is 125 euros. Do not pay before receiving confirmation. Contact: test@example.test.",
+      "source": "ar",
+      "startup": {
+        "allCacheHits": false,
+        "modelLoadMs": 48.775000005960464,
+        "packBytes": 37049022,
+        "packMs": 210.44499999284744,
+        "runtimeInitMs": 22.44999998807907,
+        "totalMs": 281.77500000596046
+      },
+      "workloads": [
+        {
+          "inputCharacters": 176,
+          "inputUtf8Bytes": 292,
+          "maxMs": 89.77500000596046,
+          "medianMs": 87.65249998867512,
+          "minMs": 84.80500000715256,
+          "n": 10,
+          "name": "short",
+          "outputCharacters": 188,
+          "p95Ms": 89.77500000596046,
+          "samplesMs": [
+            89.77500000596046,
+            88.84000000357628,
+            87.81499999761581,
+            88.63999998569489,
+            87.14499998092651,
+            87.94499999284744,
+            87.48999997973442,
+            85.4549999833107,
+            84.80500000715256,
+            87.2199999988079
+          ]
+        },
+        {
+          "inputCharacters": 888,
+          "inputUtf8Bytes": 1468,
+          "maxMs": 429.33500000834465,
+          "medianMs": 405.57500000298023,
+          "minMs": 398.82000002264977,
+          "n": 10,
+          "name": "medium",
+          "outputCharacters": 948,
+          "p95Ms": 429.33500000834465,
+          "samplesMs": [
+            407.7650000154972,
+            403.38499999046326,
+            402.0149999856949,
+            421.0349999964237,
+            401.03999999165535,
+            398.82000002264977,
+            413.2350000143051,
+            429.33500000834465,
+            410.16499999165535,
+            401.03999999165535
+          ]
+        },
+        {
+          "inputCharacters": 4448,
+          "inputUtf8Bytes": 7348,
+          "maxMs": 1838.1200000047684,
+          "medianMs": 1823.185000002384,
+          "minMs": 1815.939999997616,
+          "n": 3,
+          "name": "long",
+          "outputCharacters": 4748,
+          "p95Ms": 1838.1200000047684,
+          "samplesMs": [
+            1815.939999997616,
+            1838.1200000047684,
+            1823.185000002384
+          ]
+        }
+      ]
+    },
+    {
+      "cachedFreshWorker": [
+        {
+          "allCacheHits": true,
+          "firstTranslationMs": 265.55500000715256,
+          "modelLoadMs": 106.42500001192091,
+          "packBytes": 70084668,
+          "packMs": 81.95999997854233,
+          "readyToResultMs": 485.38499999046326,
+          "runtimeInitMs": 31.334999978542328,
+          "totalMs": 219.8299999833107
+        },
+        {
+          "allCacheHits": true,
+          "firstTranslationMs": 271.0450000166893,
+          "modelLoadMs": 108.87000000476836,
+          "packBytes": 70084668,
+          "packMs": 84.89500001072884,
+          "readyToResultMs": 491.9800000190735,
+          "runtimeInitMs": 27.07499998807907,
+          "totalMs": 220.9350000023842
+        },
+        {
+          "allCacheHits": true,
+          "firstTranslationMs": 256.00999999046326,
+          "modelLoadMs": 108.37000000476836,
+          "packBytes": 70084668,
+          "packMs": 83.75,
+          "readyToResultMs": 477.52500000596046,
+          "runtimeInitMs": 29.30000001192093,
+          "totalMs": 221.5150000154972
+        }
+      ],
+      "first": {
+        "inputCharacters": 86,
+        "inputUtf8Bytes": 200,
+        "ms": 313.56999999284744,
+        "output": "Hello, our meeting will be held at 14:30 on Tuesday. Please send an invoice number 4821 by Friday. The total amount is 125 EUR. Do not pay until confirmation. Contact email: test@example.test."
+      },
+      "html": {
+        "inputCharacters": 293,
+        "inputUtf8Bytes": 521,
+        "ms": 153.31999999284744,
+        "output": "<html><body><table><tr><td><p>Hello, our meeting will be held at 14:30 on Tuesday. Please send an invoice number 4821 by Friday. The total amount is 125 EUR. Do not pay until confirmation. Contact email: test@example.test.</p></td></tr></table><a href=\"https://example.test/details?x=1&amp;y=2\">Hello, our meeting will be held at 14:30 on Tuesday. Please send an invoice number 4821 by Friday. The total amount is 125 EUR. Do not pay until confirmation. Contact email: test@example.test.</a></body></html>",
+        "structurePreserved": true
+      },
+      "memory": {
+        "wasmHeapBytes": 889651200
+      },
+      "reference": "Hello, our meeting will take place on Tuesday at 14:30. Please send invoice number 4821 before Friday. The total amount is 125 euros. Do not pay before receiving confirmation. Contact email: test@example.test.",
+      "source": "zh",
+      "startup": {
+        "allCacheHits": false,
+        "modelLoadMs": 108.59999999403954,
+        "packBytes": 70084668,
+        "packMs": 384.99000000953674,
+        "runtimeInitMs": 24.384999990463257,
+        "totalMs": 518.0900000035763
+      },
+      "workloads": [
+        {
+          "inputCharacters": 86,
+          "inputUtf8Bytes": 200,
+          "maxMs": 91.49500000476836,
+          "medianMs": 87.0300000011921,
+          "minMs": 84.51000002026558,
+          "n": 10,
+          "name": "short",
+          "outputCharacters": 192,
+          "p95Ms": 91.49500000476836,
+          "samplesMs": [
+            90.81999999284744,
+            88.48499998450279,
+            89.23499998450279,
+            88.88999998569489,
+            91.49500000476836,
+            84.80000001192093,
+            84.51000002026558,
+            85.33500000834465,
+            84.71000000834465,
+            85.5750000178814
+          ]
+        },
+        {
+          "inputCharacters": 438,
+          "inputUtf8Bytes": 1008,
+          "maxMs": 391.6200000047684,
+          "medianMs": 381.7524999976158,
+          "minMs": 372.35000002384186,
+          "n": 10,
+          "name": "medium",
+          "outputCharacters": 968,
+          "p95Ms": 391.6200000047684,
+          "samplesMs": [
+            380.94499999284744,
+            381.75,
+            379.2299999892712,
+            372.35000002384186,
+            376.16499999165535,
+            381.7549999952316,
+            391.5849999785423,
+            382.9099999964237,
+            391.6200000047684,
+            386.5949999988079
+          ]
+        },
+        {
+          "inputCharacters": 2198,
+          "inputUtf8Bytes": 5048,
+          "maxMs": 1862.6350000202656,
+          "medianMs": 1850.6299999952316,
+          "minMs": 1830.4299999773505,
+          "n": 3,
+          "name": "long",
+          "outputCharacters": 4848,
+          "p95Ms": 1862.6350000202656,
+          "samplesMs": [
+            1862.6350000202656,
+            1850.6299999952316,
+            1830.4299999773505
+          ]
+        }
+      ]
+    },
+    {
+      "cachedFreshWorker": [
+        {
+          "allCacheHits": true,
+          "firstTranslationMs": 248.98500001430511,
+          "modelLoadMs": 104.82499998807909,
+          "packBytes": 70294993,
+          "packMs": 84.59999999403954,
+          "readyToResultMs": 466.94499999284744,
+          "runtimeInitMs": 28.42500001192093,
+          "totalMs": 217.95999997854233
+        },
+        {
+          "allCacheHits": true,
+          "firstTranslationMs": 241.78499999642372,
+          "modelLoadMs": 106.40000000596046,
+          "packBytes": 70294993,
+          "packMs": 86.05500000715256,
+          "readyToResultMs": 462.0150000154972,
+          "runtimeInitMs": 27.689999997615818,
+          "totalMs": 220.2300000190735
+        },
+        {
+          "allCacheHits": true,
+          "firstTranslationMs": 245.25,
+          "modelLoadMs": 104.21500000357628,
+          "packBytes": 70294993,
+          "packMs": 77.54499998688698,
+          "readyToResultMs": 454.09999999403954,
+          "runtimeInitMs": 26.99500000476837,
+          "totalMs": 208.8499999940395
+        }
+      ],
+      "first": {
+        "inputCharacters": 107,
+        "inputUtf8Bytes": 263,
+        "ms": 253.54000002145767,
+        "output": "Hello. The meeting will be held on Tuesday at 14:30. Please send the invoice number 4821 by Friday. The total amount is 125 euros. Do not pay until you receive confirmation. Contact: test@example.test."
+      },
+      "html": {
+        "inputCharacters": 335,
+        "inputUtf8Bytes": 647,
+        "ms": 147.03499999642372,
+        "output": "<html><body><table><tr><td><p>Hello. The meeting will be held on Tuesday at 14:30. Please send the invoice number 4821 by Friday. The total amount is 125 euros. Do not pay until you receive confirmation. Contact: test@example.test.</p></td></tr></table><a href=\"https://example.test/details?x=1&amp;y=2\">Hello. The meeting will be held on Tuesday at 14:30. Please send the invoice number 4821 by Friday. The total amount is 125 euros. Do not pay until you receive confirmation. Contact: test@example.test.</a></body></html>",
+        "structurePreserved": true
+      },
+      "memory": {
+        "wasmHeapBytes": 894107648
+      },
+      "reference": "Hello. The meeting will be held on Tuesday at 14:30. Please send invoice number 4821 by Friday. The total amount is 125 euros. Do not pay until you receive confirmation. Contact: test@example.test.",
+      "source": "ja",
+      "startup": {
+        "allCacheHits": false,
+        "modelLoadMs": 112.59000000357628,
+        "packBytes": 70294993,
+        "packMs": 367.6650000214577,
+        "runtimeInitMs": 22.280000001192093,
+        "totalMs": 502.625
+      },
+      "workloads": [
+        {
+          "inputCharacters": 107,
+          "inputUtf8Bytes": 263,
+          "maxMs": 107.92500001192091,
+          "medianMs": 81.06250001490116,
+          "minMs": 80.64000001549721,
+          "n": 10,
+          "name": "short",
+          "outputCharacters": 201,
+          "p95Ms": 107.92500001192091,
+          "samplesMs": [
+            82.61000001430511,
+            91.6899999976158,
+            107.92500001192091,
+            80.64000001549721,
+            80.71500000357628,
+            80.68000000715256,
+            80.73000001907349,
+            81.39500001072884,
+            80.71000000834465,
+            81.42999997735023
+          ]
+        },
+        {
+          "inputCharacters": 543,
+          "inputUtf8Bytes": 1323,
+          "maxMs": 357.2549999952316,
+          "medianMs": 353.065000012517,
+          "minMs": 350.1599999964237,
+          "n": 10,
+          "name": "medium",
+          "outputCharacters": 1013,
+          "p95Ms": 357.2549999952316,
+          "samplesMs": [
+            355.9549999833107,
+            353.3449999988079,
+            357.2549999952316,
+            355.86500000953674,
+            351.81999999284744,
+            352.78500002622604,
+            350.1599999964237,
+            352.044999986887,
+            352.1099999845028,
+            354.02500000596046
+          ]
+        },
+        {
+          "inputCharacters": 2723,
+          "inputUtf8Bytes": 6623,
+          "maxMs": 1725.7999999821186,
+          "medianMs": 1723.6649999916551,
+          "minMs": 1723.044999986887,
+          "n": 3,
+          "name": "long",
+          "outputCharacters": 5073,
+          "p95Ms": 1725.7999999821186,
+          "samplesMs": [
+            1723.6649999916551,
+            1723.044999986887,
+            1725.7999999821186
+          ]
+        }
+      ]
+    },
+    {
+      "cachedFreshWorker": [
+        {
+          "allCacheHits": true,
+          "firstTranslationMs": 182.21000000834465,
+          "modelLoadMs": 48.45500001311302,
+          "packBytes": 37317656,
+          "packMs": 44.43499997258186,
+          "readyToResultMs": 298.15000000596046,
+          "runtimeInitMs": 22.94999998807907,
+          "totalMs": 115.9399999976158
+        },
+        {
+          "allCacheHits": true,
+          "firstTranslationMs": 180.0199999809265,
+          "modelLoadMs": 49.5450000166893,
+          "packBytes": 37317656,
+          "packMs": 46.695000022649765,
+          "readyToResultMs": 298.9350000023842,
+          "runtimeInitMs": 22.57499998807907,
+          "totalMs": 118.91500002145769
+        },
+        {
+          "allCacheHits": true,
+          "firstTranslationMs": 179.30500000715256,
+          "modelLoadMs": 49.66999998688698,
+          "packBytes": 37317656,
+          "packMs": 43.59499999880791,
+          "readyToResultMs": 294.5,
+          "runtimeInitMs": 21.820000022649765,
+          "totalMs": 115.19499999284744
+        }
+      ],
+      "first": {
+        "inputCharacters": 234,
+        "inputUtf8Bytes": 236,
+        "ms": 174.69999998807907,
+        "output": "Hello, our meeting will take place on Tuesday at 14:30. Please send the invoice no. 4821 to Friday. The total amount is 125 euros. Do not pay before you have received the confirmation. Contact: test@example.test."
+      },
+      "html": {
+        "inputCharacters": 589,
+        "inputUtf8Bytes": 593,
+        "ms": 204.69500002264977,
+        "output": "<html><body><table><tr><td><p>Hello, our meeting will take place on Tuesday at 14:30. Please send the invoice no. 4821 to Friday. The total amount is 125 euros. Do not pay before you have received the confirmation. Contact: test@example.test.</p></td></tr></table><a href=\"https://example.test/details?x=1&amp;y=2\">Hello, our meeting will take place on Tuesday at 14:30. Please send the invoice no. 4821 to Friday. The total amount is 125 euros. Do not pay before you have received the confirmation. Contact: test@example.test.</a></body></html>",
+        "structurePreserved": true
+      },
+      "memory": {
+        "wasmHeapBytes": 548470784
+      },
+      "reference": "Hello, our meeting will take place on Tuesday at 14:30. Please send invoice no. 4821 by Friday. The total amount is 125 euros. Do not pay before receiving confirmation. Contact: test@example.test.",
+      "source": "de",
+      "startup": {
+        "allCacheHits": false,
+        "modelLoadMs": 44.894999980926514,
+        "packBytes": 37317656,
+        "packMs": 201.2249999940395,
+        "runtimeInitMs": 20.820000022649765,
+        "totalMs": 267.03999999165535
+      },
+      "workloads": [
+        {
+          "inputCharacters": 234,
+          "inputUtf8Bytes": 236,
+          "maxMs": 107.52000001072884,
+          "medianMs": 107.20250000059605,
+          "minMs": 104.72500002384186,
+          "n": 10,
+          "name": "short",
+          "outputCharacters": 212,
+          "p95Ms": 107.52000001072884,
+          "samplesMs": [
+            107.2000000178814,
+            107.52000001072884,
+            104.72500002384186,
+            107.2049999833107,
+            107.3149999976158,
+            107.50500002503397,
+            105.52000001072884,
+            105.3449999988079,
+            107.4350000023842,
+            105.40000000596046
+          ]
+        },
+        {
+          "inputCharacters": 1178,
+          "inputUtf8Bytes": 1188,
+          "maxMs": 520.8799999952316,
+          "medianMs": 492.26500000059605,
+          "minMs": 489.1200000047684,
+          "n": 10,
+          "name": "medium",
+          "outputCharacters": 1068,
+          "p95Ms": 520.8799999952316,
+          "samplesMs": [
+            520.8799999952316,
+            491.90000000596046,
+            490.5200000107288,
+            489.1200000047684,
+            492.34999999403954,
+            491.02500000596046,
+            492.4150000214577,
+            492.18000000715256,
+            494.61500000953674,
+            496.1300000250339
+          ]
+        },
+        {
+          "inputCharacters": 5898,
+          "inputUtf8Bytes": 5948,
+          "maxMs": 2056.2899999916553,
+          "medianMs": 2038.294999986887,
+          "minMs": 2036.4300000071528,
+          "n": 3,
+          "name": "long",
+          "outputCharacters": 5348,
+          "p95Ms": 2056.2899999916553,
+          "samplesMs": [
+            2036.4300000071528,
+            2056.2899999916553,
+            2038.294999986887
+          ]
+        }
+      ]
+    }
+  ],
+  "longTasks": [
+    {
+      "durationMs": 61,
+      "startMs": 47962.72499999404
+    },
+    {
+      "durationMs": 60,
+      "startMs": 60630.87000000477
+    }
+  ],
+  "online": true,
+  "repetitions": 10,
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/157.0.0.0 Safari/537.36"
+}

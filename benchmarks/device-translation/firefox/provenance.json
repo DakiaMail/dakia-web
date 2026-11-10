@@ -1,0 +1,65 @@
+{
+  "retrieved": "2026-11-09",
+  "firefoxRevision": "d4a9923322691e221ec1afac57715016071aa506",
+  "registryUrl": "https://firefox.settings.services.mozilla.com/v1/buckets/main/collections/translations-wasm-v2/records",
+  "registryRecord": {
+    "name": "bergamot-translator",
+    "schema": 1760449158298,
+    "license": "MPL-2.0",
+    "release": "v0.6.0",
+    "version": "4.0",
+    "revision": "1de4a085d3a7afb625c51a60aabb5ad298e4059f",
+    "attachment": {
+      "hash": "327fcfc7b7e9d95f6fa0844ebf899cfc05469872ef02d3aef5783182839a6255",
+      "size": 1211955,
+      "filename": "bergamot-translator.wasm.zst",
+      "location": "main-workspace/translations-wasm-v2/a76f9efe-b185-4a7f-9c3b-5f5d216d12e6.zst",
+      "mimetype": "application/zstd"
+    },
+    "fx_release": "144.0a1",
+    "decompressedHash": "f38ef807636a7c994afedaab7ff8ffe0d590d21897f05139f747b80fd7bbe926",
+    "decompressedSize": 4960506,
+    "filter_expression": "",
+    "id": "ce71828c-5e7a-4024-8f18-03064bf0b9f0",
+    "last_modified": 1760455775494
+  },
+  "files": [
+    {
+      "name": "bergamot-translator.js",
+      "sha256": "faff1ef6285b0d26f01787776fd49299dfb756ecb9688aa990c250e66797b47d"
+    },
+    {
+      "name": "bergamot-translator.wasm",
+      "sha256": "f38ef807636a7c994afedaab7ff8ffe0d590d21897f05139f747b80fd7bbe926"
+    },
+    {
+      "name": "reference-worker.js",
+      "sha256": "9780a69d9b26b7cebaf20401b9f59aa567a346bc190d8ebff6a3659e856b5e46"
+    },
+    {
+      "name": "reference-engine.mjs",
+      "sha256": "b5bce240b64b420b0b8481bea055417b74a3255b36e8d2e1a3c2305841f8da0f"
+    },
+    {
+      "name": "LICENSE",
+      "sha256": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5"
+    }
+  ],
+  "adapter": {
+    "description": "Portable ordinary-web-worker adaptation of the pinned Firefox sources; uses the same five pinned language packs as the baseline.",
+    "files": [
+      {
+        "name": "firefox-worker.js",
+        "sha256": "6f7c281e47e1eefcad84195cc07f98849bd702bb3114bee6e062bf97697ffe72"
+      },
+      {
+        "name": "client.mjs",
+        "sha256": "18cfb3e4f51c130a3729592b25bbfddd920f73cf5c57ff9ae372077597be62bd"
+      },
+      {
+        "name": "sw.js",
+        "sha256": "e552cf705350ae28cade32a4171af2cd85f1656bc7eb82c17325b7c4ac7e9f8d"
+      }
+    ]
+  }
+}

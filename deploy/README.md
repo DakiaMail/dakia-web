@@ -139,3 +139,7 @@ into the builder. Package all three binaries and matching ONNX runtime libraries
 and run the release gate before activation. Back up the stopped app before
 changing the production image, retain its previous tag, and verify database
 integrity, mounts, health and unchanged account/submission counts afterwards.
+
+### Translation administration
+
+The local owner can choose translation location in Workspace → Translation. OIDC operators can nominate stable Dakia user IDs with `DAKIA_ADMIN_USERS` (comma-separated). Existing installations default to host translation. Public browser language packs use the existing writable `DAKIA_MODEL_CACHE`; mode changes persist in the control database. See [translation operations](../docs/on-device-translation.md).

@@ -18,6 +18,7 @@ mod sender_cleanup;
 mod sender_mail;
 mod sync;
 mod unsubscribe;
+mod translation_policy;
 use axum::{
     extract::{Path, Query, Request, State},
     http::{header, HeaderMap, StatusCode},
@@ -210,6 +211,8 @@ pub fn router(app: App) -> Router {
 pub fn router_with_shutdown(app: App, shutdown: tokio::sync::watch::Sender<bool>) -> Router {
     let api = Router::new()
         .route("/session", get(session))
+        .route("/translation/settings", get(translation_policy::get_policy).put(translation_policy::set_policy))
+        .route("/translation/models/{hash}", get(translation_policy::download))
         .route("/logout", post(logout))
         .route("/local-access", get(local_users::access))
         .route("/releases", get(releases::status))

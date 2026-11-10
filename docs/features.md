@@ -34,4 +34,4 @@ Optional push notifications require host configuration and browser permission. N
 
 ## Local mail tools
 
-Classification and translation run on the host, with public translation models fetched as needed. Provider compatibility, resource requirements, and platform coverage are still being tested.
+Classification runs on the host. Administrators can choose host translation, on-device translation, or on-device translation with host fallback. Public language packs are downloaded as needed and saved on the browser for reuse. Provider compatibility, resource requirements, and platform coverage are still being tested.

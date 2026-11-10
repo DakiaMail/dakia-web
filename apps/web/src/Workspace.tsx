@@ -1,6 +1,7 @@
 import { ArrowLeft, Bell, Keyboard, Mail, Plus, Settings2, Shield } from "lucide-react";
 import type { Account } from "@dakia/api-types";
 import { useEffect, useRef, useState } from "react";
+import { TranslationSettings } from "./TranslationSettings";
 import { Invitations } from "./Invitations";
 import { BlockedSenders } from "./BlockedSenders";
 import { ReleaseSettings } from "./Releases";
@@ -63,6 +64,7 @@ export function Workspace({ updatesFocus = 0, userId, accounts, onBack, onConnec
           {keyboardError && <p role="alert">{keyboardError}</p>}
         </div>
       </section>
+      {userId && <TranslationSettings userId={userId} />}
       <InstallApp />
       <section className="workspace-notifications" aria-labelledby="workspace-notifications">
         <span className="workspace-account-icon"><Bell size={20} /></span><div><h2 id="workspace-notifications">Notifications</h2><p>Get new-mail notifications on this browser.</p><button title="Enable notifications" onClick={onNotifications} disabled={notificationStatus === "Enabling…"}>Enable notifications</button>{notificationStatus && <p role="status">{notificationStatus}</p>}</div>

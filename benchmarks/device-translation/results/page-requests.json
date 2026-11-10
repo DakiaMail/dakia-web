@@ -1,0 +1,56 @@
+{
+  "requests": [
+    {
+      "initiator": "script",
+      "url": "http://127.0.0.1:4178/client.mjs"
+    },
+    {
+      "initiator": "fetch",
+      "url": "http://127.0.0.1:4178/manifest.json"
+    },
+    {
+      "initiator": "fetch",
+      "url": "http://127.0.0.1:4178/fixtures.json"
+    },
+    {
+      "initiator": "fetch",
+      "url": "http://127.0.0.1:4178/offline-probe"
+    },
+    {
+      "initiator": "other",
+      "url": "http://127.0.0.1:4178/vendor/probe-worker.js"
+    },
+    {
+      "initiator": "other",
+      "url": "http://127.0.0.1:4178/vendor/probe-worker.js"
+    },
+    {
+      "initiator": "other",
+      "url": "http://127.0.0.1:4178/vendor/probe-worker.js"
+    },
+    {
+      "initiator": "other",
+      "url": "http://127.0.0.1:4178/vendor/probe-worker.js"
+    },
+    {
+      "initiator": "other",
+      "url": "http://127.0.0.1:4178/vendor/probe-worker-lowmem.js"
+    },
+    {
+      "initiator": "other",
+      "url": "http://127.0.0.1:4178/vendor/probe-worker-lowmem.js"
+    },
+    {
+      "initiator": "other",
+      "url": "http://127.0.0.1:4178/vendor/probe-worker-lowmem.js"
+    },
+    {
+      "initiator": "other",
+      "url": "http://127.0.0.1:4178/vendor/probe-worker-lowmem.js"
+    },
+    {
+      "initiator": "other",
+      "url": "http://127.0.0.1:4178/vendor/probe-worker-lowmem.js"
+    }
+  ]
+}

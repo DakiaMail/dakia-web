@@ -63,6 +63,9 @@ pub(crate) async fn queue(
 ) -> crate::Result<Json<ModelJob>> {
     let a = app.store.authorize(&user.user, &account).await?;
     source(&query.language)?;
+    if !crate::translation_policy::mode(&app).await?.permits_host() {
+        return Err(ApiFailure(StatusCode::FORBIDDEN, "host_translation_disabled"));
+    }
     let revision = translation_revision()?;
     Ok(Json(
         app.store
@@ -249,6 +252,9 @@ async fn execute(
         *reason = ModelFailureReason::Deadline;
         return Err(Error::Invalid);
     }
+    if job.kind == JobKind::Translate && !crate::translation_policy::mode(app).await.map_err(|_| Error::Invalid)?.permits_host() {
+        return Ok(None);
+    }
     let content = app
         .mail
         .content(&app.store, a, &job.message_id)
@@ -271,7 +277,18 @@ async fn execute(
             .await?
             .ok_or(Error::Invalid)?;
         let html = !content.html.is_empty();
-        let result=node_worker("translation",serde_json::json!({"job":job,"scope":{"account_id":a.id(),"message_id":job.message_id,"content_revision":job.content_revision},"source":source,"text":if html {&content.html}else{&content.text},"html":html})).await?;
+        if !crate::translation_policy::mode(app).await.map_err(|_| Error::Invalid)?.permits_host() { return Ok(None); }
+        let input = serde_json::json!({"job":job,"scope":{"account_id":a.id(),"message_id":job.message_id,"content_revision":job.content_revision},"source":source,"text":if html {&content.html}else{&content.text},"html":html});
+        let result = tokio::select! {
+            result = node_worker("translation", input) => result?,
+            _ = async {
+                loop {
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                    if !crate::translation_policy::mode(app).await.map(|m| m.permits_host()).unwrap_or(false) { break; }
+                }
+            } => return Ok(None),
+        };
+        if !crate::translation_policy::mode(app).await.map_err(|_| Error::Invalid)?.permits_host() { return Ok(None); }
         if result["account_id"] != job.account_id
             || result["message_id"] != job.message_id
             || result["job_id"] != job.id

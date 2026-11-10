@@ -103,3 +103,10 @@ describe("browser-local mailbox", () => {
     expect((await fixture().box.snapshot()).user).not.toBe(snapshot.user);
   });
 });
+
+it("keeps demo translation host-only and rejects installation changes and model downloads", async () => {
+  const { call } = fixture();
+  expect((await call("/translation/settings")).data).toEqual({ mode: "host", can_manage: false });
+  expect((await call("/translation/settings", "PUT", { mode: "device" })).status).not.toBe(200);
+  expect((await call("/translation/models/unknown")).status).not.toBe(200);
+});

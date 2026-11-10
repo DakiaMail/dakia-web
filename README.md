@@ -62,7 +62,7 @@ Four views of the running web frontend with fictional mail. Mobile scenes are br
 - Compose rich-text messages with attachments, drafts, and scheduled sending.
 - Archive, snooze, star, move, and clean up messages in bulk.
 - Block unwanted senders across your mailboxes, with optional cleanup of older emails.
-- Classify and translate mail on your own server.
+- Classify mail on your server and translate on your device or server.
 - Use the responsive web app or install it as a PWA.
 
 [Features and screenshots](docs/features.md)
@@ -130,3 +130,5 @@ limits, authorization, retention and offline behavior.
 ## Try Dakia
 
 Explore the app at [demo.dakiamail.com](https://demo.dakiamail.com). For the sandbox build, checks, and deployment, see [the demo guide](docs/demo.md).
+
+Translation can run on the host or on devices, with an administrator-controlled host fallback option. Choose the policy in Workspace → Translation. [Language packs, administration and verification](docs/on-device-translation.md).

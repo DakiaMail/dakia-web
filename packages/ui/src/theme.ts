@@ -16,14 +16,13 @@ export const dakiaTheme = createTheme({
     const common = { border: "1px solid transparent" };
     switch (input.variant) {
       case "primary": return { ...common, background: "var(--color-accent)", hover: "color-mix(in srgb, var(--color-accent), var(--color-text) 12%)", color: "var(--color-on-accent)", hoverColor: "var(--color-on-accent)" };
-      case "secondary": return { border: "1px solid var(--color-border)", background: "var(--color-surface)", hover: "var(--color-subtle)", color: "var(--color-text)", hoverColor: "var(--color-text)" };
-      case "subtle": return { ...common, background: "transparent", hover: "var(--color-subtle)", color: "var(--color-text)", hoverColor: "var(--color-text)" };
-      case "danger": return { ...common, background: "var(--color-danger)", hover: "color-mix(in srgb, var(--color-danger), var(--color-text) 12%)", color: "var(--color-on-danger)", hoverColor: "var(--color-on-danger)" };
+      case "secondary": return { border: "1px solid var(--ui-button-border)", background: "var(--color-surface)", hover: "var(--color-subtle)", color: "var(--color-text)", hoverColor: "var(--color-text)" };
+      case "tertiary": return { ...common, background: "transparent", hover: "var(--color-subtle)", color: "var(--color-text)", hoverColor: "var(--color-text)" };
       default: return defaultVariantColorsResolver(input);
     }
   },
   components: {
-    Button: Button.extend({ defaultProps: { variant: "primary", size: "sm" }, classNames: { root: "dakia-button", label: "dakia-button-label" } }),
-    ActionIcon: ActionIcon.extend({ defaultProps: { variant: "subtle", size: "md" }, classNames: { root: "dakia-icon-button" } }),
+    Button: Button.extend({ defaultProps: { variant: "primary", size: "sm" }, classNames: { root: "dakia-button", inner: "dakia-button-inner", label: "dakia-button-label" } }),
+    ActionIcon: ActionIcon.extend({ defaultProps: { variant: "tertiary", size: "md" }, classNames: { root: "dakia-icon-button" } }),
   },
 });

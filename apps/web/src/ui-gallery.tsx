@@ -1,8 +1,8 @@
 // Separate Vite development entry. This is not included in the production build.
 import { StrictMode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Button, ConfirmationButton, DateTimeSelector, DakiaProvider, IconButton, useDakiaColorScheme } from "@dakia/ui";
-import { SunMoon } from "lucide-react";
+import { Button, ConfirmationButton, DateTimeSelector, DakiaProvider, IconButton, MailActionButton, useDakiaColorScheme } from "@dakia/ui";
+import { Archive, SunMoon } from "lucide-react";
 import "@fontsource/inter/400.css";
 import "@fontsource/inter/600.css";
 import "./styles.css";
@@ -13,6 +13,7 @@ function Gallery() {
   const [status, setStatus] = useState<"idle" | "pending" | "success" | "error">("idle");
   const [picker, setPicker] = useState<"Snooze until" | "Send later" | null>(null);
   const [chosenTime, setChosenTime] = useState("");
+  const [loading, setLoading] = useState(false);
   const [fail, setFail] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
@@ -21,8 +22,16 @@ function Gallery() {
     <IconButton label={colorScheme === "dark" ? "Light theme" : "Dark theme"} onClick={() => setColorScheme(colorScheme === "dark" ? "light" : "dark")}><SunMoon size={18} /></IconButton>
     <h2 style={{ marginTop: 24 }}>Buttons</h2>
     <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-      <Button>Primary</Button><Button variant="secondary">Secondary</Button><Button variant="subtle">Subtle</Button><Button variant="danger">Delete</Button><Button disabled>Unavailable</Button><Button loading>Loading</Button>
+      <Button>Primary</Button><Button variant="secondary">Secondary</Button><Button variant="tertiary">Tertiary</Button><Button tone="danger">Delete</Button><Button disabled>Unavailable</Button><Button loading>Loading</Button>
     </div>
+    <h2 style={{ marginTop: 24 }}>Interaction states</h2>
+    {(["primary", "secondary", "tertiary"] as const).map(variant => <div key={variant} style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBlock: 12 }}>
+      <Button variant={variant}>{variant} ready</Button>
+      <Button variant={variant} disabled>{variant} disabled</Button>
+      <Button variant={variant} loading>{variant} loading</Button>
+    </div>)}
+    <Button keepFocusable loading={loading} onClick={() => { setLoading(true); timer.current = setTimeout(() => setLoading(false), 1200); }}>Save changes</Button>
+    <div style={{ marginBlock: 16 }}><MailActionButton label="Archive" icon={<Archive size={18} />} shortcutHint={<kbd className="key-hint" aria-hidden="true">E</kbd>} /></div>
     <h2 style={{ marginTop: 24 }}>Confirmation</h2>
     <label style={{ display: "block", marginBottom: 12 }}><input type="checkbox" checked={fail} onChange={event => setFail(event.target.checked)} />Simulate a failed save</label>
     <ConfirmationButton status={status} onClick={() => { setStatus("pending"); timer.current = setTimeout(() => setStatus(fail ? "error" : "success"), 700); }}>Save translation settings</ConfirmationButton>

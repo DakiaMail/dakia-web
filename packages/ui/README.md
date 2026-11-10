@@ -11,7 +11,7 @@ Mantine core and hooks are pinned together at 8.3.18, compatible with the applic
 ## Central theme
 
 - `src/tokens.css`: semantic colors in both themes, font, control dimensions, focus ring and motion. `--ui-confirmation-duration` is a unitless number of milliseconds.
-- `src/theme.ts`: Mantine defaults and shared `primary`, `secondary`, `subtle`, and `danger` variants.
+- `src/theme.ts`: Mantine defaults and shared `primary`, `secondary`, and `tertiary` (ghost) variants.
 - `src/styles.css`: component structure, responsive labels, focus and reduced motion. Imports only the Mantine component styles used by the library, without its global reset.
 - `src/Provider.tsx`: theme provider and color scheme persistence. The current scale bridges Dakia's 13px root font to Mantine's rem units.
 
@@ -23,7 +23,7 @@ Theme existing components here instead of setting colors and radii at call sites
 import { Button, ConfirmationButton, IconButton } from '@dakia/ui';
 
 <Button variant="secondary" onClick={cancel}>Cancel</Button>
-<Button variant="danger" type="submit">Delete</Button>
+<Button tone="danger" type="submit">Delete</Button>
 <IconButton label="Refresh mail" onClick={refresh}><RefreshIcon /></IconButton>
 <ConfirmationButton
   status={save.status}
@@ -76,3 +76,7 @@ The development gallery includes standalone snooze and send-later examples. Chro
 ## Action feedback
 
 `Toast` provides non-interactive, polite status feedback using Mantine Notification. Keep `<Toast announcementKey={confirmation?.id}>{confirmation?.message}</Toast>` mounted so screen readers can observe new confirmations. The caller controls its lifetime; the mail app clears confirmations after seven seconds. It does not move focus or block pointer actions, and it stays below interactive overlays. Its colors, shape and motion use the central theme. Compact layouts position it above the mail toolbar.
+
+`MailActionButton` is the shared regular-weight mail command control. Supply `label`, `icon`, and a `shortcutHint` from the app to retain shortcut preferences. `collapseLabel` hides toolbar labels in compact readers; `placement="menu"` keeps labels visible and aligns commands in the More menu. It forwards refs and native button accessibility props.
+
+Button emphasis uses three variants: `primary`, `secondary`, and `tertiary` (ghost). Destructive actions use `tone="danger"` independently of emphasis. Shared tokens control geometry, weights and touch targets. Focus uses a visible outline, hover changes color, pressed changes the surface without scaling, and disabled/loading states block duplicate activation. Loading reserves the existing label geometry.

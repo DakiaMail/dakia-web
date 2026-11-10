@@ -19,7 +19,7 @@
   height: auto;
   max-width: 100%;
   padding: 7px var(--ui-control-padding);
-  font-weight: 600;
+  font-weight: var(--ui-control-weight);
 }
 .dakia-button-label { white-space: normal; line-height: 1.4; }
 .dakia-icon-button.dakia-icon-button { width: var(--ui-control-height); padding: 0; }
@@ -35,7 +35,7 @@
   cursor: default;
   background: var(--button-bg, var(--ai-bg));
   color: var(--button-color, var(--ai-color));
-  border-color: var(--button-bd, var(--ai-bd));
+  border: var(--button-bd, var(--ai-bd));
 }
 .dakia-button.dakia-button[data-confirmed] { opacity: 1; }
 .dakia-confirmation-labels { display: grid; }
@@ -76,4 +76,38 @@
 
 @media (max-width: 600px) {
   .dakia-toast-container { inset: auto 16px calc(80px + env(safe-area-inset-bottom, 0px)) 16px; max-width: none; }
+}
+
+/* Mail commands share regular typography, spacing and keyboard focus styling. */
+.dakia-button.dakia-mail-action {
+  font-weight: var(--ui-mail-action-weight);
+  min-height: var(--ui-mail-action-height);
+  padding: 6px var(--ui-mail-action-padding);
+}
+.dakia-mail-action .dakia-button-label { display: flex; gap: 7px; line-height: 1.4; }
+.dakia-mail-action-icon { display: inline-flex; flex-shrink: 0; }
+.dakia-mail-action-text-compact { display: none; }
+@container (min-width: 560px) { .dakia-mail-action-text-compact { display: inline; } }
+.dakia-mail-action-menu { width: 100%; }
+.dakia-mail-action-menu .dakia-button-inner { justify-content: flex-start; }
+.dakia-mail-action-menu .dakia-button-label { gap: 10px; }
+
+.dakia-button-loader { position: absolute; inset: 0; display: grid; place-items: center; }
+.dakia-button.dakia-button[data-tone="danger"] { background: var(--color-danger); color: var(--color-on-danger); }
+.dakia-button.dakia-button[data-tone="danger"][data-variant="secondary"] { background: var(--color-surface); color: var(--color-danger); border-color: var(--color-danger); }
+.dakia-button.dakia-button[data-tone="danger"][data-variant="tertiary"] { background: transparent; color: var(--color-danger); }
+@media (hover: hover) {
+  .dakia-button.dakia-button[data-tone="danger"]:hover:not([data-disabled]) { background: color-mix(in srgb, var(--color-danger), var(--color-text) 12%); color: var(--color-on-danger); }
+  .dakia-button.dakia-button[data-tone="danger"][data-variant="secondary"]:hover:not([data-disabled]),
+  .dakia-button.dakia-button[data-tone="danger"][data-variant="tertiary"]:hover:not([data-disabled]) { background: var(--color-subtle); color: var(--color-danger); }
+}
+.dakia-button.dakia-button:active:not([data-disabled]),
+.dakia-icon-button.dakia-icon-button:active:not([data-disabled]) {
+  transform: none;
+  background: var(--ui-button-pressed);
+  color: var(--color-text);
+}
+@media (max-width: 600px), (pointer: coarse) {
+  .dakia-button.dakia-button, .dakia-icon-button.dakia-icon-button { min-height: var(--ui-touch-target); }
+  .dakia-icon-button.dakia-icon-button { min-width: var(--ui-touch-target); }
 }

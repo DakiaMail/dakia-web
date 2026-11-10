@@ -691,11 +691,6 @@ kbd {
   max-width: 120px;
 }
 .message-actions-more { margin-left: auto; }
-.message-action-label { display: none; }
-.reader-toolbar > button, .message-actions-more > button { gap: 7px; white-space: nowrap; }
-@container (min-width: 560px) {
-  .message-action-label { display: inline; }
-}
 .selection-clear-mobile { display: none; }
 .mail-action-pending { font-size: 11px; color: var(--color-secondary); }
 .message-actions-popover {
@@ -1682,9 +1677,9 @@ body {
   .shortcut-groups { grid-template-columns: 1fr; gap: 24px; }
 }
 /* Shortcut hints need more room before the full toolbar labels fit. */
-.reader-toolbar:has(.key-hint) .message-action-label { display: none; }
+.reader-toolbar:has(.key-hint) .dakia-mail-action-text-compact { display: none; }
 @container (min-width: 760px) {
-  .reader-toolbar:has(.key-hint) .message-action-label { display: inline; }
+  .reader-toolbar:has(.key-hint) .dakia-mail-action-text-compact { display: inline; }
 }
 
 .release-settings { margin-bottom: 28px; padding-bottom: 16px; border-bottom: 1px solid var(--color-border); }

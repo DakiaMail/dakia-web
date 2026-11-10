@@ -116,3 +116,48 @@ test("gallery keyboard controls, theme persistence, central tokens and reduced m
   await page.evaluate(() => document.documentElement.style.setProperty("--color-accent", "rgb(100, 60, 150)"));
   await expect(page.getByRole("button", { name: "Primary", exact: true })).toHaveCSS("background-color", "rgb(100, 60, 150)");
 });
+
+for (const dark of [false, true]) test(`shared button interaction states and contrast ${dark ? "dark" : "light"}`, async ({ page }, info) => {
+  await page.addInitScript(dark => localStorage.setItem("dakia-theme", dark ? "dark" : "light"), dark);
+  await page.goto("/ui-gallery.html");
+  const primary = page.getByRole("button", { name: "Primary", exact: true });
+  const secondary = page.getByRole("button", { name: "Secondary", exact: true });
+  const tertiary = page.getByRole("button", { name: "Tertiary", exact: true });
+  for (const button of [primary, secondary, tertiary]) {
+    await button.focus();
+    await expect(button).toHaveCSS("outline-style", "solid");
+    const idle = await button.evaluate(el => getComputedStyle(el).backgroundColor);
+    await button.hover(); await page.waitForTimeout(180);
+    expect(await button.evaluate(el => getComputedStyle(el).backgroundColor)).not.toBe(idle);
+    await page.mouse.down();
+    await expect(button).toHaveCSS("transform", "none");
+    await page.mouse.up();
+  }
+  const contrast = await primary.evaluate(el => {
+    const luminance = (s: string) => {
+      const rgb = s.match(/[\d.]+/g)!.slice(0,3).map(Number).map(v => { v /= 255; return v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; });
+      return rgb[0] * .2126 + rgb[1] * .7152 + rgb[2] * .0722;
+    };
+    const style = getComputedStyle(el);
+    const a = luminance(style.color), b = luminance(style.backgroundColor);
+    return (Math.max(a,b) + .05) / (Math.min(a,b) + .05);
+  });
+  expect(contrast).toBeGreaterThanOrEqual(4.5);
+  for (const variant of ["primary", "secondary", "tertiary"]) {
+    await expect(page.getByRole("button", { name: `${variant} disabled`, exact: true })).toBeDisabled();
+    await expect(page.getByRole("button", { name: `${variant} loading`, exact: true })).toHaveAttribute("aria-busy", "true");
+  }
+  await expect(page.getByRole("button", { name: "Delete", exact: true })).toHaveCSS("background-color", dark ? "rgb(255, 180, 171)" : "rgb(180, 35, 24)");
+  const save = page.getByRole("button", { name: "Save changes", exact: true });
+  await save.focus(); const before = await save.boundingBox();
+  await page.keyboard.press("Enter");
+  await expect(save).toHaveAttribute("aria-busy", "true");
+  await expect(save).toBeFocused();
+  const during = await save.boundingBox(); expect(during).toEqual(before);
+  await page.screenshot({ path: info.outputPath("button-states.png") });
+  await expect(save).not.toHaveAttribute("aria-busy", "true");
+  await page.setViewportSize({ width: 360, height: 420 });
+  await expect(primary).toHaveCSS("min-height", "44px");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: info.outputPath("button-states-narrow.png"), fullPage: true });
+});

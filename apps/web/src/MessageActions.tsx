@@ -1,4 +1,4 @@
-import { Button } from "@dakia/ui";
+import { MailActionButton } from "@dakia/ui";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Archive, Clock, FolderInput, Mail, MoreHorizontal, ShieldAlert, Star, Trash2 } from "lucide-react";
 import { KeyHint } from "./KeyboardHints";
@@ -34,22 +34,22 @@ export function MessageActions(props: Props) {
 
 function ActionToolbar(props: Props & { senderAction?: SenderAction }) {
   const extras = (close: () => void) => <>
-    {props.restore && <button aria-label="Snooze" title="Snooze" disabled={props.pending} onClick={() => { close(); props.snooze(); }}><Clock size={18} />Snooze<KeyHint keys="B" /></button>}
-    <button aria-label="Move" title="Move" disabled={props.pending} onClick={() => { close(); props.move(); }}><FolderInput size={18} />Move<KeyHint keys="M" /></button>
-    <button aria-label="Mark as spam" title="Mark as spam" disabled={props.pending} onClick={() => { close(); props.spam(); }}><ShieldAlert size={18} />Mark as spam<KeyHint keys="!" /></button>
+    {props.restore && <MailActionButton placement="menu" label="Snooze" icon={<Clock size={18} />} shortcutHint={<KeyHint keys="B" />} disabled={props.pending} onClick={() => { close(); props.snooze(); }} />}
+    <MailActionButton placement="menu" label="Move" icon={<FolderInput size={18} />} shortcutHint={<KeyHint keys="M" />} disabled={props.pending} onClick={() => { close(); props.move(); }} />
+    <MailActionButton placement="menu" label="Mark as spam" icon={<ShieldAlert size={18} />} shortcutHint={<KeyHint keys="!" />} disabled={props.pending} onClick={() => { close(); props.spam(); }} />
     {props.category !== undefined && <label>Category <select aria-label="Category" title="Change category" value={props.category} disabled={props.pending} onChange={event => { props.setCategory(event.target.value); close(); }}>
       <option value="" disabled>Category</option>
       {props.categories.map(category => <option key={category}>{category}</option>)}
     </select></label>}
-    <button aria-label="Mark read" title="Mark read" disabled={props.pending} onClick={() => { close(); props.read(); }}><Mail size={18} />Mark read<KeyHint keys="Shift+U" /></button>
-    <button aria-label={props.starred ? "Unstar selected messages" : "Star selected messages"} title={props.starred ? "Unstar" : "Star"} disabled={props.pending} onClick={() => { close(); props.toggleStar(); }}><Star size={18} fill={props.starred ? "currentColor" : "none"} />{props.starred ? "Unstar" : "Star"}<KeyHint keys="S" /></button>
+    <MailActionButton placement="menu" label="Mark read" icon={<Mail size={18} />} shortcutHint={<KeyHint keys="Shift+U" />} disabled={props.pending} onClick={() => { close(); props.read(); }} />
+    <MailActionButton placement="menu" label={props.starred ? "Unstar" : "Star"} aria-label={props.starred ? "Unstar selected messages" : "Star selected messages"} icon={<Star size={18} fill={props.starred ? "currentColor" : "none"} />} shortcutHint={<KeyHint keys="S" />} disabled={props.pending} onClick={() => { close(); props.toggleStar(); }} />
     {props.senderAction?.(close)}
   </>;
   return <div className="reader-toolbar" aria-label="Message actions">
-    <button aria-label="Archive" title="Archive" disabled={props.pending} onClick={props.archive}><Archive size={18} /><span className="message-action-label">Archive</span><KeyHint keys="E" /></button>
-    <button aria-label="Mark unread" title="Mark unread" disabled={props.pending} onClick={props.unread}><Mail size={18} /><span className="message-action-label">Mark unread</span><KeyHint keys="U" /></button>
-    <button aria-label="Move to trash" title="Move to trash" disabled={props.pending} onClick={props.trash}><Trash2 size={18} /><span className="message-action-label">Delete</span><KeyHint keys="Delete" /></button>
-    {props.restore ? <Button className="restore-inbox-button" variant="subtle" aria-label="Move back to Inbox" title="Move back to Inbox" disabled={props.pending} onClick={props.restore}><FolderInput size={18} /><span>Move back to Inbox</span></Button> : <button aria-label="Snooze" title="Snooze" disabled={props.pending} onClick={props.snooze}><Clock size={18} /><span className="message-action-label">Snooze</span><KeyHint keys="B" /></button>}
+    <MailActionButton label="Archive" icon={<Archive size={18} />} collapseLabel shortcutHint={<KeyHint keys="E" />} disabled={props.pending} onClick={props.archive} />
+    <MailActionButton label="Mark unread" icon={<Mail size={18} />} collapseLabel shortcutHint={<KeyHint keys="U" />} disabled={props.pending} onClick={props.unread} />
+    <MailActionButton label="Delete" aria-label="Move to trash" title="Move to trash" icon={<Trash2 size={18} />} collapseLabel shortcutHint={<KeyHint keys="Delete" />} disabled={props.pending} onClick={props.trash} />
+    {props.restore ? <MailActionButton className="restore-inbox-button" label="Move back to Inbox" icon={<FolderInput size={18} />} disabled={props.pending} onClick={props.restore} /> : <MailActionButton label="Snooze" icon={<Clock size={18} />} collapseLabel shortcutHint={<KeyHint keys="B" />} disabled={props.pending} onClick={props.snooze} />}
     <MoreActions disabled={props.pending}>{close => extras(close)}</MoreActions>
 
   </div>;
@@ -94,7 +94,7 @@ function MoreActions({ children, disabled = false }: {
       const next = event.key === "Home" ? 0 : event.key === "End" ? controls.length - 1 : (index + (event.key === "ArrowDown" ? 1 : -1) + controls.length) % controls.length;
       controls[next]?.focus();
     }}>
-      <button ref={trigger} aria-label="More actions" title="More actions" aria-expanded={open} aria-controls={id} disabled={disabled} onClick={() => setOpen(value => !value)}><MoreHorizontal size={18} /><span className="message-action-label">More</span></button>
+      <MailActionButton ref={trigger} label="More" aria-label="More actions" title="More actions" collapseLabel icon={<MoreHorizontal size={18} />} aria-expanded={open} aria-controls={id} disabled={disabled} onClick={() => setOpen(value => !value)} />
       {open && <div id={id} ref={panel} className="message-actions-popover" role="group" aria-label="More message actions">{children(() => close(true))}</div>}
     </div>;
 }

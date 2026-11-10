@@ -16,6 +16,10 @@ for (const dark of [false, true]) test(`snooze and restore are confirmed, counte
   if (dark) await page.emulateMedia({ reducedMotion: "reduce" });
   await page.setViewportSize({ width: dark ? 390 : 1480, height: dark ? 600 : 980 });
   await page.addInitScript(dark => localStorage.setItem("dakia-theme", dark ? "dark" : "light"), dark);
+  if (!dark) {
+    const session = await (await page.request.get("/api/session")).json();
+    await page.addInitScript(user => localStorage.setItem(`dakia:${user}:keyboard-hints`, "true"), session.user_id);
+  }
   await page.goto("/");
   const targetSubject = dark ? "Synthetic 3" : "Synthetic 2";
   const row = page.locator(".message-row").filter({ has: page.locator(".subject", { hasText: targetSubject }) });
@@ -49,6 +53,15 @@ for (const dark of [false, true]) test(`snooze and restore are confirmed, counte
   await page.screenshot({ animations: "disabled", path: info.outputPath("snoozed-more-actions.png") });
   await page.keyboard.press("Escape"); await expect(more).toBeFocused();
   const restore = page.locator(".reader").getByRole("button", { name: "Move back to Inbox", exact: true });
+  const toolbar = page.locator(".reader > .reader-toolbar");
+  for (const button of await toolbar.locator(":scope > button, .message-actions-more > button").all()) {
+    await expect(button).toHaveClass(/dakia-mail-action/);
+    await expect(button).toHaveCSS("font-weight", "400");
+    await expect(button).toHaveCSS("font-size", "13px");
+  }
+  const archiveHint = toolbar.getByRole("button", { name: "Archive", exact: true }).locator(".key-hint");
+  if (dark) await expect(archiveHint).toHaveCount(0);
+  else await expect(archiveHint).toHaveText("E");
   await page.screenshot({ animations: "disabled", path: info.outputPath("restore-action.png") });
   await tabTo(page, restore); await page.keyboard.press("Enter");
   await expect(page.getByRole("status").filter({ hasText: "Email moved back to Inbox." })).toBeVisible();

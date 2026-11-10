@@ -1,3 +1,4 @@
+import { MailActionButton } from "@dakia/ui";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useQueries } from "@tanstack/react-query";
 import type { Account, MailRule, Message } from "@dakia/api-types";
@@ -41,10 +42,10 @@ export function SenderBlock({ message, accounts, onCleanup, children }: {
     finally { submitting.current = false; setBusy(false); }
   }
   return <>
-    {children(closeMenu => <><button type="button" disabled={rules.isPending || rules.isError} title={blocked ? "Unblock sender" : "Block sender"} onClick={() => {
+    {children(closeMenu => <><MailActionButton placement="menu" label={blocked ? "Unblock sender" : "Block sender"} icon={<ShieldBan size={18} />} disabled={rules.isPending || rules.isError} onClick={() => {
       closeMenu(); setActionRule(blocked); setSaved(false); setReview(false); setError(undefined); cutoff.current = Date.now(); setOpen(true);
-    }}><ShieldBan size={18} aria-hidden="true" />{blocked ? "Unblock sender" : "Block sender"}</button>
-    {rules.isError && <button type="button" onClick={() => void rules.refetch()}>Retry sender controls</button>}</>)}
+    }} />
+    {rules.isError && <MailActionButton placement="menu" label="Retry sender controls" onClick={() => void rules.refetch()} />}</>)}
     {open && <Modal title={saved ? actionRule ? "Sender unblocked" : "Sender blocked" : actionRule ? "Unblock sender?" : "Block sender?"} onClose={close}>
       <div className="rules-dialog-content">
       <p className="blocked-address">{message.sender.email}</p>

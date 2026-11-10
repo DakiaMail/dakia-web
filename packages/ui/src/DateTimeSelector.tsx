@@ -83,11 +83,11 @@ export function DateTimeSelector({ opened, title, confirmLabel, value = "", onCh
           {error && <p id={errorId} role="alert" className="dakia-datetime-error">{error}</p>}
           <Button type="submit" fullWidth title={confirmLabel}>{confirmLabel}</Button>
         </form> : <div className="dakia-datetime-options">
-          {dateTimePresets().map(({ label, date }, index) => <Button key={label} variant="subtle" fullWidth
+          {dateTimePresets().map(({ label, date }, index) => <Button key={label} variant="tertiary" fullWidth
             data-autofocus={index === 0 || undefined} title={label} onClick={() => choose(localDateTime(date))}>
             <span>{label}</span><time dateTime={date.toISOString()}>{date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}</time>
           </Button>)}
-          <Button ref={pickRef} variant="subtle" fullWidth className="dakia-datetime-pick" title="Pick date & time"
+          <Button ref={pickRef} variant="tertiary" fullWidth className="dakia-datetime-pick" title="Pick date & time"
             onClick={() => { setCustom(true); setError(""); }}>Pick date & time<span aria-hidden="true">›</span></Button>
           {error && <p role="alert" className="dakia-datetime-error">{error}</p>}
         </div>}

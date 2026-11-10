@@ -21,7 +21,14 @@
   --color-on-accent: #fff;
   --ui-font-family: Inter, system-ui, sans-serif;
   --ui-font-size: 13px;
-  --ui-control-height: 34px;
+  --ui-control-height: 40px;
+  --ui-mail-action-height: 32px;
+  --ui-touch-target: 44px;
+  --ui-control-weight: 600;
+  --ui-mail-action-weight: 400;
+  --ui-mail-action-padding: 9px;
+  --ui-button-border: #7a818e;
+  --ui-button-pressed: #e3e5eb;
   --ui-control-radius: 5px;
   --ui-control-padding: 12px;
   --ui-focus-width: 2px;
@@ -33,6 +40,8 @@
 }
 
 :root[data-theme="dark"] {
+  --ui-button-border: #747b89;
+  --ui-button-pressed: #383b46;
   --color-bg: #151619;
   --color-sidebar: #1c1d21;
   --color-surface: #202126;

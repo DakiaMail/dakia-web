@@ -6,3 +6,4 @@ export { ConfirmationButton, type ConfirmationButtonProps } from "./Confirmation
 export { DateTimeSelector, type DateTimeSelectorProps } from "./DateTimeSelector";
 export { localDateTime, dateTimePresets, validFutureDateTime } from "./dateTime";
 export { Toast } from "./Toast";
+export { MailActionButton, type MailActionButtonProps } from "./MailActionButton";

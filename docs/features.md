@@ -32,6 +32,14 @@ Both screenshots use fictional mailboxes. They show the running app, not a desig
 
 Optional push notifications require host configuration and browser permission. Notifications can include a summary fetched by the signed-in browser; see [privacy](privacy.md).
 
+## Translate on your device
+
+Choose **Translate to English** while reading an email. The first on-device translation downloads the language pack, with a circular progress indicator and a cancel button. Saved packs survive page reloads and browser restarts, so later translations can reuse them without another download. Switch back to the original email at any time.
+
+In **Workspace → Translation**, administrators can choose device-only translation, device translation with host fallback, or host-only translation. Host fallback lets devices that cannot finish a translation use the server instead. Host-only remains the default. You can also remove saved language packs from your browser in Workspace.
+
+See [translation settings and saved languages](on-device-translation.md) for details, including offline use and browser storage limits.
+
 ## Local mail tools
 
-Classification runs on the host. Administrators can choose host translation, on-device translation, or on-device translation with host fallback. Public language packs are downloaded as needed and saved on the browser for reuse. Provider compatibility, resource requirements, and platform coverage are still being tested.
+Classification runs on the host. Provider compatibility, resource requirements, and platform coverage are still being tested.

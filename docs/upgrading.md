@@ -1,6 +1,6 @@
 # Upgrade Dakia
 
-Run upgrades on the Docker host, from the same directory you used to install Dakia. Keep the project name, `.env`, Compose overrides, and persistent volumes. The command needs Docker Compose and a POSIX shell. It uses Node inside your installed Dakia image, so no host Node, Python, registry login, or source build is needed.
+Run upgrades on the Docker host, from the same directory you used to install Dakia. Keep the project name, `.env`, Compose overrides, and persistent volumes. The command needs Docker Compose and a POSIX shell. 
 
 ```sh
 sh scripts/upgrade.sh --check
@@ -9,7 +9,7 @@ sh scripts/upgrade.sh
 
 The command shows the release notes and asks before proceeding. It downloads the release, briefly stops Dakia, backs up data and secrets, saves the new image digest in `.env`, and checks startup. An unchanged image is a successful no-op. Your owner login, mailbox connections, drafts, and credential key remain in the existing volumes.
 
-Only published GitHub releases are offered. Stable releases take priority; previews are offered while no stable release exists. Main-branch builds are excluded. Before the first release is published, checking reports that none is available and leaves your installation unchanged.
+Only published GitHub releases are offered. Stable releases take priority; previews are offered while no stable release exists. 
 
 For a particular published release, or after reviewing the release in advance:
 
@@ -17,22 +17,6 @@ For a particular published release, or after reviewing the release in advance:
 sh scripts/upgrade.sh --version v0.2.0
 sh scripts/upgrade.sh --yes
 ```
-
-Explicit version selection also supports preview releases. Downgrades need a matching restored backup. This command does not automate builds, scaled services, remote Docker hosts, custom data/key paths, extra writable mounts, or separately selected Compose/env files. Resolve shell `DAKIA_IMAGE` overrides first. Supported read-only secret-file mounts are backed up alongside `/secrets`.
-
-## Existing installations
-
-If your checkout predates the command, fetch the two scripts without replacing your deployment files. From a clean temporary directory, download `upgrade.sh` and `upgrade.mjs` from the same published release's Assets, review them, and put both in your installation's `scripts` directory. Keep the pair together. Alternatively, update a clean checkout to the release after preserving local changes. Never overwrite your `.env`, overrides, or proxy configuration with repository defaults.
-
-## Release notice
-
-The local owner sees a small dismissible notice in navigation when a newer release is available. **Details** opens Workspace's Updates section with release notes and these instructions. Dismissing a version hides it on this browser, including after reload; a later release can appear again. Details stay available in Workspace.
-
-Dakia checks GitHub from your server, at most once a day after a successful check or once an hour after a failed check. No mailbox data, credentials, or user identifiers are sent. Browser tabs contact only your server. OIDC users and invited users do not see this notice. Development or unidentified builds do not announce upgrades.
-
-Set `DAKIA_RELEASE_CHECKS=false` in `.env` and recreate the service to disable automatic checks. Existing Compose files must also pass this setting under the service's `environment`. The host command remains available for manual checks.
-
-A **Reload** notice has a different purpose: the server is already upgraded and your browser can load its updated app. It takes priority over the release notice and never upgrades the server itself.
 
 ## Backups and interrupted upgrades
 

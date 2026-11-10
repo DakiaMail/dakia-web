@@ -112,16 +112,8 @@ Removing OIDC settings from an installation with OIDC users fails startup. It do
 
 ## Updates and recovery
 
-The Compose default pins a preview image by digest. `docker compose pull` alone will not choose a newer build. First review the new release/Compose image reference and preserve your `.env`, overrides, project name, volumes, and previous image reference. Make a stopped backup with the matching operator binary before upgrading.
+Run `sh scripts/upgrade.sh` from your installation directory to check published releases, back up, and upgrade. Use `--check` to review a release without changing the installation. The command requires Docker Compose and a shell, and briefly stops Dakia while making its backup.
 
-After choosing the new image:
+The local owner also sees a dismissible release notice in the app. See [upgrading and recovery](upgrading.md) for existing-installation setup, preview releases, private backup storage, recovery, and manual NAS/Portainer upgrades.
 
-```sh
-docker compose pull
-docker compose up -d --wait
-docker compose ps
-```
-
-Check HTTPS, login, and your own mailbox access. Existing local owners retain their login, mailbox ownership, and sessions through the invitation migration. Database rollback may require restoring a matching backup; do not run an older binary against migrated data. See [backup and restore](../deploy/README.md#backup-and-restore).
-
-Restores invalidate sessions, login flows, and unused invitation links, and disable background jobs until the operator reconciles the restored state. Automated backups and guided updates are not included.
+Pulling the currently pinned image alone does not select a new version. Keep both persistent volumes and the credential key. Never start an older image against migrated data; recovery uses a matching restored snapshot in fresh storage.

@@ -15,6 +15,7 @@ async function request(path, init = {}) {
   });
 }
 assert.equal((await request('/api/accounts/gmail')).status, 401);
+assert.equal((await request('/api/releases')).status, 401);
 if (process.argv.includes('--resume')) {
   ({ cookie } = JSON.parse(await readFile(sessionPath, 'utf8')));
 } else {
@@ -31,6 +32,11 @@ if (process.argv.includes('--resume')) {
 let response = await request('/api/session');
 assert.equal(response.status, 200);
 const { csrf_token: csrf } = await response.json();
+const releaseStatus = await (await request('/api/releases')).json();
+assert.equal(releaseStatus.status, 'disabled');
+assert.equal(releaseStatus.available, null);
+const expectedVersion = process.env.DAKIA_EXPECTED_RELEASE_VERSION;
+assert.equal(releaseStatus.installed_version, expectedVersion?.startsWith('v') ? expectedVersion : null);
 assert.equal((await request('/api/accounts/gmail')).status, 200);
 assert.deepEqual(await (await request('/api/accounts/gmail')).json(), { enabled: true });
 const body = JSON.stringify({ email: 'fixture@example.test', display_name: 'Image fixture' });

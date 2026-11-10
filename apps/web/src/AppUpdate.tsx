@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 
 const ReloadGuard = createContext<(id: symbol) => () => void>(() => () => {});
+const BrowserUpdateVisible = createContext(false);
+export const useBrowserUpdateVisible = () => useContext(BrowserUpdateVisible);
 export function useReloadGuard() {
   const block = useContext(ReloadGuard);
   useEffect(() => block(Symbol()), [block]);
@@ -93,7 +95,7 @@ export function AppUpdateProvider({ children, enabled = import.meta.env.PROD, bu
       if (active.current) setError("Couldn’t load the update. Check your connection and try again.");
     } finally { clearTimeout(timeout); if (active.current) setBusy(false); }
   }
-  return <ReloadGuard.Provider value={block}>
+  return <ReloadGuard.Provider value={block}><BrowserUpdateVisible.Provider value={!!available && available !== dismissed}>
     {children}
     {available && available !== dismissed && <aside className="app-update" aria-label="App update">
       <p role="status">{error || "New version available"}</p>
@@ -101,5 +103,5 @@ export function AppUpdateProvider({ children, enabled = import.meta.env.PROD, bu
       <div><button title="Reload" className="primary" disabled={busy || blocked} onClick={() => void apply()}>{busy ? "Loading…" : "Reload"}</button>
         <button title="Later" disabled={busy} onClick={() => { setDismissed(available); setError(""); }}>Later</button></div>
     </aside>}
-  </ReloadGuard.Provider>;
+  </BrowserUpdateVisible.Provider></ReloadGuard.Provider>;
 }

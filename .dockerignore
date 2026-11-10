@@ -17,3 +17,5 @@ deploy/bundle
 *.key
 
 crates/inference/assets/email-classifier-v2/.model-*
+
+.dakia-upgrades

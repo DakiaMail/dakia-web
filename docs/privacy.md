@@ -25,3 +25,7 @@ Your host and reverse proxy can keep their own logs. Operational diagnostics are
 A remote image policy, provider-side retention, and copies in backups can affect deletion. Removing something from Dakia does not necessarily erase every copy held by your provider or backups.
 
 On-device translation saves verified public language packs in browser Cache Storage. They can remain after sign-out, but message text and translated output are not stored in that pack cache. Clearing site data removes saved packs. See [translation settings](on-device-translation.md).
+
+## Release checks
+
+When a local owner opens Dakia, the server can check GitHub for published releases. Successful checks are cached for 24 hours and failures for one hour. GitHub receives the server's network address and an application User-Agent; requests do not contain mailbox data, credentials, or user identifiers. Browser tabs ask only the Dakia server. Set `DAKIA_RELEASE_CHECKS=false` in the server environment to disable automatic checks. Manual host upgrade checks still contact GitHub. See [upgrading](upgrading.md).

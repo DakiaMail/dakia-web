@@ -85,7 +85,7 @@ describe("browser-local mailbox", () => {
 
   it("fails closed for all external-service routes, unknown paths, and cross-account lookups", async () => {
     const { call } = fixture();
-    for (const [path, method] of [["/accounts", "POST"], ["/accounts/work", "DELETE"], ["/accounts/gmail/start", "POST"], ["/accounts/discover", "POST"], ["/invitations", "POST"], ["/logout", "POST"], ["/push/public-key", "GET"], ["/push/subscriptions", "POST"], ["/new-endpoint", "POST"], ["/accounts/work/messages/letter-0/image", "POST"]]) {
+    for (const [path, method] of [["/accounts", "POST"], ["/accounts/work", "DELETE"], ["/accounts/gmail/start", "POST"], ["/accounts/discover", "POST"], ["/invitations", "POST"], ["/logout", "POST"], ["/push/public-key", "GET"], ["/push/subscriptions", "POST"], ["/releases", "GET"], ["/new-endpoint", "POST"], ["/accounts/work/messages/letter-0/image", "POST"]]) {
       expect((await call(path, method, method === "GET" ? undefined : {})).status).toBeGreaterThanOrEqual(400);
     }
     expect((await call("/accounts/personal/messages/letter-0")).status).toBe(404);

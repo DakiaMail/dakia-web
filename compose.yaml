@@ -6,6 +6,7 @@ services:
     environment:
       DAKIA_ADMIN_USERS: ${DAKIA_ADMIN_USERS:-}
       DAKIA_ORIGIN: ${DAKIA_ORIGIN:?Set the external HTTPS address in .env}
+      DAKIA_RELEASE_CHECKS: ${DAKIA_RELEASE_CHECKS:-true}
       DAKIA_GMAIL_CLIENT_ID: ${DAKIA_GMAIL_CLIENT_ID:-}
       DAKIA_GMAIL_CLIENT_SECRET: ${DAKIA_GMAIL_CLIENT_SECRET:-}
     ports:

@@ -11,6 +11,7 @@ pub mod mail;
 pub mod models;
 mod mutations;
 pub mod push;
+mod releases;
 mod rules;
 mod search;
 mod sender_cleanup;
@@ -214,6 +215,7 @@ pub fn router_with_shutdown(app: App, shutdown: tokio::sync::watch::Sender<bool>
         .route("/translation/models/{hash}", get(translation_policy::download))
         .route("/logout", post(logout))
         .route("/local-access", get(local_users::access))
+        .route("/releases", get(releases::status))
         .route(
             "/invitations",
             get(local_users::list).post(local_users::create),
@@ -326,6 +328,9 @@ pub fn router_with_shutdown(app: App, shutdown: tokio::sync::watch::Sender<bool>
         )
         .layer(axum::extract::DefaultBodyLimit::max(22 * 1024 * 1024))
         .layer(Extension(shutdown))
+        .layer(Extension(Arc::new(
+            releases::ReleaseChecker::from_environment(),
+        )))
         .layer(middleware::from_fn(|req: Request, next: Next| async move {
             let login_form = matches!(req.uri().path(), "/auth/login" | "/auth/join");
             let mut r = next.run(req).await;

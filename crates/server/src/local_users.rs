@@ -13,7 +13,7 @@ pub(super) async fn is_owner(app: &App, user: &str) -> Result<bool> {
         .map_err(StorageError::from)
         .map_err(Into::into)
 }
-async fn require_owner(app: &App, id: &Identity) -> Result<()> {
+pub(super) async fn require_owner(app: &App, id: &Identity) -> Result<()> {
     if !is_owner(app, &id.user).await? {
         return Err(ApiFailure(StatusCode::FORBIDDEN, "owner_required"));
     }

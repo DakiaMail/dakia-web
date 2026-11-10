@@ -59,6 +59,7 @@ import { enableNotifications, extraApi } from "./extra-api";
 import { useMailEvents } from "./useMailEvents";
 import { usePullToRefresh } from "./usePullToRefresh";
 import { Workspace } from "./Workspace";
+import { ReleaseNotice } from "./Releases";
 import { InstallApp } from "./InstallApp";
 import { RefreshButton } from "./RefreshButton";
 import { AccountSyncIndicator } from "./AccountSyncIndicator";
@@ -155,6 +156,7 @@ export function App() {
   );
   const [sidebar, setSidebar] = useState(false);
   const [workspace, setWorkspace] = useState(false);
+  const [updatesFocus, setUpdatesFocus] = useState(0);
   const [setup, setSetup] = useState(false);
   const [reconnect, setReconnect] = useState<Account | null>(null);
   const [settingsAccount, setSettingsAccount] = useState<Account | null>(null);
@@ -927,6 +929,10 @@ export function App() {
             <LogOut size={16} />
           </button>
         </div>
+        <ReleaseNotice userId={session.data?.user_id} onDetails={() => {
+          if (!workspace) navigation.push({ ...route, workspace: true });
+          setUpdatesFocus(value => value + 1); setSidebar(false);
+        }} />
       </aside>
       {sidebar && (
         <button title="Close navigation"
@@ -935,7 +941,7 @@ export function App() {
           onClick={() => setSidebar(false)}
         />
       )}
-      {workspace && <Workspace userId={session.data?.user_id} accounts={accounts.data || []} blockHiddenImages={blockHiddenImages} onHiddenImagesChange={setBlockHiddenImages} keyboardHints={keyboardPreferences.hints} onKeyboardHintsChange={keyboardPreferences.setHints} keyboardShortcuts={keyboardPreferences.shortcuts} onKeyboardShortcutsChange={keyboardPreferences.setShortcuts} onShortcutHelp={() => setShortcutHelp(true)} alwaysLoadImages={alwaysLoadImages} onImagePrivacyChange={setAlwaysLoadImages} onBack={() => { navigation.backTo(previous => !previous.workspace); requestAnimationFrame(() => { if (matchMedia("(max-width: 600px)").matches) document.querySelector<HTMLButtonElement>('[aria-label="Open navigation"]')?.focus(); else document.querySelector<HTMLButtonElement>('[aria-label="Manage workspace"]')?.focus(); }); }} onConnect={() => setSetup(true)} onSettings={setSettingsAccount} onRemove={setRemovingAccount} onReconnect={(account) => { setReconnect(account); setSetup(true); }} notificationStatus={notificationStatus} onNotifications={() => {
+      {workspace && <Workspace updatesFocus={updatesFocus} userId={session.data?.user_id} accounts={accounts.data || []} blockHiddenImages={blockHiddenImages} onHiddenImagesChange={setBlockHiddenImages} keyboardHints={keyboardPreferences.hints} onKeyboardHintsChange={keyboardPreferences.setHints} keyboardShortcuts={keyboardPreferences.shortcuts} onKeyboardShortcutsChange={keyboardPreferences.setShortcuts} onShortcutHelp={() => setShortcutHelp(true)} alwaysLoadImages={alwaysLoadImages} onImagePrivacyChange={setAlwaysLoadImages} onBack={() => { navigation.backTo(previous => !previous.workspace); requestAnimationFrame(() => { if (matchMedia("(max-width: 600px)").matches) document.querySelector<HTMLButtonElement>('[aria-label="Open navigation"]')?.focus(); else document.querySelector<HTMLButtonElement>('[aria-label="Manage workspace"]')?.focus(); }); }} onConnect={() => setSetup(true)} onSettings={setSettingsAccount} onRemove={setRemovingAccount} onReconnect={(account) => { setReconnect(account); setSetup(true); }} notificationStatus={notificationStatus} onNotifications={() => {
         setNotificationStatus("Enabling…");
         void enableNotifications().then(() => setNotificationStatus("Notifications enabled")).catch((error) => setNotificationStatus(error instanceof Error ? error.message : "Could not enable notifications. Try again."));
       }} />}

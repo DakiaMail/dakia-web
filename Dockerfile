@@ -2,6 +2,8 @@
 FROM node:24-bookworm-slim AS web
 WORKDIR /src
 COPY . .
+ARG DAKIA_BUILD_ID
+ENV DAKIA_BUILD_ID=$DAKIA_BUILD_ID
 RUN npm ci --ignore-scripts && npm run build && npm ci --prefix workers/translation --ignore-scripts --omit=dev && npm ci --prefix workers/push --ignore-scripts --omit=dev
 
 FROM rust:1.98-bookworm AS rust
@@ -12,6 +14,8 @@ COPY --from=rust /usr/local/rustup /usr/local/rustup
 ENV CARGO_HOME=/usr/local/cargo RUSTUP_HOME=/usr/local/rustup PATH=/usr/local/cargo/bin:$PATH
 WORKDIR /src
 COPY . .
+ARG DAKIA_RELEASE_VERSION=development
+ENV DAKIA_RELEASE_VERSION=$DAKIA_RELEASE_VERSION
 RUN python3 scripts/fetch-classifier.py && cargo build --release --locked -p dakia-server && mkdir /runtime && cp target/release/dakia-server target/release/dakia-admin target/release/dakia-healthcheck target/release/dakia-classifier-check /runtime/ && find target/release -maxdepth 1 -name 'libonnxruntime.so*' -exec cp -P {} /runtime/ \;
 
 FROM ubuntu:24.04

@@ -2,7 +2,7 @@
 use super::*;
 use serde::Serialize;
 
-async fn is_owner(app: &App, user: &str) -> Result<bool> {
+pub(super) async fn is_owner(app: &App, user: &str) -> Result<bool> {
     if !app.config.issuer.is_empty() {
         return Ok(false);
     }

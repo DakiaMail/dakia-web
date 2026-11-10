@@ -1,12 +1,15 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Languages } from "lucide-react";
 import type { Message, ModelJob } from "@dakia/api-types";
-import { MailReader, remoteImageSources } from "@dakia/mail-renderer";
+import { MailReader, remoteImageSources, sanitizeMail } from "@dakia/mail-renderer";
 import { api } from "./api";
 import { imageError } from "./imageError";
 import { extraApi } from "./extra-api";
 import { ErrorNotice } from "./ui";
+import { deviceTranslator, DeviceTranslationError, formatBytes, type DownloadProgress } from "./deviceTranslation";
+import { useTranslationPolicy } from "./translationPolicy";
+import "./translation.css";
 import registry from "../../../workers/translation/models.json";
 type ImageResult = { loaded: Record<string, string>; failed: Record<string, string> };
 type Props = {
@@ -42,6 +45,15 @@ function TranslationBody({
   alwaysLoadImages = true,
   blockHiddenImages = false,
 }: Props & { source: string | null }) {
+  const policy = useTranslationPolicy();
+  const owner = useId();
+  const controller = useRef<AbortController | null>(null);
+  const translateButton = useRef<HTMLButtonElement>(null);
+  const [deviceResult, setDeviceResult] = useState<{ html: string; text: string } | null>(null);
+  const [download, setDownload] = useState<DownloadProgress | null>(null);
+  const [hostFallback, setHostFallback] = useState(false);
+  useEffect(() => () => { controller.current?.abort(); controller.current = null; deviceTranslator.releaseOwner(owner); }, [owner]);
+  useEffect(() => { controller.current?.abort(); controller.current = null; deviceTranslator.releaseOwner(owner); setDeviceResult(null); setJob(null); setShow(false); setBusy(false); setDownload(null); }, [policy.data?.mode, owner]);
   const [language, setLanguage] = useState(source || "");
   const [job, setJob] = useState<ModelJob | null>(null);
   const [show, setShow] = useState(false);
@@ -64,7 +76,8 @@ function TranslationBody({
     queryFn: () => extraApi.translation(message, language),
     enabled: current?.status === "succeeded",
   });
-  const imageHtml = show && translated.data ? translated.data.html : html;
+  const result = deviceResult || translated.data;
+  const imageHtml = show && result ? result.html : html;
   const imageSources = useMemo(() => remoteImageSources(imageHtml, blockHiddenImages), [imageHtml, blockHiddenImages]);
   const allowImages = alwaysLoadImages || manuallyLoadImages;
   const imageKey = ["remote-images", message.account_id, message.id, imageSources];
@@ -102,22 +115,39 @@ function TranslationBody({
   const images = allowImages ? imageQuery.data?.loaded : undefined;
   const failures = allowImages ? Object.entries(imageQuery.data?.failed || {}) : [];
   const failedImages = failures.length;
+  function cancel() {
+    controller.current?.abort(); controller.current = null;
+    setBusy(false); setDownload(null); setError(undefined);
+    requestAnimationFrame(() => translateButton.current?.focus());
+  }
   async function translate() {
-    if (!source || !language) return;
-    if (translated.data) {
-      setShow(!show);
-      return;
-    }
-    setBusy(true);
-    setError(undefined);
+    if (!source || !language || busy || !policy.data || current?.status === "pending" || current?.status === "running") return;
+    if (result) { setShow(!show); return; }
+    const abort = new AbortController(); controller.current = abort;
+    setBusy(true); setError(undefined); setHostFallback(false);
     try {
-      const result = await extraApi.translate(message, language);
-      setJob(result);
-      setShow(true);
-    } catch (e) {
-      setError(e);
+      if (policy.data.mode !== "host") {
+        try {
+          const output = await deviceTranslator.translate(owner, language, html ? sanitizeMail(html) : text, Boolean(html), abort.signal, value => {
+            if (controller.current === abort) setDownload(value);
+          });
+          if (controller.current !== abort) return;
+          setDeviceResult(html ? { html: sanitizeMail(output), text: "" } : { html: "", text: output });
+          setShow(true); return;
+        } catch (error) {
+          abort.signal.throwIfAborted();
+          if (error instanceof DOMException && error.name === "AbortError") throw error;
+          if (policy.data.mode !== "automatic" || error instanceof DeviceTranslationError && !error.fallback) throw error;
+          setDownload(null); setHostFallback(true);
+        }
+      }
+      abort.signal.throwIfAborted();
+      const job = await extraApi.translate(message, language);
+      if (controller.current === abort) { setJob(job); setShow(true); }
+    } catch (error) {
+      if (controller.current === abort && !abort.signal.aborted && !(error instanceof DOMException && error.name === "AbortError")) setError(error);
     } finally {
-      setBusy(false);
+      if (controller.current === abort) { setBusy(false); setDownload(null); }
     }
   }
   return (
@@ -138,6 +168,7 @@ function TranslationBody({
           onChange={(e) => {
             setLanguage(e.target.value);
             setJob(null);
+            setDeviceResult(null);
             setShow(false);
           }}
         >
@@ -147,22 +178,26 @@ function TranslationBody({
             </option>
           ))}
         </select>
-        <button title={translated.data ? show ? "Show original" : "Show translation" : "Translate to English"}
-          disabled={
-            busy ||
-            current?.status === "pending" ||
-            current?.status === "running"
-          }
+        <button ref={translateButton} aria-disabled={busy || !policy.data || current?.status === "pending" || current?.status === "running"} title={result ? show ? "Show original" : "Show translation" : "Translate to English"}
           onClick={() => void translate()}
         >
           <Languages size={15} />
-          {translated.data
+          {result
             ? show
               ? "Show original"
               : "Show translation"
             : "Translate to English"}
         </button></>}
       </div>
+      {busy && download && <div className="translation-download">
+        <div className={`translation-progress-ring ${download.stage !== "downloading" ? "is-indeterminate" : ""}`} role="progressbar" aria-label={download.stage === "downloading" ? `Downloading ${languages.find(m => m.source === language)?.sourceName}` : "Preparing translation"} aria-valuemin={0} aria-valuemax={100} aria-valuenow={download.stage === "downloading" && download.total > 0 ? Math.min(100, Math.round(download.downloaded / download.total * 100)) : undefined}>
+          <svg viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="16" pathLength="100" /><circle className="translation-progress-value" cx="20" cy="20" r="16" pathLength="100" strokeDasharray="100" strokeDashoffset={download.stage === "downloading" && download.total ? 100 - download.downloaded / download.total * 100 : 70} /></svg>
+        </div>
+        <div className="translation-download-copy"><span role="status">{download.stage === "downloading" ? `Downloading ${languages.find(m => m.source === language)?.sourceName}` : download.stage === "preparing" ? "Preparing translation…" : "Translating on this device…"}</span>{download.stage === "downloading" && <small>{formatBytes(download.downloaded)} of {formatBytes(download.total)}</small>}</div>
+        <button aria-label="Cancel translation" onClick={cancel}>Cancel</button>
+      </div>}
+      {hostFallback && <p className="translation-location" role="status">Using host translation because this device could not finish.</p>}
+      {policy.isError && source && <p role="alert">Could not load translation preferences. <button onClick={() => void policy.refetch()}>Retry</button></p>}
       <ErrorNotice error={error || progress.error || translated.error || (allowImages && imageQuery.error ? new Error("Images could not be loaded. You can try again.") : undefined)} />
 
       {current && ["pending", "running"].includes(current.status) && (
@@ -175,10 +210,10 @@ function TranslationBody({
       {current?.status === "failed" && (
         <p role="alert">Translation failed. Try again.</p>
       )}
-      {show && translated.data ? (
+      {show && result ? (
         <MailReader
-          html={translated.data.html}
-          text={translated.data.text}
+          html={result.html}
+          text={result.text}
           dark={dark}
           title="Translated message"
           images={images}

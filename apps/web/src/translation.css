@@ -1,0 +1,14 @@
+.translation-download{display:flex;align-items:center;gap:12px;padding:12px 14px;margin:8px 0 16px;border:1px solid var(--color-border);border-radius:12px;background:var(--color-surface);max-width:100%;box-sizing:border-box}
+.translation-progress-ring{width:40px;height:40px;flex:none;color:var(--color-accent)}
+.translation-progress-ring svg{width:100%;height:100%;transform:rotate(-90deg);fill:none;stroke:currentColor;stroke-width:3}
+.translation-progress-ring circle:first-child{opacity:.15}.translation-progress-value{stroke-linecap:round;transition:stroke-dashoffset .18s ease}
+.translation-progress-ring.is-indeterminate svg{animation:translation-spin 1.3s linear infinite}
+.translation-download-copy{min-width:0;flex:1}.translation-download-copy span,.translation-download-copy small{display:block}.translation-download-copy small{font-size:12px;color:var(--color-secondary);margin-top:3px}.translation-download button{flex:none;font-size:12px}.translation-location{color:var(--color-secondary);font-size:12px}
+.workspace-translation{padding:26px 22px;margin-top:28px;border:1px solid var(--color-border);border-radius:12px}.workspace-translation h2{display:flex;align-items:center;gap:9px}.translation-mode-options{padding:0;margin:16px 0;border:0;display:grid;gap:8px}.translation-mode-options label{display:flex;gap:12px;align-items:flex-start;padding:14px;border:1px solid var(--color-border);border-radius:10px;cursor:pointer}.translation-mode-options label:has(input:checked){border-color:var(--color-accent);background:color-mix(in srgb,var(--color-accent) 6%,transparent)}.translation-mode-options input{margin-top:4px;accent-color:var(--color-accent)}.translation-mode-options small,.translation-saved-packs small{display:block;color:var(--color-secondary);font-size:13px;margin-top:3px}.translation-saved-packs{margin-top:24px}.translation-saved-packs ul{list-style:none;margin:0;padding:0}.translation-saved-packs li{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--color-border)}.translation-settings-status{min-height:1.5em;font-size:13px}
+@keyframes translation-spin{to{transform:rotate(270deg)}}
+@media(prefers-reduced-motion:reduce){.translation-progress-ring.is-indeterminate svg{animation:none}.translation-progress-value{transition:none}}
+@media(max-width:440px){.translation-download{gap:8px;padding:10px}.translation-download button{max-width:90px;white-space:normal}.translation-download-copy span{font-size:13px}}
+
+.translation-tools button[aria-disabled="true"],.workspace-translation>button[aria-disabled="true"]{opacity:.55;cursor:default}
+
+@media(max-width:600px){.translation-download{margin-inline:12px;max-width:calc(100% - 24px)}.translation-tools{padding-inline:12px}.translation-location{margin-inline:12px}}

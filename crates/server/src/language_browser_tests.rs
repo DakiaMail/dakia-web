@@ -5,14 +5,17 @@ use dakia_domain::{Message, MessageContent};
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 
-#[tokio::test]
-#[ignore = "loopback fixture started by playwright.translation.config.ts"]
-async fn browser_translation_fixture() {
+async fn serve_translation_fixture(device: bool) {
     let dir = tempfile::tempdir().unwrap();
     let store = dakia_storage::Store::open(dir.path(), [39; 32])
         .await
         .unwrap();
     let user = store.user("fixture", "translation").await.unwrap();
+    if device {
+        sqlx::query("INSERT INTO local_login(id,user_id,username,password_hash,is_owner) VALUES(1,?,'fixture-owner','unused',1)")
+            .bind(&user).execute(store.control()).await.unwrap();
+    }
+    let port = if device { 4346 } else { 4336 };
     let mut rows = Vec::new();
     for label in ["Work", "Personal"] {
         let input = serde_json::from_value(serde_json::json!({
@@ -56,8 +59,8 @@ async fn browser_translation_fixture() {
         store,
         mail: crate::mail::MailRuntime::default(),
         config: Arc::new(crate::Config {
-            origin: "http://127.0.0.1:4336".into(),
-            issuer: "https://id.invalid".into(),
+            origin: format!("http://127.0.0.1:{port}"),
+            issuer: if device { String::new() } else { "https://id.invalid".into() },
             client_id: "fixture".into(),
             client_secret: "fixture".into(),
             web_root: std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -66,12 +69,21 @@ async fn browser_translation_fixture() {
                 .into(),
         }),
     };
+    if device { tokio::spawn(crate::models::run(app.clone())); }
     let router = crate::router(app).route(
         "/__translation/messages",
         axum::routing::get(move || async move { axum::Json(rows) }),
     );
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:4336")
+    let listener = tokio::net::TcpListener::bind(format!("127.0.0.1:{port}"))
         .await
         .unwrap();
     axum::serve(listener, router).await.unwrap();
 }
+
+#[tokio::test]
+#[ignore = "loopback fixture started by playwright.translation.config.ts"]
+async fn browser_translation_fixture() { serve_translation_fixture(false).await; }
+
+#[tokio::test]
+#[ignore = "loopback fixture started by playwright.device-translation.config.ts"]
+async fn browser_device_translation_fixture() { serve_translation_fixture(true).await; }

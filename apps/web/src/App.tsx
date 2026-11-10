@@ -1,3 +1,4 @@
+import { deviceTranslator } from "./deviceTranslation";
 import { useRuleUpdates } from "./mailRules";
 import { localMailCache } from "./localMailCache";
 import { useMessagePrefetch } from "./useMessagePrefetch";
@@ -132,6 +133,7 @@ export function App() {
     enabled: !!session.data,
   });
   const { alwaysLoadImages, setAlwaysLoadImages, blockHiddenImages, setBlockHiddenImages } = useImagePrivacy(session.data?.user_id);
+  useEffect(() => () => deviceTranslator.reset(), [session.data?.user_id]);
   const keyboardPreferences = useKeyboardPreferences(session.data?.user_id);
   const [shortcutHelp, setShortcutHelp] = useState(false);
   const [account, setAccount] = useState("all");

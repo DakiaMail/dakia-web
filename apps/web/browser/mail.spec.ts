@@ -17,6 +17,8 @@ async function fixture(page: Page): Promise<FixtureState> {
       });
     if (path === "/api/session")
       return respond({ user_id: "fixture-user", csrf_token: "fixture-csrf" });
+    if (path === "/api/translation/settings")
+      return respond({ mode: "host", can_manage: false });
     if (path === "/api/accounts") return respond(accounts);
     if (path.endsWith("/events"))
       return route.fulfill({
@@ -260,7 +262,7 @@ test("workspace management consolidates accounts, settings and notification cont
   }
   await workspace.getByRole("button", { name: "Enable notifications" }).click();
   // No browser permission or real subscription is granted by this fixture.
-  await expect(workspace.getByRole("status")).not.toHaveText("Enabling…");
+  await expect(workspace.getByRole("region", { name: "Notifications", exact: true }).getByRole("status")).not.toHaveText("Enabling…");
   await workspace.getByRole("button", { name: "Connect account" }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.getByRole("button", { name: "Close", exact: true }).click();

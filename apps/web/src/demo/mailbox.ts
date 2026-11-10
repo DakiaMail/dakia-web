@@ -152,6 +152,7 @@ export class DemoMailbox {
     const body = async <T>() => request.json() as Promise<T>;
     const commit = async (value: unknown) => { await this.save(); return json(value); };
     if (path === "/api/session" && get) return json({ user_id: s.user, csrf_token: "local-only" });
+    if (path === "/api/translation/settings" && get) return json({ mode: "host", can_manage: false });
     if (path === "/api/local-access" && get) return json({ can_invite: false });
     if (path === "/api/accounts/gmail" && get) return json({ enabled: true });
     if (path === "/api/accounts" && get) return json(s.accounts);

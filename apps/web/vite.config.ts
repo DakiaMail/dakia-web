@@ -16,9 +16,10 @@ export default defineConfig(({ mode }) => ({
         this.emitFile({ type: "asset", fileName: "_headers", source: "/*\n  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; frame-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'\n  Referrer-Policy: no-referrer\n  X-Content-Type-Options: nosniff\n  X-Robots-Tag: noindex, nofollow\n  Permissions-Policy: camera=(), microphone=(), geolocation=()\n/app-version.json\n  Cache-Control: no-store\n/index.html\n  Cache-Control: no-cache\n" });
         this.emitFile({ type: "asset", fileName: "404.html", source: "<!doctype html><title>Not found</title>Not found" });
       }
+      this.emitFile({ type: "asset", fileName: "translation-LICENSE.txt", source: readFileSync(local("../../workers/translation/browser/LICENSE"), "utf8") });
       this.emitFile({ type: "asset", fileName: "app-version.json", source: JSON.stringify({ version: buildId }) });
       // A UI-only release must also produce a byte-different worker.
-      this.emitFile({ type: "asset", fileName: "sw.js", source: `/* Dakia build ${buildId} */\n${readFileSync(local("./public/sw.js"), "utf8").replace("/* DAKIA_STATIC_ASSETS */ []", JSON.stringify(Object.keys(bundle).filter(path => /^assets\//.test(path)).map(path => "/" + path)))}` });
+      this.emitFile({ type: "asset", fileName: "sw.js", source: `/* Dakia build ${buildId} */\n${readFileSync(local("./public/sw.js"), "utf8").replace("/* DAKIA_STATIC_ASSETS */ []", JSON.stringify(Object.keys(bundle).filter(path => /^assets\//.test(path) && !path.endsWith(".wasm")).map(path => "/" + path)))}` });
     },
   }],
   resolve: {

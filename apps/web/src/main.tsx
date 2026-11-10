@@ -1,3 +1,4 @@
+import { deviceTranslator } from "./deviceTranslation";
 import { localMailCache } from "./localMailCache";
 import React from "react";
 import { createRoot } from "react-dom/client";
@@ -9,12 +10,14 @@ import "./styles.css";
 import { App } from "./App";
 import { InstallProvider } from "./InstallApp";
 import { AppUpdateProvider } from "./AppUpdate";
+window.addEventListener("pagehide", () => deviceTranslator.reset());
 const client = new QueryClient({
   defaultOptions: {
     queries: { retry: 1, staleTime: 15000, refetchOnWindowFocus: true },
   },
 });
 window.addEventListener("dakia-auth-expired", event => {
+  deviceTranslator.reset();
   void localMailCache.clear();
   if ((event as CustomEvent).detail !== "/session") void client.invalidateQueries({ queryKey: ["session"] });
 });

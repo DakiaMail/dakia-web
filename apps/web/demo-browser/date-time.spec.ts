@@ -19,6 +19,14 @@ async function tabToElement(page: Page, locator: Locator) {
   throw new Error("Could not reach message");
 }
 
+async function waitForAppliedActions(page: Page) {
+  // The picker closes optimistically. Reload only after the action is acknowledged.
+  await expect.poll(() => page.evaluate(() => Object.entries(sessionStorage)
+    .filter(([key]) => key.startsWith("dakia-pending-operations:"))
+    .flatMap(([, value]) => JSON.parse(value)))).toEqual([]);
+  await expect(page.getByRole("alert")).toHaveCount(0);
+}
+
 test("snooze keyboard presets and custom bulk selection persist after reload", async ({ page }) => {
   await page.goto("/");
   const row = page.locator(".message-open").first();
@@ -32,6 +40,7 @@ test("snooze keyboard presets and custom bulk selection persist after reload", a
   await page.keyboard.press("b");
   await tabTo(page, "Tomorrow"); await page.keyboard.press("Enter");
   await expect(dialog).toHaveCount(0);
+  await waitForAppliedActions(page);
   await page.reload();
   await expect(page.locator(".message-open").filter({ hasText: firstSubject })).toHaveCount(0);
   await tabTo(page, "Snoozed"); await page.keyboard.press("Enter");
@@ -56,6 +65,7 @@ test("snooze keyboard presets and custom bulk selection persist after reload", a
   await page.keyboard.type("2099");
   await tabTo(page, "Snooze"); await page.keyboard.press("Enter");
   await expect(page.getByRole("dialog")).toHaveCount(0);
+  await waitForAppliedActions(page);
   await page.reload();
   await tabTo(page, "Snoozed"); await page.keyboard.press("Enter");
   for (const subject of subjects) await expect(page.locator(".message-open").filter({ hasText: subject })).toBeVisible();

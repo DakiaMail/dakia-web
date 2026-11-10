@@ -55,7 +55,7 @@ The first local login is the owner. Workspace provides owner-only invitation cre
 
 ## Published images
 
-GitHub Actions builds application source changes on `main` for Linux AMD64 and ARM64. Source images use `ghcr.io/dakiamail/dakia-web:sha-<source-commit>` and carry the source commit in the `org.opencontainers.image.revision` label. Version tags still publish versioned images. Manual workflow runs can build a chosen source revision.
+GitHub Actions builds application source changes on `main` for Linux AMD64 and ARM64. Source images use `ghcr.io/dakiamail/dakia-web:sha-<source-commit>` and carry the source commit in the `org.opencontainers.image.revision` label. Semantic version tags publish versioned images, then a GitHub release with a digest manifest and the paired upgrade scripts after packaged-runtime checks pass. Stable releases take priority over previews for update discovery. Manual workflow runs can build a chosen source revision.
 
 Each native image must pass packaged classifier, translation-worker, health, Gmail OAuth, and restart checks before the multi-platform image is published. The classifier check loads the bundled model and classifies a synthetic message as the normal app user. The OAuth checks use synthetic credentials with networking disabled. `edge` tracks a successful `main` build; the Compose default uses an explicitly verified digest. Documentation and Compose-pin-only changes do not rebuild unchanged application code.
 
@@ -77,6 +77,8 @@ Extract the archive into a new build directory and build the included Dockerfile
 Use a read-only root filesystem, no new privileges, dropped capabilities and suitable resource limits. Networking must permit OIDC discovery/backchannel, mail provider TLS, selected model downloads and supported push endpoints. Do not bypass TLS verification to resolve routing failures. Ensure `/sw.js` serves JavaScript rather than the SPA fallback.
 
 ## Upgrade and verification
+
+For supported Compose installations, use `sh scripts/upgrade.sh`. See [upgrading and recovery](../docs/upgrading.md) for release selection, backup locations, failure handling, and manual platform instructions. Automatic owner release checks can be disabled with `DAKIA_RELEASE_CHECKS=false`.
 
 Keep the previous image and a matching backup before replacing the application. Retain the existing data and secret mounts, identity-provider state and proxy configuration. Never apply an old full proxy/compose file over unrelated operator changes.
 

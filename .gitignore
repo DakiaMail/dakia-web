@@ -23,6 +23,7 @@
 
 /.codex-attachments/
 /secrets/
+/.dakia-upgrades/
 
 /crates/inference/assets/email-classifier-v2/.model-*
 

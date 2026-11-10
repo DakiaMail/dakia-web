@@ -392,6 +392,45 @@ mod tests {
             .unwrap()
     }
     #[tokio::test]
+    async fn releases_require_the_local_owner() {
+        let (dir, app) = fixture().await;
+        let cookie = owner(&dir, &app).await;
+        let anon = router(app.clone())
+            .oneshot(
+                Request::builder()
+                    .uri("/api/releases")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(anon.status(), StatusCode::UNAUTHORIZED);
+        let response = auth_json(&app, &cookie, "GET", "/api/releases", false).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        sqlx::query("UPDATE local_login SET is_owner=0")
+            .execute(app.store.control())
+            .await
+            .unwrap();
+        assert_eq!(
+            auth_json(&app, &cookie, "GET", "/api/releases", false)
+                .await
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+        sqlx::query("UPDATE local_login SET is_owner=1")
+            .execute(app.store.control())
+            .await
+            .unwrap();
+        let mut oidc = app.clone();
+        Arc::make_mut(&mut oidc.config).issuer = "https://identity.test".into();
+        assert_eq!(
+            auth_json(&oidc, &cookie, "GET", "/api/releases", false)
+                .await
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+    }
+    #[tokio::test]
     async fn setup_login_sessions_and_replay() {
         let (dir, app) = fixture().await;
         let code = std::fs::read_to_string(dir.path().join("setup-token")).unwrap();

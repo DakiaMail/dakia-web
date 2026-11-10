@@ -44,7 +44,7 @@ it("requires an explicit sandbox decision whenever the app adds an API surface",
     "/accounts/:id/recipients", "/accounts/:id/rule-activity", "/accounts/:id/scheduled", "/accounts/:id/sender-cleanups",
     "/accounts/:id/settings", "/accounts/:id/submissions", "/accounts/:id/submissions/:id", "/accounts/:id/submissions/:id/cancel",
     "/accounts/:id/sync-active", "/accounts/discover", "/accounts/gmail", "/invitations",
-    "/invitations/:id", "/local-access", "/logout", "/push/public-key", "/push/subscriptions", "/rules", "/rules/:id",
+    "/invitations/:id", "/local-access", "/logout", "/push/public-key", "/push/subscriptions", "/releases", "/rules", "/rules/:id",
     "/search", "/session", "dynamic:path"
   ].sort());
 });

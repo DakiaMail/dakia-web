@@ -52,7 +52,6 @@ Run `sh scripts/upgrade.sh` from your installation directory. It checks publishe
 
 ![Nine-second tour: desktop inbox, open message, mobile inbox, then the same message on mobile](docs/images/inbox-tour.gif)
 
-Four views of the running web frontend with fictional mail. Mobile scenes are browser viewports, not native phone captures. [View the static desktop screenshot](docs/images/inbox-desktop.webp) or [the static mobile screenshot](docs/images/inbox-mobile.webp). [Capture details](docs/images/README.md).
 
 ## What you can do
 
@@ -66,14 +65,6 @@ Four views of the running web frontend with fictional mail. Mobile scenes are br
 - Use the responsive web app or install it as a PWA.
 
 [Features and screenshots](docs/features.md)
-
-## Block unwanted senders
-
-Open an email and choose **More actions → Block sender** in the toolbar. Future emails from that exact address move to Trash across your mailboxes without notifications while Dakia syncs. Blocking does not reject delivery at your email provider.
-
-Choose **Review older emails** to find previous messages across your mailboxes, review each mailbox’s results, and confirm the move to Trash. Search can be incomplete; Dakia shows the emails it found and reports pending or failed moves.
-
-Manage blocks in **Workspace → Blocked senders**. Unblocking lets future emails arrive normally and leaves existing Trash untouched. You can restore individual emails from Trash without Dakia moving them back automatically. Mailboxes connected later inherit your blocks; their older mail is left in place.
 
 ## Documentation
 
@@ -106,16 +97,6 @@ The classifier is downloaded from a pinned revision and checked against its SHA-
 
 Contributions are welcome through pull requests. Keep changes focused and include relevant checks. Never include mailbox data, credentials, or private captures in an issue or pull request.
 
-## Keyboard controls
-
-Use Tab and Shift+Tab to move between controls and composer fields, and Enter or Space to activate buttons. Mail shortcuts work outside text inputs, editors, dialogs, popovers and text selections. Browser/OS chords and IME input keep their normal behavior.
-
-Action menus open with Enter, Space or ArrowDown; ArrowUp opens at the last item. Use Up/Down, Home/End and typeahead within a menu. Right opens a submenu; Left or Escape closes it and restores focus. Escape closes the root menu, and Tab/Shift+Tab leave it normally. Disabled items are skipped. Modified browser/OS chords and IME input retain their default behavior.
-
-Use J/K for next/previous email, C to compose, / to search, R to reply, Shift+R to reply all, F to forward, E to archive, Delete to move to trash, U to mark unread, Shift+U to mark read, S to toggle stars, X to toggle selection, M to move, B to snooze, and ! to mark spam. Actions apply to checked messages first, then the focused row or open email. Reply and forward load the target email’s content when needed. Navigation follows visible mail order and stops at the first/last loaded email. Press ? for the full shortcut reference. Workspace settings can disable mail shortcuts or enable extra hints beside buttons and in the inbox footer. Preferences are saved per signed-in user on this browser.
-
-Within the Inbox view tablist, unmodified Left/Right and Home/End select tabs. On message checkboxes, Space toggles selection and Shift+Space selects a range; Shift+Enter or Shift+Space on a message button extends the range without opening it. Recipient suggestions support unmodified Up/Down, Enter and Escape. Escape outside editors, text selections and dialogs clears the mail selection/reader; dialogs and the refresh tooltip handle their own Escape. OS modifier chords and IME composition are not consumed by these application handlers. The rich-text editor retains its own standard editing behavior.
-
 
 ## License
 
@@ -138,3 +119,5 @@ Translation can run on the host or on devices, with an administrator-controlled 
 ## UI component library
 
 Reusable buttons and the central Mantine theme live in [`@dakia/ui`](packages/ui/README.md). New component migrations should use this package. The development gallery is available at `/ui-gallery.html` while the web dev server is running.
+
+Action menus open with Enter, Space or ArrowDown; ArrowUp opens at the last item. Use Up/Down, Home/End and typeahead within a menu. Right opens a submenu; Left or Escape closes it and restores focus. Escape closes the root menu, and Tab/Shift+Tab leave it normally. Disabled items are skipped. Modified browser/OS chords and IME input retain their default behavior.

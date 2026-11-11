@@ -80,3 +80,5 @@ You can install the web app through your browser's installation controls. Instal
 | A mailbox needs attention | Use Reconnect in Workspace. Check provider credentials/app passwords, IMAP access, server settings, and outbound IMAP/SMTP connectivity. |
 
 If sign-in uses an external identity provider, follow that provider's login and account-access process. Local invitations are disabled in OIDC mode, and local and OIDC identities are not automatically linked.
+
+Snooze removes an email from Inbox until the time you choose. Snoozed shows the email count and each email's return time. Choose **Move back to Inbox** to bring an email back sooner. Both actions show a confirmation after they succeed.

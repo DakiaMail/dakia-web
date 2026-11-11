@@ -120,7 +120,7 @@ test("send later review captures and keyboard, dismissal, preset and custom flow
       await trigger.click();
       const panel = page.getByRole("dialog", { name: "Send later", exact: true });
       await expect(panel).toBeInViewport();
-      await expect(panel.getByRole("button", { name: "Close send later", exact: true })).toBeFocused();
+      await expect(panel.getByRole("button", { name: /Later today|This evening|Tomorrow/ }).first()).toBeFocused();
       await page.screenshot({ path: `${prefix}-menu.png`, fullPage: true, animations: "disabled" });
       await panel.getByRole("button", { name: "Pick date & time" }).click();
       await expect(page.getByLabel("Date", { exact: true })).toBeInViewport();
@@ -147,8 +147,8 @@ test("send later review captures and keyboard, dismissal, preset and custom flow
   await page.getByRole("button", { name: "Remove send time" }).click();
   await expect(page.getByRole("button", { name: "Send", exact: true })).toBeVisible();
   await trigger.click();
-  await expect(page.getByRole("button", { name: "Close send later", exact: true })).toBeFocused();
-  await page.locator(".schedule-overlay").click({ position: { x: 3, y: 3 } });
+  await expect(page.getByRole("dialog", { name: "Send later", exact: true }).getByRole("button", { name: /Later today|This evening|Tomorrow/ }).first()).toBeFocused();
+  await page.locator(".dakia-datetime-overlay").click({ position: { x: 3, y: 3 } });
   await expect(page.getByRole("dialog", { name: "Send later", exact: true })).toHaveCount(0);
   await expect(trigger).toBeFocused();
 });

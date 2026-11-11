@@ -1,0 +1,38 @@
+@import "@mantine/core/styles/Popover.css";
+@import "@mantine/core/styles/Menu.css";
+
+.dakia-menu.dakia-menu {
+  padding: 4px;
+  max-width: calc(100vw - 16px);
+  max-height: min(400px, calc(100dvh - 24px));
+  overflow-y: auto;
+  border: 1px solid var(--ui-surface-border);
+  border-radius: var(--ui-panel-radius);
+  background: var(--ui-surface-raised);
+  color: var(--color-text);
+  box-shadow: var(--ui-panel-shadow);
+  overscroll-behavior: contain;
+}
+.dakia-menu-item.dakia-menu-item {
+  min-height: var(--ui-mail-action-height);
+  padding: 6px 8px;
+  border-radius: var(--ui-control-radius);
+  font: 400 var(--ui-font-size)/1.4 var(--ui-font-family);
+  color: var(--ui-button-ghost-text);
+  gap: 0;
+  text-align: left;
+}
+.dakia-menu-item.dakia-menu-item:where(:hover, :focus-visible):not([data-disabled]) { background: var(--ui-button-ghost-hover); color: var(--color-text); }
+.dakia-menu-item.dakia-menu-item:focus-visible { outline: var(--ui-focus-width) solid var(--ui-focus-color); outline-offset: -2px; }
+.dakia-menu-item.dakia-menu-item:active:not([data-disabled]) { background: var(--ui-button-pressed); transform: none; }
+.dakia-menu-item.dakia-menu-item[data-disabled] { opacity: .45; cursor: default; background: transparent; }
+.dakia-menu-label { min-width: 0; overflow-wrap: anywhere; }
+.dakia-menu-section[data-position="left"] { margin-inline-end: 9px; }
+.dakia-menu-section[data-position="right"] { margin-inline-start: 16px; }
+.dakia-menu-icon { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; color: var(--ui-muted); }
+.dakia-menu-icon svg { width: 16px; height: 16px; }
+.dakia-menu-hint { display: inline-flex; align-items: center; color: var(--ui-muted); font-size: 11px; }
+.dakia-menu-hint kbd { font: inherit; border: 0; padding: 0; background: none; box-shadow: none; color: inherit; }
+.dakia-menu-divider { border-color: var(--ui-surface-border); margin: 4px 0; }
+@media (max-width: 600px), (pointer: coarse) { .dakia-menu-item.dakia-menu-item { min-height: var(--ui-touch-target); } }
+.dakia-menu-item.dakia-menu-item[aria-expanded="true"] { background: var(--ui-button-ghost-hover); color: var(--color-text); }

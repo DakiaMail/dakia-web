@@ -1,0 +1,36 @@
+@import "@mantine/core/styles/Overlay.css";
+@import "@mantine/core/styles/Paper.css";
+@import "@mantine/core/styles/ModalBase.css";
+@import "@mantine/core/styles/Modal.css";
+@import "@mantine/core/styles/Input.css";
+
+.dakia-datetime-inner { inset: 0; padding: 16px; }
+.dakia-datetime-panel {
+  --modal-body-padding: 0;
+  padding: 16px;
+  width: min(352px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  overflow: auto;
+  border: 1px solid var(--ui-surface-border);
+  border-radius: var(--ui-panel-radius);
+  background: var(--ui-surface);
+  color: var(--color-text);
+  box-shadow: var(--ui-panel-shadow);
+}
+.dakia-datetime-header { display: flex; align-items: center; gap: 4px; }
+.dakia-datetime-header h2 { flex: 1; font-size: 14px; font-weight: 500; letter-spacing: -.1px; margin: 0 8px; }
+.dakia-datetime-header .dakia-icon-button { color: var(--ui-muted); }
+.dakia-datetime-timezone { color: var(--ui-muted); font-size: 12px; margin: 2px 8px 12px; }
+.dakia-datetime-options { display: grid; gap: 4px; }
+.dakia-datetime-options .dakia-button.dakia-button { min-height: 40px; padding: 8px 10px; border-radius: var(--ui-control-radius); font-weight: 400; text-align: left; }
+.dakia-datetime-options .dakia-button-label { width: 100%; display: flex; justify-content: space-between; gap: 12px; }
+.dakia-datetime-options time { color: var(--ui-muted); font-size: 12px; white-space: nowrap; }
+.dakia-datetime-options .dakia-datetime-pick { border-top: 1px solid var(--ui-surface-border); border-radius: 0; margin-top: 8px; }
+.dakia-datetime-custom { display: grid; gap: 16px; padding: 0 8px 8px; }
+.dakia-datetime-custom label { color: var(--ui-muted); font-size: 12px; margin-bottom: 8px; }
+.dakia-datetime-custom input { width: 100%; min-width: 0; min-height: 44px; font-size: 13px; background: var(--ui-surface); color: var(--color-text); border: 1px solid var(--ui-surface-border); border-radius: var(--ui-control-radius); }
+.dakia-datetime-custom input:focus-visible { outline: var(--ui-focus-width) solid var(--ui-focus-color); outline-offset: 2px; }
+.dakia-datetime-custom .dakia-button.dakia-button { min-height: 44px; margin-top: 4px; }
+.dakia-datetime-error { color: var(--color-danger); margin: 0; }
+
+@media (max-width: 600px), (pointer: coarse) { .dakia-datetime-options .dakia-button.dakia-button { min-height: var(--ui-touch-target); } }

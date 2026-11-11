@@ -1,3 +1,4 @@
+import { ConfirmationButton } from "@dakia/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { Languages, Trash2 } from "lucide-react";
@@ -16,7 +17,7 @@ export function TranslationSettings({ userId }: { userId: string }) {
   const [draft, setDraft] = useState<TranslationMode | null>(null);
   const [status, setStatus] = useState("");
   const save = useMutation({ mutationFn: translationSettingsApi.save, onSuccess: value => {
-    client.setQueryData(translationPolicyKey(userId), value); setDraft(null); setStatus("Translation settings saved.");
+    client.setQueryData(translationPolicyKey(userId), value); setDraft(null); setStatus("");
   } });
   const remove = useMutation({ mutationFn: removePack, onSuccess: () => { void packs.refetch(); setStatus("Language removed from this browser."); requestAnimationFrame(() => heading.current?.focus()); } });
   const selected = draft ?? policy.data?.mode;
@@ -25,13 +26,13 @@ export function TranslationSettings({ userId }: { userId: string }) {
     {policy.data?.can_manage ? <>
       <p>Choose where translations run for everyone using this Dakia host.</p>
       <fieldset className="translation-mode-options" disabled={save.isPending}><legend className="sr-only">Where translations run</legend>
-        {options.map(option => <label key={option.value}><input type="radio" name="translation-mode" value={option.value} checked={selected === option.value} onChange={() => { setDraft(option.value); setStatus(""); }} /><span>{option.label}<small>{option.description}</small></span></label>)}
+        {options.map(option => <label key={option.value}><input type="radio" name="translation-mode" value={option.value} checked={selected === option.value} onChange={() => { setDraft(option.value); setStatus(""); save.reset(); }} /><span>{option.label}<small>{option.description}</small></span></label>)}
       </fieldset>
-      <button className="primary" aria-disabled={save.isPending || draft === null} onClick={() => { if (draft && !save.isPending) save.mutate(draft); }}>{save.isPending ? "Saving…" : "Save translation settings"}</button>
+      <ConfirmationButton status={save.status} disabled={draft === null} onClick={() => { if (draft && !save.isPending) save.mutate(draft); }}>Save translation settings</ConfirmationButton>
     </> : policy.data && <p>{options.find(option => option.value === policy.data.mode)?.label}. Your administrator controls this setting.</p>}
     {policy.isError && <p role="alert">Could not load translation settings. <button onClick={() => void policy.refetch()}>Retry</button></p>}
     {(save.isError || remove.isError || packs.isError) && <p role="alert">Could not update translation settings or saved languages. Try again.</p>}
     {!!packs.data?.length && <div className="translation-saved-packs"><h3>Saved on this browser</h3><ul>{packs.data.map(pack => <li key={pack.source}><span>{pack.name}<small>{formatBytes(pack.bytes)}</small></span><button disabled={remove.isPending} aria-label={`Remove ${pack.name} language`} onClick={() => remove.mutate(pack.source)}><Trash2 size={16} aria-hidden="true" />Remove</button></li>)}</ul><p>Saved languages work offline. Clearing browser data removes them.</p></div>}
-    <p role="status" className="translation-settings-status">{status}</p>
+    <p role="status" className="translation-settings-status" hidden={!status}>{status}</p>
   </section>;
 }

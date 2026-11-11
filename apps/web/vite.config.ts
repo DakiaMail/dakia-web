@@ -16,6 +16,7 @@ export default defineConfig(({ mode }) => ({
         this.emitFile({ type: "asset", fileName: "_headers", source: "/*\n  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; frame-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'\n  Referrer-Policy: no-referrer\n  X-Content-Type-Options: nosniff\n  X-Robots-Tag: noindex, nofollow\n  Permissions-Policy: camera=(), microphone=(), geolocation=()\n/app-version.json\n  Cache-Control: no-store\n/index.html\n  Cache-Control: no-cache\n" });
         this.emitFile({ type: "asset", fileName: "404.html", source: "<!doctype html><title>Not found</title>Not found" });
       }
+      this.emitFile({ type: "asset", fileName: "ui-LICENSE.txt", source: readFileSync(local("../../node_modules/@mantine/core/LICENSE"), "utf8") });
       this.emitFile({ type: "asset", fileName: "translation-LICENSE.txt", source: readFileSync(local("../../workers/translation/browser/LICENSE"), "utf8") });
       this.emitFile({ type: "asset", fileName: "app-version.json", source: JSON.stringify({ version: buildId }) });
       // A UI-only release must also produce a byte-different worker.
@@ -25,6 +26,8 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     dedupe: ["react", "react-dom"],
     alias: {
+      "@dakia/ui/styles.css": local("../../packages/ui/src/styles.css"),
+      "@dakia/ui": local("../../packages/ui/src/index.ts"),
       "@dakia/api-types": local("../../packages/api-types/src/index.ts"),
       "@dakia/mail-renderer": local(
         "../../packages/mail-renderer/src/index.tsx",

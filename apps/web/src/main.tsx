@@ -7,6 +7,8 @@ import "@fontsource/inter/400.css";
 import "@fontsource/inter/500.css";
 import "@fontsource/inter/600.css";
 import "./styles.css";
+import "@dakia/ui/styles.css";
+import { DakiaProvider } from "@dakia/ui";
 import { App } from "./App";
 import { InstallProvider } from "./InstallApp";
 import { AppUpdateProvider } from "./AppUpdate";
@@ -28,9 +30,11 @@ async function start() {
   }
   createRoot(document.getElementById("root")!).render(
     <React.StrictMode>
-      <QueryClientProvider client={client}>
-        <InstallProvider><AppUpdateProvider><App /></AppUpdateProvider></InstallProvider>
-      </QueryClientProvider>
+      <DakiaProvider>
+        <QueryClientProvider client={client}>
+          <InstallProvider><AppUpdateProvider><App /></AppUpdateProvider></InstallProvider>
+        </QueryClientProvider>
+      </DakiaProvider>
     </React.StrictMode>,
   );
 }

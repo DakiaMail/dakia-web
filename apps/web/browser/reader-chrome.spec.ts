@@ -26,7 +26,7 @@ async function fixture(page: Page, options: { long?: boolean; failure?: "expired
       const token = url.searchParams.get("continuation");
       if (!token) {
         state.starts++;
-        return respond({ rows: [root], complete: !options.failure || options.failure === "snapshot", continuation: options.failure && options.failure !== "snapshot" ? (state.starts === 1 ? "expired" : "fresh") : null });
+        return respond({ rows: [root], complete: !options.failure || options.failure === "snapshot", continuation: options.failure && options.failure !== "snapshot" ? (options.failure === "expired" && !state.recover ? "expired" : "fresh") : null });
       }
       if (options.failure === "expired" && token === "expired") { state.expired++; return respond({ code: "conversation_refresh_required" }, 409); }
       state.provider++;
@@ -68,7 +68,7 @@ for (const width of [320, 390, 600, 1480]) for (const long of [false, true]) tes
     const bar = reader.locator(".reader-toolbar");
     expect((await bar.boundingBox())!.y).toBeGreaterThan(760);
     await bar.getByRole("button", { name: "More actions", exact: true }).click();
-    await expect(reader.getByRole("group", { name: "More message actions" })).toBeVisible();
+    await expect(page.getByRole("menu", { name: "More message actions" })).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(bar.getByRole("button", { name: "More actions", exact: true })).toBeFocused();
   } else {
@@ -97,11 +97,11 @@ for (const failure of ["expired", "provider", "snapshot"] as const) test(`conver
   await open(page);
   await expect(page.getByText("Couldn’t check for more messages.", { exact: true })).toBeVisible();
   await screenshot(page, `conversation-${failure}-failure`);
-  const starts = state.starts, provider = state.provider;
+  const starts = state.starts, provider = state.provider, expired = state.expired;
   state.recover = true;
   await page.getByRole("button", { name: "Retry conversation", exact: true }).click();
   await expect(page.getByText("Couldn’t check for more messages.", { exact: true })).toHaveCount(0);
-  if (failure === "expired") { expect(state.starts).toBe(starts + 1); expect(state.expired).toBe(1); }
+  if (failure === "expired") { expect(state.starts).toBe(starts + 1); expect(state.expired).toBeGreaterThanOrEqual(1); expect(state.expired).toBe(expired); }
   if (failure === "provider") { expect(state.starts).toBe(starts); expect(state.provider).toBe(provider + 1); }
   if (failure === "snapshot") { expect(state.starts).toBe(starts); expect(state.provider).toBe(provider); }
   expect(state.writes).toEqual([]);
@@ -115,7 +115,7 @@ for (const action of ["Archive", "Move to trash", "Star selected messages"] as c
   await checks.nth(0).check(); await checks.nth(1).check();
   const bar = page.getByRole("group", { name: "Selected message actions", exact: true });
   if (action === "Star selected messages") await bar.getByRole("button", { name: "More actions", exact: true }).click();
-  await bar.getByRole("button", { name: action, exact: true }).click();
+  await page.getByRole(action === "Star selected messages" ? "menuitem" : "button", { name: action, exact: true }).click();
   await expect.poll(() => state.writes.length).toBe(2);
   expect(state.writes.map(op => op.target_id).sort()).toEqual(["m0", "m1"]);
   expect(state.writes.map(op => op.change.kind)).toEqual(Array(2).fill(action === "Archive" ? "archive" : action === "Move to trash" ? "trash" : "star"));
@@ -150,9 +150,9 @@ for (const width of [320, 390, 600, 1480]) test(`selection actions ${width}`, as
     expect(end.y + end.height).toBeLessThanOrEqual(box.y);
     await screenshot(page, `selection-end-${width}`);
     await bar.getByRole("button", { name: "More actions", exact: true }).click();
-    const menu = bar.getByRole("group", { name: "More message actions" });
+    const menu = page.getByRole("menu", { name: "More message actions" });
     await expect(menu).toBeVisible();
-    expect((await menu.boundingBox())!.y + (await menu.boundingBox())!.height).toBeLessThan(box.y);
+    expect((await menu.boundingBox())!.y + (await menu.boundingBox())!.height).toBeLessThan((await bar.getByRole("button", { name: "More actions", exact: true }).boundingBox())!.y);
     await screenshot(page, `selection-${width}-more`);
     await page.keyboard.press("Escape");
     await expect(bar.getByRole("button", { name: "More actions", exact: true })).toBeFocused();

@@ -69,13 +69,13 @@ impl Store {
         if let Some(folders) = folders {
             message.folder_ids = folders;
         }
-        // Clear the thread's snooze only after the provider confirms Inbox restoration.
-        // A rejected or uncertain move must retain the original snooze and deadline.
+        // Clear only the snooze this restore was accepted for, after Inbox restoration.
         if op.status == OperationStatus::Applied
             && matches!(&op.change, Change::Move { folder_id } if folder_id.eq_ignore_ascii_case("INBOX"))
         {
-            sqlx::query("DELETE FROM snoozes WHERE thread_id=?")
-                .bind(&message.thread_id).execute(&mut *tx).await?;
+            sqlx::query("DELETE FROM snoozes WHERE thread_id=? AND EXISTS(SELECT 1 FROM provider_documents WHERE key=? AND document=snoozes.thread_id)")
+                .bind(&message.thread_id).bind(format!("snooze-restore:{}", op.id))
+                .execute(&mut *tx).await?;
         }
         message.revision = message.revision.checked_add(1).ok_or(Error::Invalid)?;
         op.revision = message.revision;
@@ -94,8 +94,9 @@ impl Store {
             .bind(&op.id)
             .execute(&mut *tx)
             .await?;
-        sqlx::query("DELETE FROM provider_documents WHERE key=?")
+        sqlx::query("DELETE FROM provider_documents WHERE key IN (?,?)")
             .bind(format!("mutation-retry:{}", op.id))
+            .bind(format!("snooze-restore:{}", op.id))
             .execute(&mut *tx)
             .await?;
         sqlx::query("INSERT INTO events(revision,kind,target_id) VALUES(?,'operation_changed',?)")

@@ -338,7 +338,7 @@ export function App() {
       all = all.filter((m) =>
         m.folder_ids.some((f) => f.toUpperCase() === "INBOX") && !snoozedThreads[`${m.account_id}/${m.thread_id}`],
       );
-    if (nav === "Snoozed" && snoozeState.isSuccess) all = all.filter(m => !!snoozedThreads[`${m.account_id}/${m.thread_id}`]);
+    if (!q && nav === "Snoozed" && snoozeState.isSuccess) all = all.filter(m => !!snoozedThreads[`${m.account_id}/${m.thread_id}`]);
     if (nav === "Starred") all = all.filter((m) => m.starred);
     return all;
   }, [mail.data, overrides, removed, restoredRows, nav, q, account, categoryFilter, accounts.data, cleanupRows, snoozedThreads, snoozeState.isSuccess]);

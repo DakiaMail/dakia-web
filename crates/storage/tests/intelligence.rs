@@ -517,3 +517,157 @@ async fn restoring_a_snoozed_inbox_member_does_not_copy_it_to_the_same_provider_
     assert!(s.active_snoozes(&a).await.unwrap().is_empty());
     assert_eq!(s.inbox_rows(&a, None, None).await.unwrap().len(), 1);
 }
+
+#[tokio::test]
+async fn inbox_restore_waits_for_an_earlier_archive() {
+    for archive_running in [false, true] {
+        let (_dir, s, a, m) = fixture().await;
+        let archive = s
+            .operation(
+                &a,
+                Operation {
+                    id: "earlier-archive".into(),
+                    account_id: a.id().into(),
+                    target_id: m.id.clone(),
+                    expected_revision: m.revision,
+                    change: Change::Archive,
+                    status: OperationStatus::Pending,
+                    revision: 0,
+                },
+            )
+            .await
+            .unwrap();
+        if archive_running {
+            assert_eq!(s.claim_mutation(&a).await.unwrap().unwrap().id, archive.id);
+        }
+        let restore = s
+            .operation(
+                &a,
+                Operation {
+                    id: "later-restore".into(),
+                    account_id: a.id().into(),
+                    target_id: m.id.clone(),
+                    expected_revision: archive.revision,
+                    change: Change::Move {
+                        folder_id: "INBOX".into(),
+                    },
+                    status: OperationStatus::Pending,
+                    revision: 0,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(restore.status, OperationStatus::Pending);
+        let mut archive = if archive_running {
+            archive
+        } else {
+            s.claim_mutation(&a).await.unwrap().unwrap()
+        };
+        assert_eq!(archive.id, "earlier-archive");
+        assert!(s.claim_mutation(&a).await.unwrap().is_none());
+        archive.status = OperationStatus::Applied;
+        s.finish_mutation(&a, archive, Some(vec!["Archive".into()]))
+            .await
+            .unwrap();
+        let mut restore = s.claim_mutation(&a).await.unwrap().unwrap();
+        assert_eq!(restore.id, "later-restore");
+        restore.status = OperationStatus::Applied;
+        s.finish_mutation(&a, restore, Some(vec!["INBOX".into()]))
+            .await
+            .unwrap();
+        assert_eq!(
+            s.message(&a, &m.id).await.unwrap().folder_ids,
+            vec!["INBOX"]
+        );
+        assert!(s.claim_mutation(&a).await.unwrap().is_none());
+    }
+}
+
+#[tokio::test]
+async fn finishing_an_older_restore_preserves_a_newer_thread_snooze() {
+    for same_deadline in [false, true] {
+        for snooze_sibling in [false, true] {
+            let (dir, s, a, mut m) = fixture().await;
+            m.folder_ids = vec!["Archive".into()];
+            let m = s.upsert_message(&a, m).await.unwrap();
+            let mut sibling = m.clone();
+            sibling.id = "sibling".into();
+            sibling.provider_id = "second".into();
+            s.upsert_message(&a, sibling).await.unwrap();
+            let original_deadline = "2099-01-01T09:00:00Z";
+            let snooze = s
+                .operation(
+                    &a,
+                    Operation {
+                        id: "original-snooze".into(),
+                        account_id: a.id().into(),
+                        target_id: m.id.clone(),
+                        expected_revision: m.revision,
+                        change: Change::Snooze {
+                            until: original_deadline.into(),
+                        },
+                        status: OperationStatus::Pending,
+                        revision: 0,
+                    },
+                )
+                .await
+                .unwrap();
+            s.operation(
+                &a,
+                Operation {
+                    id: "older-restore".into(),
+                    account_id: a.id().into(),
+                    target_id: m.id.clone(),
+                    expected_revision: snooze.revision,
+                    change: Change::Move {
+                        folder_id: "INBOX".into(),
+                    },
+                    status: OperationStatus::Pending,
+                    revision: 0,
+                },
+            )
+            .await
+            .unwrap();
+            let mut restore = s.claim_mutation(&a).await.unwrap().unwrap();
+            let target = s
+                .message(&a, if snooze_sibling { "sibling" } else { &m.id })
+                .await
+                .unwrap();
+            let until = if same_deadline {
+                original_deadline
+            } else {
+                "2099-02-01T09:00:00Z"
+            };
+            s.operation(
+                &a,
+                Operation {
+                    id: "newer-snooze".into(),
+                    account_id: a.id().into(),
+                    target_id: target.id,
+                    expected_revision: target.revision,
+                    change: Change::Snooze {
+                        until: until.into(),
+                    },
+                    status: OperationStatus::Pending,
+                    revision: 0,
+                },
+            )
+            .await
+            .unwrap();
+            let before = s.active_snoozes(&a).await.unwrap();
+            let reopened = Store::open(dir.path(), [4; 32]).await.unwrap();
+            let a = reopened.authorize(a.user_id(), a.id()).await.unwrap();
+            restore.status = OperationStatus::Applied;
+            reopened
+                .finish_mutation(&a, restore, Some(vec!["INBOX".into()]))
+                .await
+                .unwrap();
+            assert_eq!(reopened.active_snoozes(&a).await.unwrap(), before);
+            assert!(reopened
+                .inbox_rows(&a, None, None)
+                .await
+                .unwrap()
+                .is_empty());
+        }
+    }
+}

@@ -255,16 +255,26 @@ impl Store {
                     .with_timezone(&Utc)
                     .to_rfc3339_opts(SecondsFormat::Millis, true);
                 sqlx::query("INSERT INTO snoozes(thread_id,until,arrival_boundary) VALUES(?,?,?) ON CONFLICT(thread_id) DO UPDATE SET until=excluded.until,arrival_boundary=excluded.arrival_boundary").bind(&m.thread_id).bind(until).bind(now()).execute(&mut *tx).await?;
+                // A new snooze supersedes any restore accepted earlier for this thread.
+                sqlx::query("DELETE FROM provider_documents WHERE key GLOB 'snooze-restore:*' AND document=?")
+                    .bind(&m.thread_id)
+                    .execute(&mut *tx).await?;
             }
             // A deliberate restore overrides automation even if this message
             // was first discovered in Spam/Trash and has no arrival receipt yet.
             Change::Move { folder_id } if folder_id.eq_ignore_ascii_case("INBOX") => {
-                // Snoozed is a local view. Restoring an existing Inbox member
-                // only clears that view state; do not move/copy it onto itself.
-                if m.folder_ids.iter().any(|folder| folder.eq_ignore_ascii_case("INBOX")) {
+                // Only skip the provider move if no earlier action can change membership.
+                let queued: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM outbox q JOIN operations o ON o.id=q.target_id WHERE q.kind='mutation' AND q.state IN ('pending','running') AND json_extract(o.document,'$.target_id')=?)")
+                    .bind(&m.id).fetch_one(&mut *tx).await?;
+                if !queued && m.folder_ids.iter().any(|folder| folder.eq_ignore_ascii_case("INBOX")) {
                     sqlx::query("DELETE FROM snoozes WHERE thread_id=?")
                         .bind(&m.thread_id).execute(&mut *tx).await?;
                     op.status = OperationStatus::Applied;
+                }
+                if op.status == OperationStatus::Pending {
+                    sqlx::query("INSERT INTO provider_documents(key,document) SELECT ?,thread_id FROM snoozes WHERE thread_id=?")
+                        .bind(format!("snooze-restore:{}", op.id)).bind(&m.thread_id)
+                        .execute(&mut *tx).await?;
                 }
                 sqlx::query("INSERT OR IGNORE INTO rule_inbox_observations(message_id) VALUES(?)")
                     .bind(&m.id)

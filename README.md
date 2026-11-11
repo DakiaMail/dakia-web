@@ -115,9 +115,3 @@ limits, authorization, retention and offline behavior.
 Explore the app at [demo.dakiamail.com](https://demo.dakiamail.com). For the sandbox build, checks, and deployment, see [the demo guide](docs/demo.md).
 
 Translation can run on the host or on devices, with an administrator-controlled host fallback option. Choose the policy in Workspace → Translation. [Language packs, administration and verification](docs/on-device-translation.md).
-
-## UI component library
-
-Reusable buttons and the central Mantine theme live in [`@dakia/ui`](packages/ui/README.md). New component migrations should use this package. The development gallery is available at `/ui-gallery.html` while the web dev server is running.
-
-Action menus open with Enter, Space or ArrowDown; ArrowUp opens at the last item. Use Up/Down, Home/End and typeahead within a menu. Right opens a submenu; Left or Escape closes it and restores focus. Escape closes the root menu, and Tab/Shift+Tab leave it normally. Disabled items are skipped. Modified browser/OS chords and IME input retain their default behavior.

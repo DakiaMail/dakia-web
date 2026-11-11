@@ -53,3 +53,20 @@ async fn operation_status_is_read_only_scoped_and_reports_durable_outcome() {
         }
     }
 }
+
+#[tokio::test]
+async fn snooze_metadata_is_owned_and_never_public_or_cross_account() {
+    let (_dir, app, alice, _) = setup().await;
+    let input = serde_json::from_value(serde_json::json!({"email":"fixture@example.invalid","display_name":"Fixture","provider":"imap","imap_host":"imap.example.invalid","imap_port":993,"imap_tls":"implicit","smtp_host":"smtp.example.invalid","smtp_port":465,"smtp_tls":"implicit","username":"fixture","password":"synthetic-only"})).unwrap();
+    let account = app.store.connect(&alice, &input).await.unwrap();
+    let path = format!("/api/accounts/{}/snoozes", account.id);
+    for (token, expected) in [("", StatusCode::UNAUTHORIZED), ("bob-token", StatusCode::NOT_FOUND), ("alice-token", StatusCode::OK)] {
+        let response = router(app.clone()).oneshot(req("GET", &path, token, false, String::new())).await.unwrap();
+        assert_eq!(response.status(), expected);
+        if expected == StatusCode::OK {
+            assert_eq!(response.headers()["cache-control"], "no-store");
+            let body: serde_json::Value = serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
+            assert_eq!(body, serde_json::json!([]));
+        }
+    }
+}

@@ -56,7 +56,7 @@ for (const [index, label, destination] of [[1, "Archive", "Archive"], [2, "Move 
     await row.click();
     if (label === "Mark as spam") await page.getByRole("button", { name: "More actions", exact: true }).click();
     const accepted = page.waitForResponse(r => r.url().endsWith("/operations") && r.request().method() === "POST");
-    await page.getByRole("region", { name: "Reading pane" }).getByRole("button", { name: label, exact: true }).click();
+    await page.getByRole(label === "Mark as spam" ? "menuitem" : "button", { name: label, exact: true }).click();
     const op = await (await accepted).json();
     expect(op.status).toBe("pending");
     await expect.poll(async () => {

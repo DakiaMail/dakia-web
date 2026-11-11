@@ -177,6 +177,15 @@ async fn apply(
     safe_to_retry: &mut bool,
 ) -> dakia_storage::Result<Vec<String>> {
     let mut message = app.store.message(a, &op.target_id).await?;
+    // A preceding queued action may have failed, leaving this restore already satisfied.
+    if matches!(&op.change, Change::Move { folder_id } if folder_id.eq_ignore_ascii_case("INBOX"))
+        && message
+            .folder_ids
+            .iter()
+            .any(|folder| folder.eq_ignore_ascii_case("INBOX"))
+    {
+        return Ok(message.folder_ids);
+    }
     // Archive via the observed INBOX membership, not whichever Gmail label
     // happened to be scanned last. Never substitute a UID from another folder.
     let inbox_reference =

@@ -48,7 +48,13 @@ function apply(message: Message, change: Operation["change"], state: DemoState):
     case "trash": result.folder_ids = [state.settings[message.account_id]?.trash_folder || "Trash"]; break;
     case "spam": result.folder_ids = ["Spam"]; break;
     case "move": result.folder_ids = [change.folder_id]; break;
-    case "snooze": state.snoozed[identity(message.account_id, message.id)] = { until: change.until, folders: message.folder_ids }; result.folder_ids = []; break;
+    case "snooze":
+      for (const content of Object.values(state.contents)) {
+        const row = content.message;
+        if (row.account_id === message.account_id && row.thread_id === message.thread_id)
+          state.snoozed[identity(row.account_id, row.id)] = { until: change.until, folders: row.folder_ids };
+      }
+      break;
   }
   return result;
 }
@@ -126,7 +132,7 @@ export class DemoMailbox {
     }
     for (const [key, snooze] of Object.entries(this.state.snoozed)) {
       if (Date.parse(snooze.until) > this.now()) continue;
-      if (this.state.contents[key]) this.state.contents[key].message.folder_ids = snooze.folders;
+      if (this.state.contents[key]?.message.folder_ids.length === 0) this.state.contents[key].message.folder_ids = snooze.folders;
       delete this.state.snoozed[key]; changed = true;
     }
     return changed;
@@ -178,6 +184,16 @@ export class DemoMailbox {
     const parts = (match[2] || "").split("/").map(decodeURIComponent);
     const [resource, id, action] = parts;
     const key = identity(account, id);
+    if (resource === "snoozes" && get) {
+      const threads = new Map<string, { thread_id: string; until: string; message_count: number }>();
+      for (const [key, snooze] of Object.entries(s.snoozed)) {
+        const row = s.contents[key]?.message;
+        if (!row || row.account_id !== account || Date.parse(snooze.until) <= this.now()) continue;
+        const entry = threads.get(row.thread_id) || { thread_id: row.thread_id, until: snooze.until, message_count: 0 };
+        entry.message_count++; threads.set(row.thread_id, entry);
+      }
+      return json([...threads.values()]);
+    }
     if (resource === "sync-active" && get) return json(false);
     if (resource === "folders" && get) return json([...new Set([...folders, ...Object.values(s.settings[account] || {}).filter((v): v is string => typeof v === "string")])]);
     if (resource === "recipients" && get) {
@@ -224,6 +240,12 @@ export class DemoMailbox {
         const c = s.contents[identity(account, op.target_id)]; if (!c) return missing();
         if (c.message.revision !== op.expected_revision) return fail(409, "This email has changed. Refresh and try again.");
         c.message = apply(c.message, op.change, s);
+        if (op.change.kind === "move" && op.change.folder_id.toUpperCase() === "INBOX") {
+          for (const [key] of Object.entries(s.snoozed)) {
+            const row = s.contents[key]?.message;
+            if (row?.account_id === account && row.thread_id === c.message.thread_id) delete s.snoozed[key];
+          }
+        }
         const result: Operation = { ...op, account_id: account, status: "applied", revision: c.message.revision };
         s.operations[opKey] = result; return commit(result);
       }
@@ -303,6 +325,8 @@ export class DemoMailbox {
     if (params.get("exclude_trash") === "true") contents = contents.filter(c => !c.message.folder_ids.includes("Trash"));
     if (params.get("category")) contents = contents.filter(c => c.message.category === params.get("category"));
     const query = params.get("q") || "";
+    const hideSnoozed = /(?:^|\s)(?:folder|in):INBOX(?:\s|$)/i.test(query);
+    if (hideSnoozed) contents = contents.filter(c => !this.state.snoozed[identity(c.message.account_id, c.message.id)]);
     const snoozed = /(?:^|\s)is:snoozed(?:\s|$)/.test(query);
     contents = contents.filter(c => (!snoozed || !!this.state.snoozed[identity(c.message.account_id, c.message.id)]) && matches(c, query.replace(/(?:^|\s)is:snoozed(?=\s|$)/g, " ")));
     return { rows: contents.map(c => c.message).sort((a, b) => b.received_at.localeCompare(a.received_at)), continuation: null, coverage: ids.map(account_id => ({ account_id, folder_ids: folder ? [folder] : folders, state: "complete", error: null })), classification: { classified: contents.length, total: contents.length }, pending: false, counts_exact: true };

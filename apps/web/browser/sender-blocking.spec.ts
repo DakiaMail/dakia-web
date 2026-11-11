@@ -3,7 +3,7 @@ import type { MailRule, Message } from "@dakia/api-types";
 import { accounts, content, page as mail } from "./fixtures";
 import type { CleanupJob, CleanupRequest } from "../src/cleanupJobs";
 
-async function fixture(page: Page, bodyFails = false, previousCleanup = false) {
+async function fixture(page: Page, bodyFails = false, previousCleanup = false, slowRefresh = false) {
   let rules: MailRule[] = [];
   const requests: { account: string; request: CleanupRequest }[] = [];
   const jobs: CleanupJob[] = previousCleanup ? [{ request: { id: "previous-cleanup", source_id: "old", search_complete: true, targets: [{ id: "old", expected_revision: 1 }] }, account_id: "work", sender: mail.rows[0].sender.email, created_at: "2026-01-01T00:00:00Z", dismissed: false, pending: 0, applied: 1, failed: 0, failed_targets: [] }] : [];
@@ -15,7 +15,7 @@ async function fixture(page: Page, bodyFails = false, previousCleanup = false) {
     if (path === "/api/session") return respond({ user_id: "blocking-fixture", csrf_token: "synthetic" });
     if (path === "/api/accounts") return respond(accounts);
     if (path === "/api/rules") {
-      if (method === "GET") return respond(rules);
+      if (method === "GET") { if (slowRefresh && rules.length) await new Promise(resolve => setTimeout(resolve, 700)); return respond(rules); }
       const request = route.request().postDataJSON();
       expect(request).toEqual({ preset: "block_sender", scope: "all_mailboxes", condition: { kind: "sender_is", email: base.sender.email }, actions: ["trash", "suppress_notifications"] });
       rules = [{ ...request, id: "rule-fixture", enabled: true, activated_at: new Date().toISOString() }]; return respond(rules[0]);
@@ -47,6 +47,7 @@ async function fixture(page: Page, bodyFails = false, previousCleanup = false) {
 
 async function senderMenu(page: Page) {
   await page.getByRole("button", { name: "More actions", exact: true }).first().press("Enter");
+  await expect(page.getByRole("menuitem", { name: /^(Block|Unblock) sender$/ })).toBeEnabled();
   await page.keyboard.press("End");
 }
 
@@ -54,7 +55,7 @@ test("blocking works before body loading succeeds and does not clean up implicit
   const state = await fixture(page, true); await page.goto("/");
   await page.locator(".message-open").first().click();
   await senderMenu(page);
-  await page.getByRole("button", { name: "Block sender", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Block sender", exact: true }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Block sender", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Sender blocked", exact: true })).toBeVisible();
   expect(state.getRules()[0].enabled).toBe(true); expect(state.requests).toEqual([]);
@@ -63,7 +64,7 @@ test("blocking works before body loading succeeds and does not clean up implicit
 test("older-mail review isolates exact senders and accounts and preserves partial failures", async ({ page }) => {
   const state = await fixture(page); await page.goto("/"); await page.locator(".message-open").first().click();
   await senderMenu(page);
-  await page.getByRole("button", { name: "Block sender", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Block sender", exact: true }).click();
   const dialog = page.getByRole("dialog"); await dialog.getByRole("button", { name: "Block sender", exact: true }).click();
   await dialog.getByRole("button", { name: "Review older emails", exact: true }).click();
   const work = dialog.getByRole("region", { name: "Older emails in Work", exact: true });
@@ -78,13 +79,13 @@ test("older-mail review isolates exact senders and accounts and preserves partia
   expect(state.getRules()[0].enabled).toBe(true);
   await page.keyboard.press("Escape"); await page.reload(); await page.locator(".message-open").first().click();
   await senderMenu(page);
-  await expect(page.getByRole("button", { name: "Unblock sender", exact: true })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Unblock sender", exact: true })).toBeVisible();
 });
 
 test("a previous completed cleanup does not prevent cleaning up newer emails", async ({ page }) => {
   const state = await fixture(page, false, true); await page.goto("/"); await page.locator(".message-open").first().click();
   await senderMenu(page);
-  await page.getByRole("button", { name: "Block sender", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Block sender", exact: true }).click();
   const dialog = page.getByRole("dialog"); await dialog.getByRole("button", { name: "Block sender", exact: true }).click();
   await dialog.getByRole("button", { name: "Review older emails", exact: true }).click();
   const work = dialog.getByRole("region", { name: "Older emails in Work", exact: true });
@@ -101,26 +102,28 @@ for (const theme of ["light", "dark"]) for (const viewport of [{ width: 1480, he
     await page.goto("/"); await page.locator(".message-open").first().click();
     await expect(page.getByRole("button", { name: "More actions", exact: true })).toHaveCount(1);
     const more = page.getByRole("button", { name: "More actions", exact: true }).first();
-    await expect(page.getByRole("button", { name: "Block sender", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("menuitem", { name: "Block sender", exact: true })).toHaveCount(0);
     // Reach the sender menu using Tab, then use only keys for the whole dialog journey.
     for (let n = 0; n < 100 && !await more.evaluate(el => el === document.activeElement); n++) await page.keyboard.press("Tab");
-    await expect(more).toBeFocused(); await page.keyboard.press("Enter"); await page.keyboard.press("End");
-    const block = page.getByRole("button", { name: "Block sender", exact: true });
+    await expect(more).toBeFocused(); await page.keyboard.press("Enter");
+    await expect(page.getByRole("menuitem", { name: /^(Block|Unblock) sender$/ })).toBeEnabled();
+    await page.keyboard.press("End");
+    const block = page.getByRole("menuitem", { name: "Block sender", exact: true });
     await expect(block).toBeFocused();
-    await page.screenshot({ path: info.outputPath("sender-more.png") });
+    await page.screenshot({ animations: "disabled", path: info.outputPath("sender-more.png") });
     const bounds = await block.boundingBox(); expect(bounds!.x).toBeGreaterThanOrEqual(0); expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(viewport.width);
     await page.keyboard.press("ArrowUp"); await page.keyboard.press("ArrowDown"); await expect(block).toBeFocused();
     await page.keyboard.press("Escape"); await expect(more).toBeFocused();
     await page.keyboard.press("Enter"); await page.keyboard.press("End"); await page.keyboard.press("Enter");
     const dialog = page.getByRole("dialog"); await expect(dialog.getByRole("button", { name: "Close", exact: true })).toBeFocused();
-    await page.screenshot({ path: info.outputPath("sender-confirm.png") });
+    await page.screenshot({ animations: "disabled", path: info.outputPath("sender-confirm.png") });
     await page.keyboard.press("e"); expect(state.getRules()).toEqual([]);
     await page.keyboard.press("Tab"); await page.keyboard.press("Tab"); await page.keyboard.press("Enter");
     await expect(dialog.getByRole("heading", { name: "Sender blocked", exact: true })).toBeVisible();
     await page.keyboard.press("Escape"); await expect(more).toBeFocused();
-    await expect(page.getByRole("button", { name: "Unblock sender", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("menuitem", { name: "Unblock sender", exact: true })).toHaveCount(0);
     await page.reload(); await page.locator(".message-open").first().click(); await senderMenu(page);
-    await expect(page.getByRole("button", { name: "Unblock sender", exact: true })).toBeFocused();
+    await expect(page.getByRole("menuitem", { name: "Unblock sender", exact: true })).toBeFocused();
     await page.keyboard.press("Enter"); await page.keyboard.press("Tab"); await page.keyboard.press("Tab"); await page.keyboard.press("Enter");
     await expect(dialog.getByRole("heading", { name: "Sender unblocked", exact: true })).toBeVisible();
     await page.keyboard.press("Escape"); await expect(more).toBeFocused();
@@ -136,7 +139,7 @@ test("the single existing toolbar menu targets the selected message in a mixed c
   await expect(page.locator(".conversation-message")).toHaveCount(2);
   await expect(page.getByRole("button", { name: "More actions", exact: true })).toHaveCount(1);
   await expect(page.locator(".conversation-message").getByRole("button", { name: /More actions|Block sender/ })).toHaveCount(0);
-  await senderMenu(page); await page.getByRole("button", { name: "Block sender", exact: true }).click();
+  await senderMenu(page); await page.getByRole("menuitem", { name: "Block sender", exact: true }).click();
   const dialog = page.getByRole("dialog"); await expect(dialog.getByText(selected.sender.email, { exact: true })).toBeVisible();
   await dialog.getByRole("button", { name: "Block sender", exact: true }).click();
   expect(state.getRules()[0].condition).toEqual({ kind: "sender_is", email: selected.sender.email });
@@ -147,7 +150,22 @@ test("bulk selection never offers a sender block in the toolbar", async ({ page 
   await page.getByRole("tab", { name: "List", exact: true }).click();
   await page.locator(".message-select input").first().check();
   await page.getByRole("button", { name: "More actions", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Move", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Block sender", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Unblock sender", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("menuitem", { name: "Move", exact: true })).toBeVisible();
+  await expect(page.getByRole("menuitem", { name: "Block sender", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("menuitem", { name: "Unblock sender", exact: true })).toHaveCount(0);
+});
+
+
+test("confirmed sender action can dismiss while its background refresh is slow", async ({ page }) => {
+  await fixture(page, true, false, true); await page.goto("/");
+  await page.locator(".message-open").first().click(); await senderMenu(page);
+  await page.keyboard.press("Enter");
+  const dialog = page.getByRole("dialog");
+  const refreshed = page.waitForResponse(response => new URL(response.url()).pathname === "/api/rules" && response.request().method() === "GET");
+  await dialog.getByRole("button", { name: "Block sender", exact: true }).click();
+  await expect(dialog.getByRole("heading", { name: "Sender blocked", exact: true })).toBeVisible();
+  await page.keyboard.press("Escape"); await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "More actions", exact: true })).toBeFocused();
+  await refreshed;
+  await expect(page.getByRole("button", { name: "More actions", exact: true })).toBeFocused();
 });

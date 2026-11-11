@@ -84,7 +84,7 @@ test("keyboard journey persists drafts and mail changes through the real backend
   await page.screenshot({ animations: "disabled", path: testInfo.outputPath("move-dialog.png") });
   await page.keyboard.press("Escape"); await expect(row(5)).toBeFocused();
   await page.keyboard.press("b"); await expect(page.getByRole("dialog", { name: "Snooze until" })).toBeVisible();
-  await expect(page.getByRole("dialog").locator('input[type="datetime-local"]')).toBeFocused();
+  await expect(page.getByRole("dialog").getByRole("button", { name: /Later today|This evening|Tomorrow/ }).first()).toBeFocused();
   await page.screenshot({ animations: "disabled", path: testInfo.outputPath("snooze-dialog.png") });
   await page.keyboard.press("Escape"); await expect(row(5)).toBeFocused();
   await row(5).focus(); await page.keyboard.press("x"); await row(7).focus(); await page.keyboard.press("x");

@@ -51,8 +51,8 @@ export function Modal({
           onInteractOutside={(e) => e.preventDefault()}
           onEscapeKeyDown={(event) => {
             // Radix listens in document capture, before recipient input handlers.
-            // Let an open suggestion list dismiss first, not its enclosing draft.
-            if (!plainKey(event) || event.repeat ||
+            // Nested time pickers and recipient suggestions dismiss before their enclosing draft.
+            if ((event.target instanceof Element && event.target.closest("[data-dakia-date-time]")) || !plainKey(event) || event.repeat ||
               (event.target instanceof Element && event.target.matches(
                 '[aria-autocomplete="list"][aria-expanded="true"]',
               ))) event.preventDefault();

@@ -1,3 +1,6 @@
+import { snoozeTime } from "./snoozeTime";
+import { IconButton, Toast, useDakiaColorScheme } from "@dakia/ui";
+import { DateTimeDialog } from "./DateTimeDialog";
 import { deviceTranslator } from "./deviceTranslation";
 import { useRuleUpdates } from "./mailRules";
 import { localMailCache } from "./localMailCache";
@@ -13,6 +16,7 @@ import {
 import { measureElement, useVirtualizer } from "@tanstack/react-virtual";
 import {
   Archive,
+  FolderInput,
   ArrowUp,
   ArrowDown,
   ArrowLeft,
@@ -69,7 +73,7 @@ import { submissionLabel } from "./scheduled";
 import { useImagePrivacy } from "./useImagePrivacy";
 import { canDismissMail, canUseMailShortcut, plainKey } from "./keyboard";
 
-import { KeyboardHints, KeyHint, ShortcutKeys, shortcutGroups, useKeyboardPreferences } from "./KeyboardHints";
+import { KeyboardHints, KeyHint, ShortcutKeys, shortcutGroups, menuKeyboardHint, useKeyboardPreferences } from "./KeyboardHints";
 
 import { Conversation } from "./Conversation";
 import { useCleanupProjection } from "./cleanupJobs";
@@ -151,9 +155,8 @@ export function App() {
   const [overrides, setOverrides] = useState<Record<string, Message>>({});
   const [removed, setRemoved] = useState<Record<string, symbol>>({});
   const [restoredRows, setRestoredRows] = useState<Record<string, { message: Message; scope: string; token: symbol }>>({});
-  const [dark, setDark] = useState(
-    () => localStorage.getItem("dakia-theme") === "dark",
-  );
+  const { colorScheme, setColorScheme } = useDakiaColorScheme();
+  const dark = colorScheme === "dark";
   const [sidebar, setSidebar] = useState(false);
   const [workspace, setWorkspace] = useState(false);
   const [updatesFocus, setUpdatesFocus] = useState(0);
@@ -197,8 +200,9 @@ export function App() {
   const attemptedReads = useRef(new Set<string>());
   const [pendingTargets, setPendingTargets] = useState<Record<string, number>>({});
   const [submission, setSubmission] = useState<Submission | null>(null);
+  const [toast, setToast] = useState<{ id: string; message: string } | null>(null);
+  useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(null), 7000); return () => clearTimeout(timer); }, [toast]);
   const [snooze, setSnooze] = useState<Message[] | null>(null);
-  const [until, setUntil] = useState("");
   const [move, setMove] = useState<Message[] | null>(null);
   const [notificationStatus, setNotificationStatus] = useState("");
   const [manualRefreshing, setManualRefreshing] = useState(false);
@@ -275,6 +279,21 @@ export function App() {
       })
       .catch(error => { if (deepLinkPending.current) setDeepLinkError(error); });
   }, [accounts.data, client]);
+  const snoozeState = useQuery({
+    queryKey: ["snoozes", ids], enabled: !!session.data && ids.length > 0,
+    queryFn: async ({ signal }) => (await Promise.all(ids.map(async account_id =>
+      (await api.snoozes(account_id, signal)).map(row => ({ ...row, account_id }))))).flat(),
+    refetchInterval: 30000, retry: false,
+  });
+  const [snoozeClock, setSnoozeClock] = useState(Date.now);
+  useEffect(() => {
+    if (!snoozeState.data?.length) return;
+    const timer = setInterval(() => setSnoozeClock(Date.now()), 30000);
+    return () => clearInterval(timer);
+  }, [snoozeState.data?.length]);
+  const snoozedThreads = useMemo(() => Object.fromEntries((snoozeState.data || [])
+    .filter(row => Date.parse(row.until) > Date.now()).map(row => [`${row.account_id}/${row.thread_id}`, row])), [snoozeState.data, snoozeClock]);
+  const snoozedCount = Object.values(snoozedThreads).reduce((sum, row) => sum + row.message_count, 0);
   const listKey = ["mail", account, nav, q, categoryFilter, ids];
   const explicitRefresh = useRef(false);
   const mail = useInfiniteQuery<SearchPage, Error, InfiniteData<SearchPage>, typeof listKey, string | null>({
@@ -328,11 +347,12 @@ export function App() {
     else all = all.filter(m => !cleanupRows[identity(m)]);
     if (!q && nav === "INBOX")
       all = all.filter((m) =>
-        m.folder_ids.some((f) => f.toUpperCase() === "INBOX"),
+        m.folder_ids.some((f) => f.toUpperCase() === "INBOX") && !snoozedThreads[`${m.account_id}/${m.thread_id}`],
       );
+    if (!q && nav === "Snoozed" && snoozeState.isSuccess) all = all.filter(m => !!snoozedThreads[`${m.account_id}/${m.thread_id}`]);
     if (nav === "Starred") all = all.filter((m) => m.starred);
     return all;
-  }, [mail.data, overrides, removed, restoredRows, nav, q, account, categoryFilter, accounts.data, cleanupRows]);
+  }, [mail.data, overrides, removed, restoredRows, nav, q, account, categoryFilter, accounts.data, cleanupRows, snoozedThreads, snoozeState.isSuccess]);
   const lastContinuation = mail.data?.pages.at(-1)?.continuation;
   // Start provider reconciliation after a preview without waiting for scroll.
   useEffect(() => {
@@ -468,10 +488,6 @@ export function App() {
       listRef.current.scrollTop =
         positions.current[`${account}/${nav}/${q}/${view}`] || 0;
   }, [account, nav, q, view, mail.isPending, selected, listHeight]);
-  useEffect(() => {
-    document.documentElement.dataset.theme = dark ? "dark" : "light";
-    localStorage.setItem("dakia-theme", dark ? "dark" : "light");
-  }, [dark]);
   useEffect(() => {
     const t = setTimeout(() => applySearch(search.trim()), 350);
     return () => clearTimeout(t);
@@ -625,7 +641,7 @@ export function App() {
     try {
       await client.cancelQueries({ queryKey: ["mail"] });
       const completed = new Map(settledTokens.current);
-      await client.invalidateQueries({ queryKey: ["mail"] }, { throwOnError: true });
+      await Promise.all([client.invalidateQueries({ queryKey: ["mail"] }, { throwOnError: true }), client.invalidateQueries({ queryKey: ["snoozes"] })]);
       setOverrides(old => {
         const next = { ...old };
         for (const [id, done] of completed) {
@@ -645,6 +661,19 @@ export function App() {
         return next;
       });
     } catch (error) { if (!quiet) setError(error); }
+  }
+  async function snoozeMessages(messages: Message[], until: string) {
+    const result = await act(messages, { kind: "snooze", until: new Date(until).toISOString() });
+    if (!result.applied) return;
+    const count = result.applied;
+    setToast({ id: crypto.randomUUID(), message: `${count === 1 ? "Email" : `${count} emails`} snoozed until ${snoozeTime(until)}.` });
+    if (active && messages.some(m => identity(m) === identity(active))) closeReader();
+  }
+  async function restoreInbox(messages: Message[]) {
+    const result = await act(messages, { kind: "move", folder_id: "INBOX" });
+    if (!result.applied) return;
+    setToast({ id: crypto.randomUUID(), message: `${result.applied === 1 ? "Email" : `${result.applied} emails`} moved back to Inbox.` });
+    if (active && messages.some(m => identity(m) === identity(active))) closeReader();
   }
   function navigateMessage(direction: number, from: Message | null = active) {
     const visible = items.flatMap(item => item.kind === "mail" ? [item.message] : []);
@@ -786,6 +815,7 @@ export function App() {
     toggleStar={() => void act(bulk, { kind: "star", value: !allStarred })}
     trash={() => removeFromReader("trash")}
     spam={() => removeFromReader("spam")}
+    restore={bulk.every(m => !!snoozedThreads[`${m.account_id}/${m.thread_id}`]) ? () => void restoreInbox([...bulk]) : undefined}
     snooze={() => setSnooze([...bulk])} move={() => setMove([...bulk])}
     category={bulk.every(message => message.category === bulk[0].category) ? bulk[0].category || "" : ""}
     categories={groups.filter(g => g !== "pending" && g !== "other")}
@@ -865,6 +895,8 @@ export function App() {
         <nav aria-label="Mailboxes">
           {navs.map(({ id, label, icon: Icon }) => (
             <button title={label}
+              aria-label={id === "Snoozed" ? "Snoozed" : undefined}
+              aria-describedby={id === "Snoozed" ? "snoozed-count" : undefined}
               key={id}
               className={!workspace && nav === id && !q ? "selected" : ""}
               aria-current={!workspace && nav === id && !q ? "page" : undefined}
@@ -872,6 +904,7 @@ export function App() {
             >
               <Icon size={17} />
               {label}
+              {id === "Snoozed" && <><span className="count" aria-hidden="true">{snoozeState.isSuccess ? snoozedCount : "…"}</span><span className="sr-only" id="snoozed-count">{snoozeState.isSuccess ? `${snoozedCount} snoozed emails` : "Snoozed count unavailable"}</span></>}
               {id === "INBOX" && rows.some((m) => m.unread) && (
                 <span className="count">
                   {rows.filter((m) => m.unread).length}
@@ -920,7 +953,7 @@ export function App() {
           <button title="Manage workspace" className="workspace-link" aria-label="Manage workspace" aria-current={workspace ? "page" : undefined} onClick={() => { if (!workspace) navigation.push({ ...route, workspace: true }); setSidebar(false); }}><span className="avatar">D</span><span>Private workspace</span></button>
           <button title={dark ? "Light theme" : "Dark theme"}
             aria-label={dark ? "Light theme" : "Dark theme"}
-            onClick={() => setDark(!dark)}
+            onClick={() => setColorScheme(dark ? "light" : "dark")}
           >
             {dark ? <Sun size={17} /> : <Moon size={17} />}
           </button>
@@ -1260,13 +1293,16 @@ export function App() {
                             <span className="subject" title={item.message.subject || "(No subject)"} dir="auto">
                               {item.message.subject || "(No subject)"}
                             </span>
-                            {item.message.preview && <span className="preview" dir="auto">{item.message.preview}</span>}
+                            {snoozedThreads[`${item.message.account_id}/${item.message.thread_id}`]
+                              ? <span className="preview snooze-deadline">Snoozed until {snoozeTime(snoozedThreads[`${item.message.account_id}/${item.message.thread_id}`].until)}</span>
+                              : item.message.preview && <span className="preview" dir="auto">{item.message.preview}</span>}
                           </span>
                           <span className="account-label" title={accounts.data?.find((a) => a.id === item.message.account_id)?.display_name || item.message.account_id} dir="auto">
                             {accounts.data?.find((a) => a.id === item.message.account_id)?.display_name || item.message.account_id}
                           </span>
                         </button>
                         <div className="row-quick-actions" role="group" aria-label="Quick message actions">
+                          {snoozedThreads[`${item.message.account_id}/${item.message.thread_id}`] && <IconButton label="Move back to Inbox" disabled={pendingTargets[identity(item.message)] > 0} onClick={() => void restoreInbox([item.message])}><FolderInput size={16} /></IconButton>}
                           {([
                             ["archive", "Archive message", "Archive", Archive],
                             ["trash", "Move message to trash", "Move to Trash", Trash2],
@@ -1369,6 +1405,7 @@ export function App() {
         {active && checked.size > 0 && <button title="Clear selection" onClick={clearSelection}>{checked.size} selected messages · Clear</button>}
 
         {active && messageActions}
+        {active && snoozedThreads[`${active.account_id}/${active.thread_id}`] && <p className="snooze-notice">Snoozed until {snoozeTime(snoozedThreads[`${active.account_id}/${active.thread_id}`].until)}</p>}
         {active ? (
           <Conversation key={identity(active)} selected={active} accounts={accounts.data || []} cleanupRows={cleanupRows}
             readFailed={!!readFailures[identity(active)] && active.unread}
@@ -1408,36 +1445,10 @@ export function App() {
           }}
         />
       )}
-      {snooze && (
-        <Modal title="Snooze until" initialFocus='input[type="datetime-local"]' onClose={() => setSnooze(null)}>
-          <form
-            className="setup"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (new Date(until).getTime() <= Date.now()) {
-                setError(new Error("Choose a future snooze time."));
-                return;
-              }
-              void act(snooze, {
-                kind: "snooze",
-                until: new Date(until).toISOString(),
-              });
-              setSnooze(null);
-            }}
-          >
-            <label>
-              Return to inbox
-              <input
-                type="datetime-local"
-                required
-                value={until}
-                onChange={(e) => setUntil(e.target.value)}
-              />
-            </label>
-            <button title="Snooze" className="primary">Snooze</button>
-          </form>
-        </Modal>
-      )}
+      <Toast announcementKey={toast?.id}>{toast?.message}</Toast>
+      {snooze && <DateTimeDialog title="Snooze until" confirmLabel="Snooze"
+        onChoose={until => { void snoozeMessages([...snooze], until); }}
+        onClose={() => setSnooze(null)} />}
       {move && <MoveMessages messages={move} accounts={accounts.data || []}
         onMove={(messages, destinations) => void act(messages, { kind: "move", folder_id: "" }, destinations)}
         onClose={() => setMove(null)} />}
@@ -1450,6 +1461,7 @@ export function App() {
             </section>)}</div>
             <section aria-label={shortcutGroups[2].title}><h3>{shortcutGroups[2].title}</h3><dl className="shortcut-list">{shortcutGroups[2].shortcuts.map(([keys, label]) => <div key={keys}><dt>{label}</dt><dd><ShortcutKeys keys={keys} /></dd></div>)}</dl></section>
           </div>
+          <p className="muted">{menuKeyboardHint}</p>
           <div className="shortcut-basics"><p><ShortcutKeys keys="Tab / Shift+Tab" /> Move between controls and fields</p><p><ShortcutKeys keys="Enter / Space" /> Activate buttons</p></div>
         </div>
       </Modal>}

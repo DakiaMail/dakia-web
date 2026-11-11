@@ -1,0 +1,134 @@
+/* Import only the styles used by this library. No Mantine global reset. */
+@import "@mantine/core/styles/UnstyledButton.css";
+@import "@mantine/core/styles/Button.css";
+@import "@mantine/core/styles/ActionIcon.css";
+@import "@mantine/core/styles/Loader.css";
+@import "@mantine/core/styles/Notification.css";
+@import "./tokens.css";
+@import "./date-time.css";
+@import "./menu.css";
+
+.dakia-button.dakia-button,
+.dakia-icon-button.dakia-icon-button {
+  border-radius: var(--ui-control-radius);
+  font-family: var(--ui-font-family);
+  font-size: var(--ui-font-size);
+  min-height: var(--ui-control-height);
+  transition: background-color var(--ui-motion-duration) ease-out, color var(--ui-motion-duration) ease-out, border-color var(--ui-motion-duration) ease-out;
+}
+.dakia-button.dakia-button {
+  height: auto;
+  max-width: 100%;
+  padding: 5px var(--ui-control-padding);
+  font-weight: var(--ui-control-weight);
+}
+.dakia-button-label { white-space: normal; line-height: 1.4; }
+.dakia-icon-button.dakia-icon-button { width: var(--ui-control-height); padding: 0; }
+.dakia-icon-button-content { display: inline-flex; align-items: center; justify-content: center; }
+.dakia-button.dakia-button:focus-visible,
+.dakia-icon-button.dakia-icon-button:focus-visible {
+  outline: var(--ui-focus-width) solid var(--ui-focus-color);
+  outline-offset: 2px;
+}
+.dakia-button.dakia-button[data-disabled],
+.dakia-icon-button.dakia-icon-button[data-disabled] {
+  opacity: .55;
+  cursor: default;
+  background: var(--button-bg, var(--ai-bg));
+  color: var(--button-color, var(--ai-color));
+  border: var(--button-bd, var(--ai-bd));
+}
+.dakia-button.dakia-button[data-confirmed] { opacity: 1; }
+.dakia-confirmation-labels { display: grid; }
+.dakia-confirmation-labels > span {
+  grid-area: 1 / 1;
+  opacity: 0;
+  transform: translateY(-5px);
+  transition: opacity var(--ui-motion-duration), transform var(--ui-motion-duration);
+}
+.dakia-confirmation-labels[data-state="idle"] > [data-label="idle"],
+.dakia-confirmation-labels[data-state="pending"] > [data-label="pending"],
+.dakia-confirmation-labels[data-state="success"] > [data-label="success"] {
+  opacity: 1;
+  transform: translateY(0);
+}
+.dakia-sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .dakia-button.dakia-button, .dakia-icon-button.dakia-icon-button,
+  .dakia-confirmation-labels > span { transition: none; transform: none; }
+}
+
+.dakia-toast-container {
+  position: fixed; z-index: 4; inset: auto 24px 24px auto;
+  max-width: min(420px, calc(100vw - 32px)); pointer-events: none;
+}
+.dakia-toast {
+  padding: 12px 16px;
+  background: var(--ui-surface-raised); color: var(--color-text);
+  border: 1px solid var(--ui-surface-border); border-radius: var(--ui-panel-radius);
+  box-shadow: var(--ui-panel-shadow);
+  animation: dakia-toast-in var(--ui-motion-duration) ease-out;
+}
+@keyframes dakia-toast-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) { .dakia-toast { animation: none; } }
+
+@media (max-width: 600px) {
+  .dakia-toast-container { inset: auto 16px calc(80px + env(safe-area-inset-bottom, 0px)) 16px; max-width: none; }
+}
+
+/* Mail commands share regular typography, spacing and keyboard focus styling. */
+.dakia-button.dakia-mail-action {
+  font-weight: var(--ui-mail-action-weight);
+  min-height: var(--ui-mail-action-height);
+  padding: 6px var(--ui-mail-action-padding);
+}
+.dakia-mail-action .dakia-button-label { display: flex; gap: 7px; line-height: 1.4; }
+.dakia-mail-action-icon { display: inline-flex; flex-shrink: 0; color: var(--ui-muted); }
+.dakia-mail-action-icon svg { width: 16px; height: 16px; }
+.dakia-mail-action .key-hint { font-weight: 400; color: var(--ui-muted); border-color: var(--ui-surface-border); box-shadow: none; }
+.dakia-mail-action .dakia-button-label { overflow: visible; }
+.dakia-mail-action[data-disabled] .dakia-mail-action-icon { color: inherit; }
+.dakia-mail-action-text-compact { display: none; }
+@container (min-width: 560px) { .dakia-mail-action-text-compact { display: inline; } }
+.dakia-mail-action-menu { width: 100%; }
+.dakia-mail-action-menu .dakia-button-inner { justify-content: flex-start; }
+.dakia-mail-action-menu .dakia-button-label { gap: 10px; }
+
+.dakia-button-loader { position: absolute; inset: 0; display: grid; place-items: center; }
+.dakia-button.dakia-button[data-tone="danger"] { background: var(--color-danger); color: var(--color-on-danger); }
+.dakia-button.dakia-button[data-tone="danger"][data-variant="secondary"] { background: var(--color-surface); color: var(--color-danger); border-color: var(--color-danger); }
+.dakia-button.dakia-button[data-tone="danger"][data-variant="tertiary"] { background: transparent; color: var(--color-danger); }
+@media (hover: hover) {
+  .dakia-button.dakia-button[data-tone="danger"]:hover:not([data-disabled]) { background: color-mix(in srgb, var(--color-danger), var(--color-text) 12%); color: var(--color-on-danger); }
+  .dakia-button.dakia-button[data-tone="danger"][data-variant="secondary"]:hover:not([data-disabled]),
+  .dakia-button.dakia-button[data-tone="danger"][data-variant="tertiary"]:hover:not([data-disabled]) { background: var(--color-subtle); color: var(--color-danger); }
+}
+.dakia-button.dakia-button:active:not([data-disabled]),
+.dakia-icon-button.dakia-icon-button:active:not([data-disabled]) {
+  transform: none;
+  background: var(--ui-control-pressed-bg, var(--ui-button-pressed));
+  color: var(--ui-control-pressed-text, var(--color-text));
+}
+@media (max-width: 600px), (pointer: coarse) {
+  .dakia-button.dakia-button, .dakia-icon-button.dakia-icon-button { min-height: var(--ui-touch-target); }
+  .dakia-icon-button.dakia-icon-button { min-width: var(--ui-touch-target); }
+}
+
+/* Emphasis remains consistent through press and loading states. */
+.dakia-button[data-variant="primary"], .dakia-icon-button[data-variant="primary"] {
+  --ui-control-pressed-bg: var(--ui-button-primary-pressed);
+  --ui-control-pressed-text: var(--ui-button-primary-text);
+}
+.dakia-button.dakia-button[aria-busy="true"], .dakia-icon-button.dakia-icon-button[aria-busy="true"] { opacity: 1; }
+.dakia-button[data-loading]::before { background: transparent; filter: none; }
+.dakia-button.dakia-button[data-tone="danger"] { --ui-control-pressed-bg: color-mix(in srgb, var(--color-danger), #000 14%); --ui-control-pressed-text: var(--color-on-danger); }
+.dakia-button.dakia-button[data-tone="danger"]:active:not([data-disabled]) { background: var(--ui-control-pressed-bg); color: var(--ui-control-pressed-text); }
+@media (hover: hover) {
+  .dakia-button[data-variant="secondary"]:hover:not([data-disabled]),
+  .dakia-icon-button[data-variant="secondary"]:hover:not([data-disabled]) { border-color: var(--ui-button-border-hover); }
+}
+
+.dakia-icon-button-loader { background: transparent; }

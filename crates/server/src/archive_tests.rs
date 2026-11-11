@@ -243,6 +243,68 @@ async fn queue(app: &crate::App, a: &AuthorizedAccount, id: &str, name: &str) ->
         .unwrap()
 }
 #[tokio::test]
+async fn queued_restore_after_a_failed_archive_does_not_move_inbox_onto_itself() {
+    for gmail in [false, true] {
+        let (_dir, app, a, provider) = fixture(gmail).await;
+        let first = app
+            .mail
+            .page(&app.store, &a, "INBOX", p::Search::default(), None)
+            .await
+            .unwrap();
+        let id = &first.rows[0].id;
+        let archive = queue(&app, &a, id, "earlier-archive").await;
+        let restore = app
+            .store
+            .operation(
+                &a,
+                Operation {
+                    id: "later-restore".into(),
+                    account_id: a.id().into(),
+                    target_id: id.clone(),
+                    expected_revision: archive.revision,
+                    change: Change::Move {
+                        folder_id: "INBOX".into(),
+                    },
+                    status: OperationStatus::Pending,
+                    revision: 0,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(restore.status, OperationStatus::Pending);
+        provider.fail.store(true, Ordering::SeqCst);
+        crate::mutations::tick(&app, &a).await.unwrap();
+        assert_eq!(
+            app.store
+                .operation_status(&a, &archive.id)
+                .await
+                .unwrap()
+                .status,
+            OperationStatus::Failed
+        );
+        crate::mutations::tick(&app, &a).await.unwrap();
+        assert_eq!(
+            app.store
+                .operation_status(&a, &restore.id)
+                .await
+                .unwrap()
+                .status,
+            OperationStatus::Applied
+        );
+        assert_eq!(provider.mutations.load(Ordering::SeqCst), 1);
+        assert!(app
+            .store
+            .message(&a, id)
+            .await
+            .unwrap()
+            .folder_ids
+            .iter()
+            .any(|folder| folder == "INBOX"));
+        assert!(app.store.claim_mutation(&a).await.unwrap().is_none());
+    }
+}
+
+#[tokio::test]
 async fn sequential_and_concurrent_archives_refetch_pagination_and_failure() {
     for gmail in [false, true] {
         let (_dir, app, a, provider) = fixture(gmail).await;

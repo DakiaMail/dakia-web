@@ -1,3 +1,4 @@
+import { DropdownMenuItem } from "@dakia/ui";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useQueries } from "@tanstack/react-query";
 import type { Account, MailRule, Message } from "@dakia/api-types";
@@ -8,7 +9,7 @@ import { findSenderMail, type CleanupResult } from "./SenderCleanup";
 import { useSenderCleanup } from "./cleanupJobs";
 import "./blockedSenders.css";
 
-export type SenderAction = (closeMenu: () => void) => ReactNode;
+export type SenderAction = () => ReactNode;
 
 export function SenderBlock({ message, accounts, onCleanup, children }: {
   message: Message; accounts: Account[]; onCleanup?: (rows: Message[]) => void;
@@ -36,15 +37,17 @@ export function SenderBlock({ message, accounts, onCleanup, children }: {
     try {
       if (actionRule) await rulesApi.enable(actionRule.id, false);
       else { const rule = await rulesApi.block(message.sender.email); cutoff.current = Date.parse(rule.activated_at); }
+      // The write is confirmed. Background refresh must not prevent dismissal.
+      submitting.current = false; setBusy(false);
       setSaved(true); announceRuleUpdate(); await rules.refresh();
     } catch (error) { setError(error); await rules.refresh().catch(() => {}); }
     finally { submitting.current = false; setBusy(false); }
   }
   return <>
-    {children(closeMenu => <><button type="button" disabled={rules.isPending || rules.isError} title={blocked ? "Unblock sender" : "Block sender"} onClick={() => {
-      closeMenu(); setActionRule(blocked); setSaved(false); setReview(false); setError(undefined); cutoff.current = Date.now(); setOpen(true);
-    }}><ShieldBan size={18} aria-hidden="true" />{blocked ? "Unblock sender" : "Block sender"}</button>
-    {rules.isError && <button type="button" onClick={() => void rules.refetch()}>Retry sender controls</button>}</>)}
+    {children(() => <><DropdownMenuItem label={blocked ? "Unblock sender" : "Block sender"} icon={<ShieldBan size={18} />} disabled={rules.isPending || rules.isError} onClick={() => {
+      setActionRule(blocked); setSaved(false); setReview(false); setError(undefined); cutoff.current = Date.now(); setOpen(true);
+    }} />
+    {rules.isError && <DropdownMenuItem label="Retry sender controls" onClick={() => void rules.refetch()} />}</>)}
     {open && <Modal title={saved ? actionRule ? "Sender unblocked" : "Sender blocked" : actionRule ? "Unblock sender?" : "Block sender?"} onClose={close}>
       <div className="rules-dialog-content">
       <p className="blocked-address">{message.sender.email}</p>

@@ -72,7 +72,7 @@ for (const [name, html] of Object.entries(templates)) for (const width of [320, 
     expect(box!.y + box!.height).toBeGreaterThanOrEqual(842);
     expect(box!.height).toBeGreaterThanOrEqual(width === 390 ? 80 : 56);
     await toolbar.getByRole("button", { name: "More actions", exact: true }).click();
-    const menu = reader.getByRole("group", { name: "More message actions" });
+    const menu = page.getByRole("menu", { name: "More message actions" });
     await expect(menu).toBeVisible();
     expect((await menu.boundingBox())!.y).toBeLessThan(box!.y);
     await page.keyboard.press("Escape");

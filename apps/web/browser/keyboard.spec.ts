@@ -277,7 +277,7 @@ for (const width of [390, 1280, 1480]) test(`extra keyboard hints fit the reader
   const toolbar = page.locator(".reader > .reader-toolbar");
   await expect(toolbar.locator("kbd")).toHaveCount(4);
   expect(await toolbar.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
-  await page.screenshot({ path: testInfo.outputPath("keyboard-hints.png"), fullPage: true });
+  await page.screenshot({ animations: "disabled", path: testInfo.outputPath("keyboard-hints.png"), fullPage: true });
 });
 
 test("help returns focus to its opener and search Escape returns to the list", async ({ page }) => {
@@ -323,7 +323,8 @@ test("reply starts in the editor, compose in To, and filing preserves row focus"
 });
 
 for (const width of [320, 390, 720, 1440]) for (const theme of ["light", "dark"]) test(`shortcut reference reflows with readable spacing ${width} ${theme}`, async ({ page }, testInfo) => {
-  await page.setViewportSize({ width, height: 800 });
+  const height = width === 320 ? 420 : 800;
+  await page.setViewportSize({ width, height });
   await page.addInitScript(theme => localStorage.setItem("dakia-theme", theme), theme);
   await fixture(page);
   await page.getByRole("region", { name: "Reading pane" }).focus();
@@ -335,11 +336,11 @@ for (const width of [320, 390, 720, 1440]) for (const theme of ["light", "dark"]
     return { x: r.x, y: r.y, right: r.right, bottom: r.bottom, pad: parseFloat(getComputedStyle(content).paddingLeft), overflow: el.scrollWidth > el.clientWidth || content.scrollWidth > content.clientWidth };
   });
   expect(geometry.x).toBeGreaterThanOrEqual(10); expect(geometry.y).toBeGreaterThanOrEqual(10);
-  expect(geometry.right).toBeLessThanOrEqual(width - 10); expect(geometry.bottom).toBeLessThanOrEqual(790);
+  expect(geometry.right).toBeLessThanOrEqual(width - 10); expect(geometry.bottom).toBeLessThanOrEqual(height - 10);
   expect(geometry.pad).toBeGreaterThanOrEqual(18); expect(geometry.overflow).toBe(false);
   await dialog.locator(".shortcut-basics").scrollIntoViewIfNeeded();
   await expect(dialog.getByRole("button", { name: "Close", exact: true })).toBeInViewport();
-  await page.screenshot({ path: testInfo.outputPath("shortcut-reference.png") });
+  await page.screenshot({ animations: "disabled", path: testInfo.outputPath("shortcut-reference.png") });
 });
 
 for (const theme of ["light", "dark"]) test(`compose key hint stays readable in ${theme} theme`, async ({ page }, testInfo) => {

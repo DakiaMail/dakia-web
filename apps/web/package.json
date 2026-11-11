@@ -25,7 +25,8 @@
     "dompurify": "3.4.17",
     "squire-rte": "2.4.10",
     "react": "19.1.1",
-    "react-dom": "19.1.1"
+    "react-dom": "19.1.1",
+    "@dakia/ui": "file:../../packages/ui"
   },
   "devDependencies": {
     "@types/node": "22.19.0",

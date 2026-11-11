@@ -13,6 +13,7 @@
     "types": ["vite/client", "vitest/globals", "node"],
     "baseUrl": ".",
     "paths": {
+      "@dakia/ui": ["../../packages/ui/src/index.ts"],
       "@dakia/api-types": ["../../packages/api-types/src/index.ts"],
       "@dakia/mail-renderer": ["../../packages/mail-renderer/src/index.tsx"],
       "@dakia/mail-composer": ["../../packages/mail-composer/src/index.tsx"],
@@ -28,6 +29,7 @@
     "vite.config.ts",
     "playwright.config.ts",
     "../../packages/mail-renderer/src",
-    "../../packages/mail-composer/src"
+    "../../packages/mail-composer/src",
+    "../../packages/ui/src"
   ]
 }

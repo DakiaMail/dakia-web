@@ -47,6 +47,7 @@ async function fixture(page: Page, bodyFails = false, previousCleanup = false, s
 
 async function senderMenu(page: Page) {
   await page.getByRole("button", { name: "More actions", exact: true }).first().press("Enter");
+  await expect(page.getByRole("menuitem", { name: /^(Block|Unblock) sender$/ })).toBeEnabled();
   await page.keyboard.press("End");
 }
 
@@ -104,7 +105,9 @@ for (const theme of ["light", "dark"]) for (const viewport of [{ width: 1480, he
     await expect(page.getByRole("menuitem", { name: "Block sender", exact: true })).toHaveCount(0);
     // Reach the sender menu using Tab, then use only keys for the whole dialog journey.
     for (let n = 0; n < 100 && !await more.evaluate(el => el === document.activeElement); n++) await page.keyboard.press("Tab");
-    await expect(more).toBeFocused(); await page.keyboard.press("Enter"); await page.keyboard.press("End");
+    await expect(more).toBeFocused(); await page.keyboard.press("Enter");
+    await expect(page.getByRole("menuitem", { name: /^(Block|Unblock) sender$/ })).toBeEnabled();
+    await page.keyboard.press("End");
     const block = page.getByRole("menuitem", { name: "Block sender", exact: true });
     await expect(block).toBeFocused();
     await page.screenshot({ animations: "disabled", path: info.outputPath("sender-more.png") });

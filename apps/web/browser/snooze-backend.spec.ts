@@ -49,7 +49,7 @@ for (const dark of [false, true]) test(`snooze and restore are confirmed, counte
   if (dark) await page.setViewportSize({ width: 360, height: 320 });
   const more = page.locator(".reader").getByRole("button", { name: "More actions", exact: true });
   await tabTo(page, more); await page.keyboard.press("Enter");
-  await expect(page.getByRole("group", { name: "More message actions" }).getByRole("button", { name: "Snooze", exact: true })).toBeFocused();
+  await expect(page.getByRole("menu", { name: "More message actions" }).getByRole("menuitem", { name: "Snooze", exact: true })).toBeFocused();
   await page.screenshot({ animations: "disabled", path: info.outputPath("snoozed-more-actions.png") });
   await page.keyboard.press("Escape"); await expect(more).toBeFocused();
   const restore = page.locator(".reader").getByRole("button", { name: "Move back to Inbox", exact: true });
@@ -120,4 +120,30 @@ test("a stale snooze is rejected without a success toast, disappearance or infla
   await expect(row).toBeVisible();
   await expect(page.getByRole("status").filter({ hasText: /Email snoozed until/ })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Snoozed", exact: true }).locator(".count")).toHaveText("0");
+});
+
+test("category submenu is keyboard operable and persists after reload", async ({ page }) => {
+  await page.goto("/");
+  const row = page.locator(".message-row").filter({ has: page.locator(".subject", { hasText: "Synthetic 1" }) });
+  await tabTo(page, row.locator(".message-open")); await page.keyboard.press("Enter");
+  const more = page.locator(".reader").getByRole("button", { name: "More actions", exact: true });
+  await tabTo(page, more); await page.keyboard.press("ArrowDown");
+  const menu = page.getByRole("menu", { name: "More message actions", exact: true });
+  await expect(menu.getByRole("menuitem", { name: "Move", exact: true })).toBeFocused();
+  await page.keyboard.press("c"); await page.keyboard.press("ArrowRight");
+  const categories = page.getByRole("menu", { name: "Category", exact: true });
+  await expect(categories.getByRole("menuitemradio").first()).toBeFocused();
+  await page.keyboard.press("n");
+  await expect(categories.getByRole("menuitemradio", { name: "Notifications", exact: true })).toBeFocused();
+  await page.keyboard.press("Enter"); await expect(menu).toHaveCount(0);
+  await expect.poll(async () => {
+    const accounts = await (await page.request.get("/api/accounts")).json();
+    const rows = await (await page.request.get(`/api/accounts/${accounts[0].id}/messages?folder=INBOX`)).json();
+    return rows.rows.find((message: { subject: string }) => message.subject === "Synthetic 1")?.category;
+  }).toBe("notifications");
+  await page.reload(); await tabTo(page, row.locator(".message-open")); await page.keyboard.press("Enter");
+  await tabTo(page, more); await page.keyboard.press("Enter"); await page.keyboard.press("c"); await page.keyboard.press("ArrowRight");
+  await expect(categories.getByRole("menuitemradio", { name: "Notifications", exact: true })).toHaveAttribute("aria-checked", "true");
+  await page.keyboard.press("Escape"); await expect(menu.getByRole("menuitem", { name: "Category", exact: true })).toBeFocused();
+  await page.keyboard.press("Escape"); await expect(more).toBeFocused();
 });

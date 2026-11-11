@@ -7,3 +7,4 @@ export { DateTimeSelector, type DateTimeSelectorProps } from "./DateTimeSelector
 export { localDateTime, dateTimePresets, validFutureDateTime } from "./dateTime";
 export { Toast } from "./Toast";
 export { MailActionButton, type MailActionButtonProps } from "./MailActionButton";
+export { DropdownMenu, DropdownMenuItem, DropdownSubmenu, DropdownMenuDivider, type DropdownMenuProps, type DropdownMenuItemProps } from "./DropdownMenu";

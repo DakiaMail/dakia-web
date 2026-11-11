@@ -9,6 +9,9 @@ async function setup(page: Page, failure: "rejected" | "failed") {
     const path = new URL(route.request().url()).pathname;
     if (path === "/api/session") return route.fulfill({ json: { user_id: "release-fixture", csrf_token: "fixture-csrf" } });
     if (path === "/api/accounts") return route.fulfill({ json: accounts });
+    if (route.request().method() === "GET" && path === "/api/local-access") return route.fulfill({ json: null });
+    if (route.request().method() === "GET" && path === "/api/translation/settings") return route.fulfill({ json: { mode: "host", can_manage: false } });
+    if (route.request().method() === "GET" && (path === "/api/rules" || path.endsWith("/snoozes"))) return route.fulfill({ json: [] });
     if (path.endsWith("/events")) return route.fulfill({ contentType: "text/event-stream", body: ": fixture\n\n" });
     if (path.endsWith("/sync-active")) return route.fulfill({ json: false });
     if (path.endsWith("/operations")) {
@@ -47,7 +50,7 @@ for (const width of [390, 1480]) {
         const observed = await setup(page, failure);
         const reader = page.getByRole("region", { name: "Reading pane" });
         if (kind === "spam") await reader.getByRole("button", { name: "More actions" }).click();
-        await reader.getByRole("button", { name: label, exact: true }).click();
+        await page.getByRole(kind === "spam" ? "menuitem" : "button", { name: label, exact: true }).click();
         await expect(page.getByRole("alert")).toContainText(failure === "rejected" ? "Refresh and try again" : "could not be verified");
         expect(observed.writes).toHaveLength(1);
         expect(observed.writes[0]).toMatchObject({ account_id: message.account_id, target_id: message.id, change: { kind } });

@@ -84,3 +84,7 @@ Button emphasis uses three variants: `primary`, `secondary`, and `tertiary` (gho
 All components follow the [Linear visual direction and reference process](./DESIGN.md). Use the live product and official design articles as the benchmark when migrating each component.
 
 The Linear-style foundation uses 32px desktop controls, 44px touch targets, 500-weight labels and 400-weight mail actions. Theme the `--ui-button-*`, `--ui-surface-*` and `--ui-focus-color` tokens in `src/tokens.css`; the picker, toast and migrated menu use the same neutral surfaces and elevation.
+
+`DropdownMenu` wraps Mantine Menu with shared Linear-style surfaces, collision handling and app-safe keyboard boundaries. Pass a ref-forwarding `trigger`, an accessible `label`, and `DropdownMenuItem` children. Items accept an icon, the app's optional `shortcutHint`, disabled state, and an optional `checked` value for radio semantics. `DropdownSubmenu` groups choices; `DropdownMenuDivider` separates groups. Selecting an item closes the full menu tree and focuses the root trigger before its callback runs, so dialogs capture the right return target. Outside pointer/focus dismissal preserves the user's new focus.
+
+Enter/Space and Up/Down open menus. Up/Down, Home/End and typeahead navigate enabled items; Right opens a submenu, Left/Escape returns to its parent, and Escape closes the root. Tab/Shift+Tab leave normally. Modified chords and IME input are left to the browser. Keep form selects as form fields rather than embedding arbitrary native widgets inside action menus.

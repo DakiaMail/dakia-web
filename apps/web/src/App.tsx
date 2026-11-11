@@ -73,7 +73,7 @@ import { submissionLabel } from "./scheduled";
 import { useImagePrivacy } from "./useImagePrivacy";
 import { canDismissMail, canUseMailShortcut, plainKey } from "./keyboard";
 
-import { KeyboardHints, KeyHint, ShortcutKeys, shortcutGroups, useKeyboardPreferences } from "./KeyboardHints";
+import { KeyboardHints, KeyHint, ShortcutKeys, shortcutGroups, menuKeyboardHint, useKeyboardPreferences } from "./KeyboardHints";
 
 import { Conversation } from "./Conversation";
 import { useCleanupProjection } from "./cleanupJobs";
@@ -1450,6 +1450,7 @@ export function App() {
             </section>)}</div>
             <section aria-label={shortcutGroups[2].title}><h3>{shortcutGroups[2].title}</h3><dl className="shortcut-list">{shortcutGroups[2].shortcuts.map(([keys, label]) => <div key={keys}><dt>{label}</dt><dd><ShortcutKeys keys={keys} /></dd></div>)}</dl></section>
           </div>
+          <p className="muted">{menuKeyboardHint}</p>
           <div className="shortcut-basics"><p><ShortcutKeys keys="Tab / Shift+Tab" /> Move between controls and fields</p><p><ShortcutKeys keys="Enter / Space" /> Activate buttons</p></div>
         </div>
       </Modal>}

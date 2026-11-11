@@ -64,7 +64,7 @@ async function finished(page: Page) {
 async function action(page: Page, name: string) {
   const toolbar = page.locator(".reader-toolbar");
   if (!["Archive", "Mark unread", "Move to trash", "Snooze"].includes(name)) await toolbar.getByRole("button", { name: "More actions", exact: true }).click();
-  await toolbar.getByRole("button", { name, exact: true }).click();
+  await page.getByRole(["Archive", "Mark unread", "Move to trash", "Snooze"].includes(name) ? "button" : "menuitem", { name, exact: true }).click();
 }
 const cases: [string, Change][] = [
   ["Archive", { kind: "archive" }], ["Move to trash", { kind: "trash" }], ["Mark as spam", { kind: "spam" }],
@@ -78,16 +78,16 @@ for (const width of [390, 1480]) {
     await select(page);
     const toolbar = page.locator(".reader-toolbar");
     await toolbar.getByRole("button", { name: "More actions", exact: true }).click();
-    await expect(toolbar.getByRole("button", { name: /^(Star|Unstar) selected messages$/ })).toHaveCount(1);
-    await expect(toolbar.getByRole("button", { name: "Star selected messages", exact: true })).toBeVisible();
-    await toolbar.getByRole("button", { name: "Star selected messages", exact: true }).click();
+    await expect(page.getByRole("menuitem", { name: /^(Star|Unstar) selected messages$/ })).toHaveCount(1);
+    await expect(page.getByRole("menuitem", { name: "Star selected messages", exact: true })).toBeVisible();
+    await page.getByRole("menuitem", { name: "Star selected messages", exact: true }).click();
     await expect.poll(state.posts).toBe(2);
     expect([...state.operations.values()].every(op => op.change.kind === "star" && op.change.value)).toBe(true);
     state.settle();
     await finished(page);
     await toolbar.getByRole("button", { name: "More actions", exact: true }).click();
-    await expect(toolbar.getByRole("button", { name: /^(Star|Unstar) selected messages$/ })).toHaveCount(1);
-    await toolbar.getByRole("button", { name: "Unstar selected messages", exact: true }).click();
+    await expect(page.getByRole("menuitem", { name: /^(Star|Unstar) selected messages$/ })).toHaveCount(1);
+    await page.getByRole("menuitem", { name: "Unstar selected messages", exact: true }).click();
     await expect.poll(state.posts).toBe(4);
     expect([...state.operations.values()].slice(-2).every(op => op.change.kind === "star" && !op.change.value)).toBe(true);
     state.settle();
@@ -121,7 +121,8 @@ for (const width of [390, 1480]) {
     await select(page);
     if (width > 900) await page.locator(".message-open").filter({ hasText: "Unselected thread sibling" }).click();
     await page.getByRole("button", { name: "More actions", exact: true }).click();
-    await page.locator(".reader-toolbar").getByRole("combobox", { name: "Category" }).selectOption("notifications");
+    await page.getByRole("menuitem", { name: "Category", exact: true }).click();
+    await page.getByRole("menuitemradio", { name: "Notifications", exact: true }).click();
     await expect.poll(state.posts).toBe(2);
     state.settle();
     await finished(page);
@@ -148,8 +149,11 @@ for (const width of [390, 1480]) {
     const state = await fixture(page);
     await select(page); await action(page, "Snooze");
     const dialog = page.getByRole("dialog", { name: "Snooze until" });
-    await dialog.getByLabel("Return to inbox").fill("2099-01-01T10:00");
-    await dialog.getByRole("button", { name: "Snooze", exact: true }).click();
+    await dialog.getByRole("button", { name: "Pick date & time", exact: true }).click();
+    const custom = page.getByRole("dialog", { name: "Pick date & time", exact: true });
+    await custom.getByLabel("Date", { exact: true }).fill("2099-01-01");
+    await custom.getByLabel("Time", { exact: true }).fill("10:00");
+    await custom.getByRole("button", { name: "Snooze", exact: true }).click();
     await expect.poll(state.posts).toBe(2);
     for (const op of state.operations.values()) expect(op.change.kind).toBe("snooze");
     state.settle();

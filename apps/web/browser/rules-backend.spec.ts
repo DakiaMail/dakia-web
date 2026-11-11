@@ -21,7 +21,7 @@ for (const theme of ["light", "dark"]) for (const size of [{ width: 1480, height
     const row = page.locator(".message-open").filter({ hasText: "Synthetic 7" });
     await reach(page, row); await page.keyboard.press("Enter");
     await senderMenu(page);
-    const trigger = page.getByRole("button", { name: "Block sender", exact: true }).first();
+    const trigger = page.getByRole("menuitem", { name: "Block sender", exact: true }).first();
     await reach(page, trigger); await page.keyboard.press("Enter");
     let dialog = page.getByRole("dialog");
     await expect(dialog.getByRole("button", { name: "Close", exact: true })).toBeFocused();
@@ -39,7 +39,7 @@ for (const theme of ["light", "dark"]) for (const size of [{ width: 1480, height
     await expect(senderMore(page)).toBeFocused();
     await page.reload();
     await senderMenu(page);
-    await expect(page.getByRole("button", { name: "Unblock sender", exact: true }).first()).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: "Unblock sender", exact: true }).first()).toBeVisible();
     await page.keyboard.press("Escape");
     await page.keyboard.press("Escape");
     if (size.width < 600) { await reach(page, page.getByRole("button", { name: "Open navigation", exact: true })); await page.keyboard.press("Enter"); }
@@ -68,16 +68,16 @@ test("sender block changes reach other open tabs", async ({ page, context }) => 
   for (const tab of [page, peer]) {
     await tab.goto("/"); await tab.locator(".message-open").filter({ hasText: "Synthetic 7" }).click();
     await senderMenu(tab);
-    await expect(tab.getByRole("button", { name: "Block sender", exact: true })).toBeVisible();
+    await expect(tab.getByRole("menuitem", { name: "Block sender", exact: true })).toBeVisible();
   }
-  await page.getByRole("button", { name: "Block sender", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Block sender", exact: true }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Block sender", exact: true }).click();
-  await expect(peer.getByRole("button", { name: "Unblock sender", exact: true })).toBeVisible();
-  await peer.getByRole("button", { name: "Unblock sender", exact: true }).click();
+  await expect(peer.getByRole("menuitem", { name: "Unblock sender", exact: true })).toBeVisible();
+  await peer.getByRole("menuitem", { name: "Unblock sender", exact: true }).click();
   await peer.getByRole("dialog").getByRole("button", { name: "Unblock sender", exact: true }).click();
   await page.keyboard.press("Escape");
   await senderMenu(page);
-  await expect(page.getByRole("button", { name: "Block sender", exact: true })).toBeVisible(); await peer.close();
+  await expect(page.getByRole("menuitem", { name: "Block sender", exact: true })).toBeVisible(); await peer.close();
 });
 
 test("keyboard cleanup, restoration and unblocking persist through the real backend", async ({ page }, info) => {
@@ -85,7 +85,7 @@ test("keyboard cleanup, restoration and unblocking persist through the real back
   const row = page.locator(".message-open").filter({ hasText: "Synthetic 7" });
   await expect(row).toBeVisible(); await reach(page, row); await page.keyboard.press("Enter");
   await senderMenu(page);
-  await reach(page, page.getByRole("button", { name: "Block sender", exact: true })); await page.keyboard.press("Enter");
+  await reach(page, page.getByRole("menuitem", { name: "Block sender", exact: true })); await page.keyboard.press("Enter");
   const dialog = page.getByRole("dialog");
   await reach(page, dialog.getByRole("button", { name: "Block sender", exact: true })); await page.keyboard.press("Enter");
   await expect(dialog.getByRole("button", { name: "Review older emails", exact: true })).toBeFocused(); await page.keyboard.press("Enter");
@@ -104,7 +104,7 @@ test("keyboard cleanup, restoration and unblocking persist through the real back
   const restoredRow = page.locator(".message-open").filter({ hasText: "Synthetic 7" });
   await expect(restoredRow).toBeVisible(); await reach(page, restoredRow); await page.keyboard.press("Enter");
   await reach(page, page.getByRole("button", { name: "More actions", exact: true })); await page.keyboard.press("Enter");
-  await expect(page.getByRole("button", { name: "Move", exact: true })).toBeFocused(); await page.keyboard.press("Enter");
+  await expect(page.getByRole("menuitem", { name: "Move", exact: true })).toBeFocused(); await page.keyboard.press("Enter");
   await expect(dialog.getByRole("heading", { name: "Move messages", exact: true })).toBeVisible();
   await reach(page, dialog.getByRole("combobox", { name: "Folder for Fixture", exact: true }));
   await page.keyboard.press("ArrowDown"); await page.keyboard.press("i"); await page.keyboard.press("Tab");
@@ -121,7 +121,7 @@ test("keyboard cleanup, restoration and unblocking persist through the real back
   await page.screenshot({ animations: "disabled", path: info.outputPath("restored-inbox.png") });
   await reach(page, page.locator(".message-open").filter({ hasText: "Synthetic 7" })); await page.keyboard.press("Enter");
   await senderMenu(page);
-  await reach(page, page.getByRole("button", { name: "Unblock sender", exact: true })); await page.keyboard.press("Enter");
+  await reach(page, page.getByRole("menuitem", { name: "Unblock sender", exact: true })); await page.keyboard.press("Enter");
   await reach(page, dialog.getByRole("button", { name: "Unblock sender", exact: true })); await page.keyboard.press("Enter");
   await expect(dialog.getByRole("heading", { name: "Sender unblocked", exact: true })).toBeVisible();
   await page.keyboard.press("Escape"); await page.reload();

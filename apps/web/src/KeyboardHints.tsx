@@ -42,3 +42,5 @@ export function useKeyboardPreferences(userId?: string) {
     setShortcuts: (value: boolean) => save("shortcuts", value),
   };
 }
+
+export const menuKeyboardHint = "Menus: use arrow keys to navigate, Right/Left to open or close submenus, and Escape to close. Type to find an item. Tab leaves the menu.";

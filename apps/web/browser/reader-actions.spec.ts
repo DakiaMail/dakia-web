@@ -51,7 +51,7 @@ for (const width of [1480, 390]) for (const theme of ["light", "dark"]) {
     await expect(page.locator(".conversation-message")).toHaveCount(0);
     // Checkbox-only controls now live in the visible list pane on all sizes.
     await page.getByRole("button", { name: "More actions", exact: true }).click();
-    for (const name of actions) await expect(page.locator(".reader-toolbar").getByRole("button", { name, exact: true })).toBeEnabled();
+    for (const name of actions) await expect(page.getByRole(["Move", "Mark as spam"].includes(name) ? "menuitem" : "button", { name, exact: true })).toBeEnabled();
     await page.keyboard.press("Escape");
     await screenshot(page, `${width}-${theme}-multi`);
     await page.getByRole("button", { name: width === 390 ? "Clear selection (2 selected)" : "2 selected · Clear", exact: true }).click();
@@ -61,7 +61,7 @@ for (const width of [1480, 390]) for (const theme of ["light", "dark"]) {
     await expect(page.locator(".conversation-message")).toHaveCount(1);
     const toolbar = reader.locator(".reader-toolbar");
     await expect(toolbar.getByRole("button")).toHaveCount(5);
-    await expect(toolbar.getByRole("button", { name: "Move", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("menuitem", { name: "Move", exact: true })).toHaveCount(0);
     for (const button of await page.getByRole("button").all()) {
       await expect(button).toHaveAttribute("title", /.+/);
     }
@@ -71,12 +71,12 @@ for (const width of [1480, 390]) for (const theme of ["light", "dark"]) {
     }
     await screenshot(page, `${width}-${theme}-toolbar`);
     await reader.getByRole("button", { name: "More actions" }).click();
-    for (const name of actions) await expect(reader.getByRole("button", { name, exact: true })).toBeEnabled();
-    await expect(reader.getByRole("combobox", { name: "Category", exact: true })).toBeVisible();
-    const more = reader.getByRole("group", { name: "More message actions" });
+    for (const name of actions) await expect(page.getByRole(["Move", "Mark as spam"].includes(name) ? "menuitem" : "button", { name, exact: true })).toBeEnabled();
+    await expect(page.getByRole("menuitem", { name: "Category", exact: true })).toBeVisible();
+    const more = page.getByRole("menu", { name: "More message actions" });
     await expect(more.getByRole("button", { name: /reply/i })).toHaveCount(0);
-    await expect(more.getByRole("button", { name: /^(Star|Unstar) selected messages$/ })).toHaveCount(1);
-    await expect(more.getByRole("button", { name: "Move", exact: true }).locator(".lucide-folder-input")).toHaveCount(1);
+    await expect(more.getByRole("menuitem", { name: /^(Star|Unstar) selected messages$/ })).toHaveCount(1);
+    await expect(more.getByRole("menuitem", { name: "Move", exact: true }).locator(".lucide-folder-input")).toHaveCount(1);
     await screenshot(page, `${width}-${theme}-selected`);
     await page.keyboard.press("Escape");
     await reader.getByRole("button", { name: "Archive", exact: true }).focus();

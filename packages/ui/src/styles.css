@@ -6,6 +6,7 @@
 @import "@mantine/core/styles/Notification.css";
 @import "./tokens.css";
 @import "./date-time.css";
+@import "./menu.css";
 
 .dakia-button.dakia-button,
 .dakia-icon-button.dakia-icon-button {

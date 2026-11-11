@@ -40,7 +40,7 @@ async function capture(page: Page, name: string) {
 const toolbar = (page: Page) => page.locator(".reader-toolbar");
 async function spam(page: Page) {
   await toolbar(page).getByRole("button", { name: "More actions", exact: true }).click();
-  await toolbar(page).getByRole("button", { name: "Mark as spam", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Mark as spam", exact: true }).click();
 }
 for (const width of [320, 390, 768, 901, 1024, 1480]) for (const theme of ["light", "dark"]) {
   test(`toolbar layout keyboard and scoped spam ${width} ${theme}`, async ({ page }) => {
@@ -61,27 +61,30 @@ for (const width of [320, 390, 768, 901, 1024, 1480]) for (const theme of ["ligh
       const trigger = toolbar(page).getByRole("button", { name: "More actions" });
       await trigger.focus(); await page.keyboard.press("Enter");
       await expect(trigger).toHaveAttribute("aria-expanded", "true");
-      await expect(toolbar(page).getByRole("button", { name: "Move", exact: true })).toBeFocused();
-      const preserved = await toolbar(page).getByRole("button", { name: "Move", exact: true }).evaluate(button =>
+      await expect(page.getByRole("menuitem", { name: "Move", exact: true })).toBeFocused();
+      const preserved = await page.getByRole("menuitem", { name: "Move", exact: true }).evaluate(button =>
         ["ctrlKey", "metaKey", "altKey", "shiftKey", "isComposing"].map(modifier => button.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true, [modifier]: true }))));
       expect(preserved).toEqual([true, true, true, true, true]);
       await page.keyboard.press("ArrowDown");
-      await expect(toolbar(page).getByRole("button", { name: "Mark as spam", exact: true })).toBeFocused();
-      await page.keyboard.press("Tab");
-      await expect(toolbar(page).getByRole("combobox", { name: "Category" })).toBeFocused();
+      await expect(page.getByRole("menuitem", { name: "Mark as spam", exact: true })).toBeFocused();
+      await page.keyboard.press("ArrowDown");
+      await expect(page.getByRole("menuitem", { name: "Category", exact: true })).toBeFocused();
+      await page.keyboard.press("ArrowRight");
+      await expect(page.getByRole("menuitemradio").first()).toBeFocused();
+      await page.keyboard.press("ArrowLeft");
       await page.keyboard.press("Escape");
       await expect(trigger).toBeFocused();
       await expect(trigger).toHaveAttribute("aria-expanded", "false");
       await expect(page.locator(".conversation-message")).toHaveCount(1);
       await trigger.click(); await capture(page, `${width}-${theme}-more`);
-      const bounds = await page.getByRole("group", { name: "More message actions" }).boundingBox();
+      const bounds = await page.getByRole("menu", { name: "More message actions" }).boundingBox();
       expect(bounds!.x).toBeGreaterThanOrEqual(8);
       expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width - 8);
       await page.locator(".reader .pane-header > span").click();
       await expect(trigger).toHaveAttribute("aria-expanded", "false");
       // Tab exits normally, no focus trap or document-wide key listener.
       await trigger.click(); await page.keyboard.press("End");
-      await expect(toolbar(page).getByRole("button", { name: "Block sender", exact: true })).toBeFocused();
+      await expect(page.getByRole("menuitem", { name: "Block sender", exact: true })).toBeFocused();
       await page.keyboard.press("Tab");
       await expect(trigger).toHaveAttribute("aria-expanded", "false");
     }

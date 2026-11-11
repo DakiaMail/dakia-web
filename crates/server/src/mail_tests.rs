@@ -161,6 +161,7 @@ impl p::MailProvider for FixtureProvider {
         _: usize,
     ) -> p::Result<p::Page> {
         let reference = p::MessageRef {
+            graph_id: None,
             account_id: self.account.clone(),
             folder: folder.into(),
             uidvalidity: 1,
@@ -544,6 +545,7 @@ async fn gmail_stale_membership_fetch_falls_back_but_authentication_does_not() {
         assert_eq!(*id, archive.rows[0].id);
         // A corrupt foreign-account candidate must never reach the provider.
         let foreign = p::MessageRef {
+            graph_id: None,
             account_id: "foreign-account".into(),
             folder: "Other".into(),
             uidvalidity: 1,

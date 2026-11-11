@@ -85,6 +85,7 @@ impl ImapProvider {
                 return Ok(None);
             }
             let destination_reference = MessageRef {
+                graph_id: None,
                 account_id: r.account_id.clone(),
                 folder: dest.clone(),
                 uidvalidity: validity,

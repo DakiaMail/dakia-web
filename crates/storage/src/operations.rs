@@ -111,7 +111,7 @@ impl Store {
             .bind(id).fetch_one(&mut *tx).await?)
     }
 
-    async fn upsert_message_tx(
+    pub(crate) async fn upsert_message_tx(
         tx: &mut sqlx::SqliteConnection,
         mut message: Message,
     ) -> Result<Message> {

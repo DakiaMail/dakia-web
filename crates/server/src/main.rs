@@ -47,6 +47,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     config.validate()?;
     let gmail = dakia_server::gmail_oauth::GmailConfig::from_env()?;
+    let microsoft = dakia_server::microsoft_oauth::MicrosoftConfig::from_env()?;
     let key_path = required("DAKIA_CREDENTIAL_KEY_FILE")?;
     dakia_server::initialize_credential_key(&data, &key_path)?;
     let key = tokio::fs::read(&key_path).await?;
@@ -66,7 +67,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let state = App {
         store,
         config: Arc::new(config),
-        mail: dakia_server::mail::MailRuntime::default().with_gmail(gmail),
+        mail: dakia_server::mail::MailRuntime::default().with_gmail(gmail).with_microsoft(microsoft),
     };
     let executor = tokio::spawn(dakia_server::executor::run(state.clone()));
     let models = tokio::spawn(dakia_server::models::run(state.clone()));

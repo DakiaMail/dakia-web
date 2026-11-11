@@ -100,20 +100,23 @@ pub(crate) async fn tick(app: &App, a: &AuthorizedAccount) -> crate::Result<bool
         .unwrap_or(0);
     let mut records = Vec::new();
     for chunk in messages.chunks(50) {
-        let references: Option<Vec<p::MessageRef>> = chunk
-            .iter()
-            .map(|m| {
-                serde_json::from_str::<p::MessageRef>(&m.provider_id)
-                    .ok()
-                    .filter(|r| r.account_id == a.id())
-            })
-            .collect();
+        let mut references = Some(Vec::new());
+        for message in chunk {
+            let reference = if message.provider_id.starts_with("graph:") {
+                app.store.provider_document(a, &format!("reference:{}",message.id)).await?
+                    .and_then(|raw| serde_json::from_str::<p::MessageRef>(&raw).ok())
+            } else { serde_json::from_str::<p::MessageRef>(&message.provider_id).ok() };
+            match reference.filter(|r| r.account_id==a.id()) {
+                Some(reference) => { if let Some(refs) = &mut references { refs.push(reference); } }
+                None => references = None,
+            }
+        }
         let mut prefetched = None;
         if let Some(refs) = references.filter(|refs| {
             batch_due <= now
-                && refs
+                && (refs.iter().all(|r| r.graph_id.is_some()) || refs
                     .iter()
-                    .all(|r| r.folder == refs[0].folder && r.uidvalidity == refs[0].uidvalidity)
+                    .all(|r| r.folder == refs[0].folder && r.uidvalidity == refs[0].uidvalidity))
         }) {
             let provider = app.mail.provider(&app.store, a).await?;
             match provider.fetch_batch(&refs, 4 * 1024 * 1024).await {

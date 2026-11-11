@@ -64,6 +64,8 @@ pub fn error(kind: ErrorKind, message: &str) -> ProviderError {
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MessageRef {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub graph_id: Option<String>,
     pub account_id: String,
     pub folder: String,
     pub uidvalidity: u32,
@@ -73,6 +75,7 @@ pub struct MessageRef {
 pub enum Identity {
     Gmail { account_id: String, message_id: u64 },
     Imap(MessageRef),
+    Graph { account_id: String, message_id: String },
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Metadata {
@@ -117,6 +120,8 @@ pub struct Search {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct PageToken {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub graph_next: Option<String>,
     pub account_id: String,
     pub folder: String,
     pub uidvalidity: u32,
@@ -198,6 +203,8 @@ pub struct MutationResult {
 pub enum SubmissionOutcome {
     Accepted { response: String },
     Failed { kind: ErrorKind },
+    /// A definitive refusal or pre-request failure; safe to defer the same immutable MIME.
+    Deferred { retry_after_secs: u64 },
     DeliveryUnknown,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]

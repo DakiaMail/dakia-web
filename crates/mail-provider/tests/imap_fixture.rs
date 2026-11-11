@@ -123,6 +123,7 @@ fn provider(f: &Fixture, kind: ProviderKind, security: Security) -> ImapProvider
 }
 fn reference() -> MessageRef {
     MessageRef {
+        graph_id: None,
         account_id: "fixture-account".into(),
         folder: "INBOX".into(),
         uidvalidity: 17,

@@ -90,6 +90,7 @@ impl p::MailProvider for DeltaProvider {
     ) -> p::Result<p::ReconcilePage> {
         self.pages.fetch_add(1, Ordering::SeqCst);
         let reference = |uid| p::MessageRef {
+            graph_id: None,
             account_id: self.base.account.clone(),
             folder: folder.into(),
             uidvalidity: 1,

@@ -130,7 +130,7 @@ async fn spam_case(kind: ProviderKind, mode: &str) -> Result<MutationResult> {
     let result = provider
         .mutate(
             &MessageRef {
-                account_id: "fixture-account".into(),
+                graph_id: None, account_id: "fixture-account".into(),
                 folder: "INBOX".into(),
                 uidvalidity: 17,
                 uid: 42,
@@ -189,7 +189,7 @@ async fn spam_cross_account_reference_rejected_before_connect() {
     let result = provider
         .mutate(
             &MessageRef {
-                account_id: "another-account".into(),
+                graph_id: None, account_id: "another-account".into(),
                 folder: "INBOX".into(),
                 uidvalidity: 17,
                 uid: 42,

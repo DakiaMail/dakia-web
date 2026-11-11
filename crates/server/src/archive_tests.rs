@@ -55,7 +55,7 @@ impl p::MailProvider for ArchiveProvider {
         let archived = self.archived.lock().await.clone();
         let second = token.is_some();
         let rows = (if second { 3..=4 } else { 1..=2 }).filter(|uid| if folder == "INBOX" { !archived.contains(uid) } else { self.gmail || archived.contains(uid) }).map(|uid| {
-            let reference = p::MessageRef { account_id: self.account.clone(), folder: folder.into(), uidvalidity: 1, uid };
+            let reference = p::MessageRef { graph_id: None, account_id: self.account.clone(), folder: folder.into(), uidvalidity: 1, uid };
             p::Metadata { identity: if self.gmail { p::Identity::Gmail { account_id: self.account.clone(), message_id: uid.into() } } else { p::Identity::Imap(reference.clone()) }, reference, gmail_thread_id: None,
                 labels: if self.gmail && !archived.contains(&uid) { vec!["\\Inbox".into(), "Important".into()] } else { vec![] },
                 seen: false, starred: false, size: 100, internal_date: "28-Oct-2026 20:30:00 +0200".into(),
@@ -68,6 +68,7 @@ impl p::MailProvider for ArchiveProvider {
         Ok(p::Page {
             rows,
             next: (!second).then(|| p::PageToken {
+                graph_next: None,
                 account_id: self.account.clone(),
                 folder: folder.into(),
                 uidvalidity: 1,
@@ -111,6 +112,7 @@ impl p::MailProvider for ArchiveProvider {
             .then(|| p::MutationResult {
                 destination: Some("Archive".into()),
                 destination_reference: Some(p::MessageRef {
+                    graph_id: None,
                     account_id: r.account_id.clone(),
                     folder: "Archive".into(),
                     uidvalidity: 1,
@@ -159,6 +161,7 @@ impl p::MailProvider for ArchiveProvider {
             requires_rescan: true,
             destination: Some(destination.into()),
             destination_reference: Some(p::MessageRef {
+                graph_id: None,
                 folder: destination.into(),
                 ..r.clone()
             }),

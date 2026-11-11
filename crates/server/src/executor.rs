@@ -109,6 +109,15 @@ async fn deliver(
             return Ok(());
         }
     };
+    if let Some(graph) = provider.graph() {
+        if store.provider_document(a,&format!("send:attempts:{}",s.id)).await?.is_some() && graph.has_sent_message(
+            &store.mime(a,&s.id).await?.ok_or(dakia_storage::Error::NotFound)?.message_id
+        ).await.unwrap_or(false) {
+            store.transition(a,&s.id,SubmissionState::Claimed,SubmissionState::Submitting).await?;
+            store.transition(a,&s.id,SubmissionState::Submitting,SubmissionState::Accepted).await?;
+            return Ok(());
+        }
+    }
     let outcome = provider
         .submit(
             &prepared,
@@ -126,6 +135,10 @@ async fn deliver(
     let next = match outcome {
         p::SubmissionOutcome::Accepted { .. } => SubmissionState::Accepted,
         p::SubmissionOutcome::DeliveryUnknown => SubmissionState::DeliveryUnknown,
+        p::SubmissionOutcome::Deferred { retry_after_secs } => {
+            store.defer_submission(a,&s.id,current.state,retry_after_secs).await?;
+            return Ok(());
+        }
         p::SubmissionOutcome::Failed { kind } => {
             if kind == p::ErrorKind::Authentication {
                 store.account_state(a, AccountState::Reconnect).await?;
@@ -282,6 +295,19 @@ pub(crate) async fn tick(app: &App, a: &AuthorizedAccount) -> dakia_storage::Res
         .map_err(|_| dakia_storage::Error::Invalid)?;
     if let Some(s) = app.store.due_submission(a, &now).await? {
         deliver(&app.store, a, provider.as_ref(), &s).await?;
+    }
+    if let Some(graph) = provider.graph() {
+        for submission in app.store.uncertain_submissions(a).await? {
+            let key = format!("send:lookup:{}",submission.id);
+            let last = app.store.provider_document(a,&key).await?.and_then(|s| s.parse::<i64>().ok()).unwrap_or(0);
+            if last>Utc::now().timestamp()-60 { continue; }
+            app.store.put_provider_document(a,&key,&Utc::now().timestamp().to_string()).await?;
+            if let Some(mime) = app.store.mime(a,&submission.id).await? {
+                if graph.has_sent_message(&mime.message_id).await.unwrap_or(false) {
+                    app.store.confirm_delivery(a,&submission.id).await?;
+                }
+            }
+        }
     }
     file(&app.store, a, provider.as_ref()).await?;
     crate::mutations::drain(app, a).await?;

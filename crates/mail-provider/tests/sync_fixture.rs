@@ -341,6 +341,7 @@ async fn mutation_gets_the_lane_after_one_bounded_page() {
     }
     let started = Instant::now();
     let r = MessageRef {
+        graph_id: None,
         account_id: "fixture-account".into(),
         folder: "INBOX".into(),
         uidvalidity: 17,

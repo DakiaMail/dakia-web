@@ -1,6 +1,6 @@
 # Features
 
-Dakia connects to existing IMAP/SMTP mailboxes. It does not replace your email provider. See [getting started](getting-started.md) for owner setup, joining, and connecting mail.
+Dakia connects to Microsoft accounts through [Microsoft Graph](microsoft-oauth.md), Gmail through Google sign-in or app passwords, and other existing IMAP/SMTP mailboxes. It does not replace your email provider. See [getting started](getting-started.md) for owner setup, joining, and connecting mail.
 
 ## Separate people and mailboxes
 

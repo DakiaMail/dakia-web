@@ -13,6 +13,8 @@ use tower::ServiceExt;
 mod events;
 #[path = "cases/gmail_oauth.rs"]
 mod gmail_oauth;
+#[path = "cases/microsoft_oauth.rs"]
+mod microsoft_oauth;
 #[path = "cases/operations.rs"]
 mod operations;
 #[path = "cases/release_operations.rs"]
@@ -188,6 +190,7 @@ async fn isolation_including_events_and_drafts() {
         username: "test".into(),
         password: "fixture-only".into(),
         gmail_oauth: None,
+        microsoft_oauth: None,
     };
     let a = app.store.connect(&alice, &input).await.unwrap();
     let scope = app.store.authorize(&alice, &a.id).await.unwrap();
@@ -371,6 +374,7 @@ async fn reconnect_is_owned_in_place_and_preserves_data() {
         username: "test".into(),
         password: "old-fixture-only".into(),
         gmail_oauth: None,
+        microsoft_oauth: None,
     };
     let account = app.store.connect(&alice, &input).await.unwrap();
     let scope = app.store.authorize(&alice, &account.id).await.unwrap();

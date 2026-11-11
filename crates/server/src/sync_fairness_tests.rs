@@ -41,6 +41,7 @@ impl p::MailProvider for PagedProvider {
         }
         let uid = 101 + self.arrival_uid.load(Ordering::SeqCst) as u32;
         let reference = p::MessageRef {
+            graph_id: None,
             account_id: self.base.account.clone(),
             folder: folder.into(),
             uidvalidity: 1,
@@ -121,7 +122,7 @@ impl p::MailProvider for PagedProvider {
         }
         let rows = (0..cold_rows).map(|i| {
             let uid = (3 - page) * cold_rows as u32 - i as u32;
-            let reference = p::MessageRef { account_id: self.base.account.clone(), folder: folder.into(), uidvalidity: 1, uid };
+            let reference = p::MessageRef { graph_id: None, account_id: self.base.account.clone(), folder: folder.into(), uidvalidity: 1, uid };
             p::Metadata {
                 identity: p::Identity::Imap(reference.clone()), reference,
                 gmail_thread_id: None, labels: vec![], seen: true, starred: false, size: 5000,
@@ -134,6 +135,7 @@ impl p::MailProvider for PagedProvider {
             uidvalidity: 1,
             full_coverage: !self.limited,
             next: (page < 2).then(|| p::PageToken {
+                graph_next: None,
                 account_id: self.base.account.clone(),
                 folder: folder.into(),
                 uidvalidity: 1,

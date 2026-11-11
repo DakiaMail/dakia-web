@@ -62,6 +62,7 @@ impl p::MailProvider for Probe {
                 continue;
             }
             let r = p::MessageRef {
+                graph_id: None,
                 account_id: self.account.clone(),
                 folder: folder.into(),
                 uidvalidity: 1,
@@ -89,6 +90,7 @@ impl p::MailProvider for Probe {
         let more = rows.len() > limit;
         rows.truncate(limit);
         let next = more.then(|| p::PageToken {
+            graph_next: None,
             account_id: self.account.clone(),
             folder: folder.into(),
             uidvalidity: 1,

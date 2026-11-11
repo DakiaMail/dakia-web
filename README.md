@@ -38,6 +38,8 @@ For Gmail, choose **Continue with Google** when Google sign-in is configured for
 
 Follow the [Gmail setup guide](docs/gmail-oauth.md) to register your client and configure its ID and secret. The pinned image includes Gmail sign-in. For development, use a separate Google Cloud project and Dakia data directory.
 
+For Outlook.com, Hotmail, and Microsoft 365, choose **Microsoft (Outlook / Microsoft 365)** and **Continue with Microsoft**. Dakia uses Microsoft Graph, not legacy IMAP/SMTP. Your operator must first configure an Entra application: [Microsoft setup guide](docs/microsoft-oauth.md).
+
 To add another person, open **Workspace → Invite someone → Create invitation** and share the link privately. They choose their own login and connect their own mailboxes. Links expire after 24 hours and work once.
 
 [Follow the setup, invitation, and sign-in guide](docs/getting-started.md). Keep both persistent volumes: losing the credential key means losing access to stored credentials.
@@ -56,7 +58,7 @@ Run `sh scripts/upgrade.sh` from your installation directory. It checks publishe
 ## What you can do
 
 - Invite other people to create separate logins and private mailbox connections.
-- Connect Gmail with Google sign-in, or other IMAP/SMTP accounts, and use a unified inbox.
+- Connect Gmail with Google sign-in, Microsoft accounts with Microsoft Graph, or other IMAP/SMTP accounts, and use a unified inbox.
 - Read conversations, search mail, and organize messages with smart categories.
 - Compose rich-text messages with attachments, drafts, and scheduled sending.
 - Archive, snooze, star, move, and clean up messages in bulk.
@@ -70,6 +72,7 @@ Run `sh scripts/upgrade.sh` from your installation directory. It checks publishe
 
 - [Getting started](docs/getting-started.md): owner setup, joining by invitation, connecting mail, and signing in.
 - [Gmail sign-in](docs/gmail-oauth.md): operator-owned Google credentials, connection, reconnection, and development testing.
+- [Microsoft accounts](docs/microsoft-oauth.md): operator-owned Entra registration, Graph mail, reconnection, and current limits.
 - [Hosting and deployment](docs/hosting.md): Docker, Proxmox, Mac mini, Synology, TrueNAS, Unraid, and Portainer.
 - [Security](docs/security.md): login, encryption, isolation, backups, and reporting vulnerabilities.
 - [Privacy](docs/privacy.md): where mail is processed and which services Dakia contacts.

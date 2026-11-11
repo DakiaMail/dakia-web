@@ -207,6 +207,7 @@ impl ImapProvider {
                     continue;
                 }
                 let reference = |uid| MessageRef {
+                    graph_id: None,
                     account_id: self.config.account_id.clone(),
                     folder: folder.into(),
                     uidvalidity: validity,
@@ -372,6 +373,7 @@ impl ImapProvider {
             }
             let next = if consumed < total {
                 uids.get(consumed.saturating_sub(1)).map(|uid| PageToken {
+                    graph_next: None,
                     account_id: self.config.account_id.clone(),
                     folder: folder.into(),
                     uidvalidity: validity,
@@ -443,6 +445,7 @@ mod tests {
     #[test]
     fn scoped_search_never_sends_reversed_or_zero_range_and_preserves_query() {
         let mut token = PageToken {
+            graph_next: None,
             account_id: "a".into(),
             folder: "INBOX".into(),
             uidvalidity: 1,

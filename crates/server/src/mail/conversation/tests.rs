@@ -74,6 +74,7 @@ impl p::MailProvider for Provider {
             .get(index)
             .map(|(_, headers, uid)| {
                 let reference = p::MessageRef {
+                    graph_id: None,
                     account_id: self.account.clone(),
                     folder: folder.into(),
                     uidvalidity: 1,
@@ -103,6 +104,7 @@ impl p::MailProvider for Provider {
         Ok(p::Page {
             rows,
             next: (index + 1 < candidates.len()).then(|| p::PageToken {
+                graph_next: None,
                 modseq: None,
                 account_id: self.account.clone(),
                 folder: folder.into(),
@@ -236,6 +238,18 @@ fn missing_headers_remain_singletons_and_limits_never_claim_completeness() {
     assert!(!state.page("token".into()).complete);
     state.rows.clear();
     state.coverage_limited = false;
+    let (_, document) = remembered_document("fixture", &raw("root", "", 28), None, 0).unwrap();
+    let mut headers: Headers = serde_json::from_str(&document).unwrap();
+    assert!(headers.size.is_none(), "Graph does not supply a MIME size in message listings");
+    headers.size = Some(200);
+    for id in ["one", "two"] {
+        let mut graph = message.clone();
+        graph.id = id.into();
+        graph.provider_id = format!("graph:{id}");
+        state.rows.insert(id.into(), (graph, headers.clone()));
+    }
+    assert_eq!(state.page("token".into()).rows.len(), 2, "distinct Graph messages must not collapse");
+    state.rows.clear();
     state.add(
         message,
         Headers {

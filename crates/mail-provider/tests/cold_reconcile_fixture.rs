@@ -304,6 +304,7 @@ async fn bounded_uid_search_keeps_dense_continuation_and_falls_back_for_sparse_e
             .await;
         });
         let token = PageToken {
+            graph_next: None,
             account_id: "fixture-account".into(),
             folder: "INBOX".into(),
             uidvalidity: 17,

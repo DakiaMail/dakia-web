@@ -5,6 +5,7 @@ mod backup;
 mod cache;
 mod inbox;
 mod jobs;
+mod graph;
 mod lists;
 mod models;
 pub use models::ModelFailureReason;
@@ -242,7 +243,8 @@ impl Store {
     pub async fn connect(&self, user: &str, input: &ConnectAccount) -> Result<Account> {
         let _guard = self.gate.read().await;
         if input.email.is_empty()
-            || (input.password.is_empty() && input.gmail_oauth.is_none())
+            || (input.password.is_empty() && input.gmail_oauth.is_none() && input.microsoft_oauth.is_none())
+            || (input.provider == ProviderKind::Microsoft && input.microsoft_oauth.is_none())
             || input.imap_host.is_empty()
             || input.smtp_host.is_empty()
             || input.imap_port == 0
@@ -258,21 +260,7 @@ impl Store {
             state: AccountState::Connecting,
             revision: 1,
         };
-        let mut nonce = [0u8; 12];
-        rand::thread_rng().fill_bytes(&mut nonce);
-        let cipher = Aes256Gcm::new_from_slice(self.key.as_ref()).map_err(|_| Error::Crypto)?;
-        let aad = format!("{user}:{}", a.id);
-        let encrypted = cipher
-            .encrypt(
-                &Nonce::from(nonce),
-                Payload {
-                    msg: &serde_json::to_vec(input)?,
-                    aad: aad.as_bytes(),
-                },
-            )
-            .map_err(|_| Error::Crypto)?;
-        let mut sealed = nonce.to_vec();
-        sealed.extend(encrypted);
+        let sealed = self.seal_credential(&format!("{user}:{}", a.id), input)?;
         sqlx::query(
             "INSERT INTO accounts(id,user_id,metadata,credential,connected_at) VALUES(?,?,?,?,?)",
         )
@@ -295,7 +283,8 @@ impl Store {
     ) -> Result<Account> {
         let _guard = self.gate.read().await;
         self.db(a).await?;
-        if (input.password.is_empty() && input.gmail_oauth.is_none())
+        if (input.password.is_empty() && input.gmail_oauth.is_none() && input.microsoft_oauth.is_none())
+            || (input.provider == ProviderKind::Microsoft && input.microsoft_oauth.is_none())
             || input.username.is_empty()
             || input.imap_host.is_empty()
             || input.smtp_host.is_empty()
@@ -317,24 +306,18 @@ impl Store {
                 .fetch_one(&mut *tx)
                 .await?;
         let mut account: Account = serde_json::from_str(&raw)?;
-        if !account.email.eq_ignore_ascii_case(&input.email) || account.provider != input.provider {
+        let same_microsoft_identity = if account.provider == ProviderKind::Microsoft && input.provider == ProviderKind::Microsoft {
+            let sealed: Vec<u8> = sqlx::query_scalar("SELECT credential FROM accounts WHERE id=? AND user_id=?")
+                .bind(&a.id).bind(&a.user_id).fetch_one(&mut *tx).await?;
+            let old = self.open_credential(a,&sealed)?;
+            old.microsoft_oauth.zip(input.microsoft_oauth.clone())
+                .is_some_and(|(old,new)| !old.subject.is_empty() && old.subject==new.subject)
+        } else { false };
+        if (!account.email.eq_ignore_ascii_case(&input.email) && !same_microsoft_identity) || account.provider != input.provider {
             return Err(Error::Invalid);
         }
-        let mut nonce = [0u8; 12];
-        rand::thread_rng().fill_bytes(&mut nonce);
-        let cipher = Aes256Gcm::new_from_slice(self.key.as_ref()).map_err(|_| Error::Crypto)?;
-        let aad = format!("{}:{}", a.user_id, a.id);
-        let encrypted = cipher
-            .encrypt(
-                &Nonce::from(nonce),
-                Payload {
-                    msg: &serde_json::to_vec(input)?,
-                    aad: aad.as_bytes(),
-                },
-            )
-            .map_err(|_| Error::Crypto)?;
-        let mut sealed = nonce.to_vec();
-        sealed.extend(encrypted);
+        let sealed = self.seal_credential(&format!("{}:{}", a.user_id, a.id), input)?;
+        if same_microsoft_identity { account.email = input.email.clone(); }
         account.state = AccountState::Connecting;
         account.display_name = input.display_name.clone();
         account.revision = account.revision.checked_add(1).ok_or(Error::Invalid)?;
@@ -348,6 +331,57 @@ impl Store {
         tx.commit().await?;
         Ok(account)
     }
+    fn seal_credential(&self, aad: &str, input: &ConnectAccount) -> Result<Vec<u8>> {
+        let mut nonce = [0u8; 12];
+        rand::thread_rng().fill_bytes(&mut nonce);
+        let cipher = Aes256Gcm::new_from_slice(self.key.as_ref()).map_err(|_| Error::Crypto)?;
+        let encrypted = cipher
+            .encrypt(
+                &Nonce::from(nonce),
+                Payload {
+                    msg: &serde_json::to_vec(input)?,
+                    aad: aad.as_bytes(),
+                },
+            )
+            .map_err(|_| Error::Crypto)?;
+        let mut sealed = nonce.to_vec();
+        sealed.extend(encrypted);
+        Ok(sealed)
+    }
+    /// Compare-and-swap prevents a late token refresh from overwriting reconnection.
+    pub async fn rotate_microsoft_token(
+        &self,
+        a: &AuthorizedAccount,
+        old: &str,
+        new: &str,
+    ) -> Result<()> {
+        let _guard = self.gate.read().await;
+        self.db(a).await?;
+        let sealed: Vec<u8> =
+            sqlx::query_scalar("SELECT credential FROM accounts WHERE id=? AND user_id=?")
+                .bind(&a.id)
+                .bind(&a.user_id)
+                .fetch_one(&self.control)
+                .await?;
+        let mut input = self.open_credential(a, &sealed)?;
+        let grant = input.microsoft_oauth.as_mut().ok_or(Error::Conflict)?;
+        if grant.refresh_token != old || new.is_empty() {
+            return Err(Error::Conflict);
+        }
+        grant.refresh_token = new.into();
+        let replacement = self.seal_credential(&format!("{}:{}", a.user_id, a.id), &input)?;
+        let changed = sqlx::query("UPDATE accounts SET credential=? WHERE id=? AND user_id=? AND credential=?")
+            .bind(replacement)
+            .bind(&a.id)
+            .bind(&a.user_id)
+            .bind(sealed)
+            .execute(&self.control)
+            .await?;
+        if changed.rows_affected() != 1 {
+            return Err(Error::Conflict);
+        }
+        Ok(())
+    }
     pub async fn credential(&self, a: &AuthorizedAccount) -> Result<ConnectAccount> {
         self.db(a).await?;
         let sealed: Vec<u8> =
@@ -356,6 +390,9 @@ impl Store {
                 .bind(&a.user_id)
                 .fetch_one(&self.control)
                 .await?;
+        self.open_credential(a, &sealed)
+    }
+    fn open_credential(&self, a: &AuthorizedAccount, sealed: &[u8]) -> Result<ConnectAccount> {
         if sealed.len() < 28 {
             return Err(Error::Crypto);
         }

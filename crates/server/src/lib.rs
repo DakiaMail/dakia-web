@@ -2,6 +2,9 @@ pub mod diagnostics;
 mod discovery;
 pub mod executor;
 pub mod gmail_oauth;
+pub mod microsoft_oauth;
+mod graph_sync;
+mod graph_push;
 pub mod idle;
 mod images;
 mod language;
@@ -234,6 +237,8 @@ pub fn router_with_shutdown(app: App, shutdown: tokio::sync::watch::Sender<bool>
             get(gmail_oauth::status).post(gmail_oauth::start),
         )
         .route("/accounts/gmail/callback", get(gmail_oauth::callback))
+        .route("/accounts/microsoft", get(microsoft_oauth::status).post(microsoft_oauth::start))
+        .route("/accounts/microsoft/callback", get(microsoft_oauth::callback))
         .route("/push/public-key", get(push::public_key))
         .route("/push/subscriptions", post(push::subscribe))
         .route(
@@ -322,6 +327,7 @@ pub fn router_with_shutdown(app: App, shutdown: tokio::sync::watch::Sender<bool>
                 .layer(axum::extract::DefaultBodyLimit::max(4096)),
         )
         .route("/auth/callback", get(callback))
+        .route("/api/microsoft/notifications", post(graph_push::notify).layer(axum::extract::DefaultBodyLimit::max(64 * 1024)))
         .nest("/api", api)
         .fallback_service(
             ServeDir::new(&root).not_found_service(ServeFile::new(format!("{root}/index.html"))),
@@ -694,7 +700,7 @@ async fn connect(
     Extension(id): Extension<Identity>,
     Json(input): Json<ConnectAccount>,
 ) -> Result<Json<Account>> {
-    if input.gmail_oauth.is_some() {
+    if input.gmail_oauth.is_some() || input.microsoft_oauth.is_some() || input.provider == ProviderKind::Microsoft {
         return Err(ApiFailure(StatusCode::BAD_REQUEST, "invalid_input"));
     }
     Ok(Json(app.store.connect(&id.user, &input).await?))
@@ -706,7 +712,7 @@ async fn reconnect(
     Json(input): Json<ConnectAccount>,
 ) -> Result<Json<Account>> {
     let a = app.store.authorize(&user.user, &account).await?;
-    if input.gmail_oauth.is_some() {
+    if input.gmail_oauth.is_some() || input.microsoft_oauth.is_some() || input.provider == ProviderKind::Microsoft {
         return Err(ApiFailure(StatusCode::BAD_REQUEST, "invalid_input"));
     }
     Ok(Json(app.mail.reconnect(&app.store, &a, &input).await?))

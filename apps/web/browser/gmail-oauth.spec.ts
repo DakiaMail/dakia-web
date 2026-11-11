@@ -17,7 +17,7 @@ for (const [theme, width, height] of [
         if (route.request().method() === "POST") {
           expect(route.request().headers()["x-csrf-token"]).toBe("synthetic-csrf");
           submitted = route.request().postDataJSON();
-          return respond({ url: "http://127.0.0.1:4173/oauth-fixture" });
+          return respond({ url: new URL("/oauth-fixture", route.request().url()).href });
         }
         return respond({ enabled: true });
       }
@@ -29,7 +29,7 @@ for (const [theme, width, height] of [
     await page.route("**/oauth-fixture", route => {
       connected = true;
       needsReconnect = false;
-      return route.fulfill({ status: 302, headers: { location: "http://127.0.0.1:4173/" }, body: "" });
+      return route.fulfill({ status: 302, headers: { location: new URL("/", route.request().url()).href }, body: "" });
     });
     await page.goto("/");
     await expect(page.getByRole("heading", { name: "Welcome to Dakia" })).toBeVisible();

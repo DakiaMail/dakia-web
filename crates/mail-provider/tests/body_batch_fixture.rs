@@ -5,6 +5,7 @@ use dakia_mail_provider::{imap::ImapProvider, *};
 
 fn reference(uid: u32) -> MessageRef {
     MessageRef {
+        graph_id: None,
         account_id: "fixture-account".into(),
         folder: "INBOX".into(),
         uidvalidity: 17,

@@ -1,4 +1,6 @@
 pub mod imap;
+mod graph;
+pub use graph::{GraphProvider, GraphCursor, GraphDeltaPage, GraphArrivalPage, GraphSubscription};
 #[cfg(test)]
 extern crate self as dakia_mail_provider;
 pub mod mime;

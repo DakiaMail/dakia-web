@@ -80,6 +80,7 @@ mod tests {
             username: "fixture".into(),
             password: "synthetic".into(),
             gmail_oauth: None,
+        microsoft_oauth: None,
         };
         store.connect(&user, &input).await.unwrap();
         sqlx::query("INSERT OR REPLACE INTO settings(key,value) VALUES('jobs_enabled','false')")

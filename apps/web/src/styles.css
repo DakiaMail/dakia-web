@@ -917,6 +917,9 @@ kbd {
   overflow: auto;
   animation: fade 0.18s;
 }
+.dialog.account-setup {
+  scroll-padding-block: 70px 22px;
+}
 .dialog.wide {
   width: min(760px, calc(100vw - 32px));
 }

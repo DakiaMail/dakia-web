@@ -32,6 +32,9 @@ impl MailRuntime {
         interval: i64,
     ) -> Result<bool> {
         let provider = self.provider(store, a).await?;
+        if let Some(graph) = provider.graph() {
+            return crate::graph_sync::arrivals(self, store, a, graph, interval).await;
+        }
         if !provider.supports_head() {
             return Ok(false);
         }

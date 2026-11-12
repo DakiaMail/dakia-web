@@ -1,0 +1,16 @@
+#cloud-config
+# DigitalOcean Droplet or Hetzner Cloud "user data" for a fresh Ubuntu 24.04 server.
+#
+# Before creating the server:
+#   1. Create an A record for your domain pointing at the server's IP.
+#   2. Replace mail.example.com below with that domain.
+#   3. Keep ports 80 and 443 reachable; Caddy obtains the certificate itself.
+#
+# The installer also runs by hand on any Debian/Ubuntu host:
+#   curl -fsSL -o dakia-install.sh https://raw.githubusercontent.com/DakiaMail/dakia-web/main/scripts/install.sh && sudo sh dakia-install.sh --domain mail.example.com
+#
+# The download and the install are chained with && so a failed download stops
+# visibly instead of feeding an empty script to sh. Check progress with:
+#   cloud-init status --long && tail -n 40 /var/log/cloud-init-output.log
+runcmd:
+  - [sh, -c, "curl -fsSL -o /root/dakia-install.sh https://raw.githubusercontent.com/DakiaMail/dakia-web/main/scripts/install.sh && sh /root/dakia-install.sh --domain mail.example.com"]

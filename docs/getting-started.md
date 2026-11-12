@@ -4,17 +4,11 @@
 
 ## Create the first login
 
-The first person to set up a new installation becomes its owner. On the host, run this from the directory containing your Compose file:
+The first person to set up a new installation becomes its owner. Open Dakia and choose **Sign in**, then choose a username and a password with at least 12 characters.
 
-```sh
-docker compose exec dakia cat /secrets/setup-token
-```
+No setup code or host command is needed. A new installation accepts its first login from whoever reaches it, so create your login immediately after starting Dakia and keep the address private until you have.
 
-Open Dakia and choose **Sign in**. Enter that setup code, choose a username, and create a password with at least 12 characters. Keep the setup code private. It is for claiming a new installation, not for resetting a password or inviting someone else.
-
-Your Dakia login is separate from your email provider's login. Once owner setup is complete, the setup-code field disappears.
-
-If the host uses a custom Compose project name, use that same name with every command, for example `docker compose -p my-mail exec dakia cat /secrets/setup-token`.
+Your Dakia login is separate from your email provider's login. Once owner setup is complete, the sign-in page asks only for your username and password.
 
 ## Connect an email account
 

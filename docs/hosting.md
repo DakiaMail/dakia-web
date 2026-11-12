@@ -6,6 +6,22 @@ Start with [owner setup and everyday use](getting-started.md) after installation
 
 ## Docker Compose
 
+### One command on a fresh server
+
+On a new Debian or Ubuntu server, point your domain's A record at it, keep ports 80 and 443 reachable, and run:
+
+```sh
+curl -fsSL -o dakia-install.sh https://raw.githubusercontent.com/DakiaMail/dakia-web/main/scripts/install.sh && sudo sh dakia-install.sh --domain mail.example.com
+```
+
+The script installs Docker, writes the Compose files and a private `.env` to `/opt/dakia`, starts Dakia with Caddy for automatic HTTPS, and waits for its health check. It needs a minute or two the first time. Then open your address and [create the first login](getting-started.md#create-the-first-login).
+
+Use `--prepare-only` to write the files without installing Docker or starting anything, `--dir` to choose another directory, and `--help` for the rest. The same script is in [`deploy/cloud-init.yaml`](../deploy/cloud-init.yaml) for a Droplet or Hetzner Cloud server's user data, which needs no shell at all: replace the domain, create the server, and wait for HTTPS.
+
+An installation made this way lives in `/opt/dakia`. Run upgrades there, keep its volumes, and use `docker compose -f compose.yaml -f compose.caddy.yaml` for every command.
+
+### Manual
+
 Install Docker with the Compose plugin on your host. Clone the repository and prepare configuration:
 
 ```sh
@@ -26,6 +42,18 @@ The default publishes `127.0.0.1:3025` on the Docker host. Configure one of the 
 Run commands from the same directory and keep the same Compose project name. Changing the project name can select different volumes and make an existing installation appear empty. For an additional isolated instance, use a separate directory, project name, port, and origin; do not share its data or secrets volumes with another instance.
 
 ## HTTPS on the same host
+
+### Caddy in the same Compose stack
+
+The repository supplies a Compose override that runs Caddy in front of Dakia and obtains certificates for you:
+
+```sh
+docker compose -f compose.yaml -f compose.caddy.yaml up -d --wait
+```
+
+It reads `DAKIA_ORIGIN` from `.env`, serves that exact host on ports 80 and 443, and redirects HTTP to HTTPS. Certificates and Caddy's own state live in the `caddy_data` and `caddy_config` volumes; losing them only means reissuing certificates. Dakia keeps publishing `127.0.0.1:3025` for host-local access, so stop any other service that already holds ports 80 or 443.
+
+Use this override for every later command, for example `docker compose -f compose.yaml -f compose.caddy.yaml logs -f dakia`. An upgrade still works from the installation directory with `sh scripts/upgrade.sh`.
 
 ### Existing reverse proxy
 
@@ -59,7 +87,7 @@ Set `DAKIA_ORIGIN` to the HTTPS origin shown by Serve, then run `docker compose 
 | Mount | Contents |
 | --- | --- |
 | `/data` | SQLite databases, messages/cache, drafts, attachments, diagnostics, and public model caches |
-| `/secrets` | Credential encryption key and the initial setup code |
+| `/secrets` | Credential encryption key |
 
 The supplied Compose file creates named volumes for both. They must survive container recreation. Never run `docker compose down -v` on an installation you want to keep. Back up data and secrets with restricted access and encrypted off-host copies. Losing the key prevents decryption of stored mailbox credentials.
 
@@ -67,9 +95,46 @@ The container runs as UID/GID 1000. If replacing named volumes with host directo
 
 Allow outbound HTTPS, IMAP, and SMTP connections. Dakia does not require inbound SMTP ports or MX changes. Provider connectivity and storage capacity matter as mailboxes grow; minimum hardware requirements are not yet established.
 
+## Managed platforms
+
+A managed container platform can run the published image without a shell on the host. Dakia needs the platform to provide all of the following:
+
+| Requirement | Why |
+| --- | --- |
+| An HTTPS address with a valid certificate | Sign-in is bound to the exact origin; plain HTTP is not supported |
+| Two persistent volumes, mounted at `/data` and `/secrets` | Restarts and redeploys must keep mail, the credential key, and their file permissions |
+| One always-on instance with no scale-to-zero | Synchronization, scheduled sending, and an exclusive lock on the data directory |
+| Outbound IMAP, SMTP submission, and HTTPS | Port 25 is not needed; use the provider's submission port, 465 or 587 |
+| About 1 GB of memory | The bundled classifier and language workers are not small |
+
+Set `DAKIA_ORIGIN` to the exact HTTPS origin the platform gives you, without a trailing slash. It is a plain setting, not a password.
+
+Create the first login immediately after the first deployment completes. A new installation accepts its first login from whoever reaches it and that login becomes the owner, so keep the address to yourself until you have created it. Platform-provided addresses are public by default.
+
+Managed platforms do not run on the host, so `scripts/upgrade.sh` does not apply. Upgrade by deploying the new image digest and keeping both volumes, and confirm the platform's backup covers `/secrets` as well as `/data`.
+
+If you use Gmail sign-in, register `$DAKIA_ORIGIN/api/accounts/gmail/callback` in your own Google client. Platform origin changes require updating both the Google client and `DAKIA_ORIGIN`.
+
+### Platform notes
+
+- **Fly.io, Render (paid), Zeabur** can run the image with a persistent volume and one always-on instance.
+- **Railway** blocks outbound SMTP on its Hobby plan, so mail cannot be sent there. It needs Pro or higher.
+- **DigitalOcean App Platform and Koyeb's free tier** have no persistent volume. They can show the interface but lose mail data and the credential key on every redeploy, so they are not suitable for an installation you want to keep. Use a Droplet or another advertised platform instead; the [Compose steps](#docker-compose) apply to a Droplet with Docker installed.
+- **PikaPods** is tracked in the [catalog handoff](../deploy/pikapods.md).
+
 ## Platform paths
 
 The Compose package and native AMD64/ARM64 images have been checked, and a Docker VM under Proxmox has been exercised with separate users and disposable TLS mailboxes. The NAS paths below describe manual configuration; platform-specific acceptance and catalog packages are not yet complete.
+
+### PikaPods
+
+Dakia is not yet a PikaPods catalog app. The [PikaPods catalog handoff](../deploy/pikapods.md) records the configuration and checks needed before it can be offered there.
+
+### DigitalOcean or Hetzner Cloud
+
+Create a Droplet or Cloud server from Ubuntu 24.04 with at least 1 GB of memory. Add your domain's A record first, then paste [`deploy/cloud-init.yaml`](../deploy/cloud-init.yaml) into the provider's user-data field with your domain in place of the example. The server installs Dakia and Caddy on first boot; open your address once DNS resolves and it answers.
+
+Both providers bill hourly, so a short test costs cents. Keep the server running: synchronization, scheduled sending, and the exclusive lock on the data directory need one always-on instance. Add the provider's backups or snapshots; they must include both Dakia volumes and the Docker volumes that hold them.
 
 ### Proxmox
 

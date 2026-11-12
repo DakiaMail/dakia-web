@@ -61,7 +61,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or(1024 * 1024 * 1024);
     let store = Store::open_with_attachment_budget(data, key, attachment_budget).await?;
     if config.issuer.is_empty() {
-        dakia_server::initialize_local_login(&store, &key_path).await?;
+        dakia_server::initialize_local_login(&store).await?;
     }
     let state = App {
         store,

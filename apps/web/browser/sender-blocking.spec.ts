@@ -147,7 +147,7 @@ test("the single existing toolbar menu targets the selected message in a mixed c
 
 test("bulk selection never offers a sender block in the toolbar", async ({ page }) => {
   await fixture(page); await page.goto("/"); await page.locator(".message-open").first().click();
-  await page.getByRole("tab", { name: "List", exact: true }).click();
+  await page.getByRole("tab", { name: "All", exact: true }).click();
   await page.locator(".message-select input").first().check();
   await page.getByRole("button", { name: "More actions", exact: true }).click();
   await expect(page.getByRole("menuitem", { name: "Move", exact: true })).toBeVisible();

@@ -37,7 +37,7 @@ test("compose field expansion stays keyboard-operable", async ({ page }, testInf
 
 test("keyboard journey persists drafts and mail changes through the real backend", async ({ page }, testInfo) => {
   await page.goto("/");
-  await page.getByRole("tab", { name: "List", exact: true }).focus(); await page.keyboard.press("Enter");
+  await page.getByRole("tab", { name: "All", exact: true }).focus(); await page.keyboard.press("Enter");
   const row = (n: number) => page.locator(".message-open").filter({ has: page.locator(".subject", { hasText: new RegExp(`^Synthetic ${n}$`) }) });
   await row(0).focus(); await page.keyboard.press("Enter");
   await page.keyboard.press("r");

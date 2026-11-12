@@ -19,12 +19,9 @@
 .env.*
 *.pem
 *.key
-/crates/inference/assets/email-classifier-v2/model.onnx
 
 /.codex-attachments/
 /secrets/
 /.dakia-upgrades/
-
-/crates/inference/assets/email-classifier-v2/.model-*
 
 **/dist-demo/

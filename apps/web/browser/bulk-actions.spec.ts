@@ -33,7 +33,7 @@ async function fixture(page: Page, starred: boolean | "mixed" = false) {
     return respond([]);
   });
   await page.goto("/");
-  await page.getByRole("tab", { name: "List", exact: true }).click();
+  await page.getByRole("tab", { name: "All", exact: true }).click();
   return {
     rows, operations, folderReads, posts: () => posts,
     settle(failAccount?: string) {

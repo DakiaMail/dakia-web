@@ -120,6 +120,7 @@ async fn operation_dedup_reordering_and_manual_category_survive_refresh() {
         starred: false,
         category: None,
         category_status: CategoryStatus::Pending,
+        classification: None,
         revision: 0,
     };
     let m = s.upsert_message(&a, m).await.unwrap();

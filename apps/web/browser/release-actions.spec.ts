@@ -36,7 +36,7 @@ async function setup(page: Page, failure: "rejected" | "failed") {
     return route.fulfill({ status: 500, json: { code: "unexpected_fixture_request", message: path } });
   });
   await page.goto("/");
-  await page.getByRole("tab", { name: "List", exact: true }).click();
+  await page.getByRole("tab", { name: "All", exact: true }).click();
   await page.locator(".message-open").filter({ hasText: message.subject }).click();
   await expect(page.locator(".conversation-message")).toHaveCount(1);
   return { writes, reads, unexpected };

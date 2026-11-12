@@ -6,7 +6,7 @@ import base from "./playwright.config";
 export default defineConfig({
   ...base,
   forbidOnly: true,
-  testIgnore: ["snooze-backend.spec.ts", "device-translation-backend.spec.ts", "rules-backend.spec.ts", "keyboard-backend.spec.ts", "pwa.spec.ts", "release-backend.spec.ts", "full-text-backend.spec.ts", "image-redirects.spec.ts", "lifecycle.spec.ts", "translation-backend.spec.ts", "unsubscribe-backend.spec.ts", "silent-cleanup-backend.spec.ts"],
+  testIgnore: ["personal-first-backend.spec.ts","snooze-backend.spec.ts", "device-translation-backend.spec.ts", "rules-backend.spec.ts", "keyboard-backend.spec.ts", "pwa.spec.ts", "release-backend.spec.ts", "full-text-backend.spec.ts", "image-redirects.spec.ts", "lifecycle.spec.ts", "translation-backend.spec.ts", "unsubscribe-backend.spec.ts", "silent-cleanup-backend.spec.ts"],
   retries: 0,
   outputDir: "test-results/release",
   reporter: [["list"], ["json", { outputFile: process.env.DAKIA_BROWSER_REPORT || "test-results/release.json" }]],

@@ -83,7 +83,7 @@ for (const width of [1480, 390]) for (const action of ["Archive", "Move to trash
   test(`pending failure stays visible across later actions ${width} ${action}`, async ({ page }) => {
     await page.setViewportSize({ width, height: 980 });
     const state = await fixture(page);
-    await page.getByRole("tab", { name: "List", exact: true }).click();
+    await page.getByRole("tab", { name: "All", exact: true }).click();
     await page.locator(".message-open").first().click();
     await reader(page).getByRole("button", { name: action, exact: true }).click();
     await expect.poll(() => state.operations.size).toBe(1);
@@ -125,7 +125,7 @@ for (const width of [1480, 390]) for (const action of ["Archive", "Move to trash
 }
 test("bulk with a different preview does not close or expand targets", async ({ page }) => {
   const state = await fixture(page);
-  await page.getByRole("tab", { name: "List", exact: true }).click();
+  await page.getByRole("tab", { name: "All", exact: true }).click();
   await page.getByRole("checkbox", { name: "Select Return fixture 1", exact: true }).check();
   await page.getByRole("checkbox", { name: "Select Return fixture 2", exact: true }).check();
   await page.locator(".message-open").first().click();

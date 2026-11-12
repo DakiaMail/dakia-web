@@ -18,7 +18,7 @@ test("warms every visible row without images, mail actions, discovery or oversca
     return respond([]);
   });
   await page.goto("/");
-  await page.getByRole("tab", { name: "List", exact: true }).focus();
+  await page.getByRole("tab", { name: "All", exact: true }).focus();
   await page.keyboard.press("Enter");
   const visible = () => page.locator(".message-list").evaluate(root => {
     const rect = root.getBoundingClientRect();

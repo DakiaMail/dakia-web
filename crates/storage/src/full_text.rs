@@ -205,7 +205,9 @@ impl Store {
             }
         }
         let expression = fts.join(" AND ");
-        let mut q = sqlx::QueryBuilder::<sqlx::Sqlite>::new("SELECT m.document FROM search_documents d INDEXED BY search_order JOIN messages m ON m.id=d.message_id WHERE json_array_length(m.document,'$.folder_ids')>0 AND d.source=json_extract(m.document,'$.provider_id') AND NOT EXISTS(SELECT 1 FROM search_dirty WHERE message_id=m.id) ");
+        let mut q = sqlx::QueryBuilder::<sqlx::Sqlite>::new("SELECT m.document FROM search_documents d INDEXED BY search_order JOIN messages m ON m.id=d.message_id CROSS JOIN (SELECT ");
+        q.push_bind(serde_json::to_string(&filter.classification)?).push(" AS filter) cf WHERE json_array_length(m.document,'$.folder_ids')>0 AND d.source=json_extract(m.document,'$.provider_id') AND NOT EXISTS(SELECT 1 FROM search_dirty WHERE message_id=m.id) ");
+        q.push(CLASSIFICATION_SQL);
         if !expression.is_empty() {
             q.push(" AND d.rowid IN (SELECT rowid FROM search_fts WHERE search_fts MATCH ")
                 .push_bind(&expression)

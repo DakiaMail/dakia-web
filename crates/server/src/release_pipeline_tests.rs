@@ -201,6 +201,12 @@ async fn browser_release_fixture() {
         for i in 2..count {
             let mut m = template.clone();
             m.reference.uid = i + 1;
+            if std::env::var_os("DAKIA_CLASSIFICATION_FIXTURE").is_some() {
+                m.internal_date = chrono::Utc::now()
+                    .format("%d-%b-%Y %H:%M:%S %z")
+                    .to_string();
+                if i == 4 { m.seen=false; }
+            }
             if i == 7 {
                 m.seen = true;
             }
@@ -260,6 +266,54 @@ async fn browser_release_fixture() {
         )
         .await
         .unwrap();
+    if std::env::var_os("DAKIA_CLASSIFICATION_FIXTURE").is_some() {
+        for m in app.store.inbox_rows(&a, None, None).await.unwrap() {
+            let body=match m.subject.as_str() {
+                "Synthetic 2" => "Your order confirmation and payment receipt. Total: EUR 42.00. Order number: ORD12345.",
+                "Synthetic 3" => "Your flight booking has been cancelled. Booking reference: ABC123. Flight number: NB472.",
+                "Synthetic 4" => "Your verification code: 482619. Valid for 15 minutes.",
+                "Synthetic 5" => "Your weekly newsletter. A thoughtful read for Sunday.",
+                "Synthetic 6" => "You have been invited to lunch tomorrow.",
+                "Synthetic 7" => "Your account preferences changed.",
+                _ => "Could we talk about the project tomorrow?",
+            };
+            let raw=format!("From: fixture@example.invalid\r\nTo: owner@example.invalid\r\nSubject: {}\r\n{}Content-Type: text/plain; charset=utf-8\r\n\r\n{body}",m.subject,if m.subject=="Synthetic 7" {"Auto-Submitted: auto-generated\r\n"} else {""});
+            let c:MessageContent=serde_json::from_value(serde_json::json!({"message":m,"text":body,"html":"","attachments":[],"message_id":null,"references":[],"cc":[],"reply_to":[]})).unwrap();
+            app.store
+                .cache_content_with_raw(&a, &c, Some(raw.as_bytes()), 1024 * 1024)
+                .await
+                .unwrap();
+            app.store
+                .queue_model(
+                    &a,
+                    &m.id,
+                    JobKind::Classify,
+                    dakia_inference::POLICY_REVISION,
+                    None,
+                )
+                .await
+                .unwrap();
+            let mut job = app.store.claim_model(&a).await.unwrap().unwrap();
+            let mut reason = dakia_storage::ModelFailureReason::WorkerFailed;
+            let result = crate::models::execute(
+                &app,
+                &a,
+                &job,
+                Some(Arc::new(std::sync::Mutex::new(
+                    dakia_inference::LocalEmailClassifier,
+                ))),
+                &mut reason,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+            job.status = JobStatus::Succeeded;
+            app.store
+                .finish_classification(&a, job, result.0.as_ref(), None)
+                .await
+                .unwrap();
+        }
+    }
     app.config = Arc::new(crate::Config {
         origin: origin.into(),
         issuer: "https://id.example.invalid".into(),

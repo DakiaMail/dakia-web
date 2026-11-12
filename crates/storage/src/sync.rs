@@ -298,7 +298,7 @@ impl Store {
                     for subscription in &subscriptions {
                         let id = subscription["id"].as_str().ok_or(Error::Invalid)?;
                         let job = serde_json::json!({"id":format!("{}:{}:{id}",a.id,message.id),"account_id":a.id,"user_id":a.user_id,"message_id":message.id,"subscription_id":id,"scope":{"account_id":a.id,"user_id":a.user_id},"subscription":subscription,"deadline":(Utc::now()+Duration::minutes(5)).to_rfc3339(),"initial_sync":false});
-                        sqlx::query("INSERT OR IGNORE INTO push_jobs(message_id,subscription_id,document,state) VALUES(?,?,?,CASE WHEN EXISTS(SELECT 1 FROM messages WHERE id=? AND COALESCE(category_override,json_extract(document,'$.category'),'')='newsletters') THEN 'skipped' ELSE 'pending' END)").bind(&message.id).bind(id).bind(serde_json::to_string(&job)?).bind(&message.id).execute(&mut *tx).await?;
+                        sqlx::query("INSERT OR IGNORE INTO push_jobs(message_id,subscription_id,document,state) VALUES(?,?,?,'pending')").bind(&message.id).bind(id).bind(serde_json::to_string(&job)?).execute(&mut *tx).await?;
                     }
                 }
             }

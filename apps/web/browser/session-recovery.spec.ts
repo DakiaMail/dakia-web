@@ -54,7 +54,7 @@ for (const width of [390, 1480]) {
     await page.setViewportSize({ width, height: 900 });
     const state = await fixture(page);
     await page.goto("/");
-    await page.getByRole("tab", { name: "List", exact: true }).click();
+    await page.getByRole("tab", { name: "All", exact: true }).click();
     await page.locator(".message-open").filter({ hasText: state.message.subject }).click();
     const body = page.frameLocator('iframe[title="Message body"]').locator("body");
     await expect(body).toContainText("Your open message stays here.");

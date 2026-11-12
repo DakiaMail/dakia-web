@@ -7,7 +7,7 @@ Dakia is a free, open-source, self-hosted email client, not a mail server. Keep 
 ![Dakia's unified inbox and open message, with fictional Work and Personal mailboxes](docs/images/inbox-desktop.webp)
 
 - Bring multiple mailboxes into one inbox without moving your email to a new provider.
-- Read conversations, organize with smart categories, and classify or translate mail on your own server.
+- Read conversations, find Personal and Automated mail, and classify or translate mail on your own server.
 - Use the same responsive app in your desktop browser or on your phone, with PWA installation available.
 
 [Website](https://dakiamail.com) · [Features](docs/features.md) · [Setup guide](docs/getting-started.md)
@@ -59,7 +59,7 @@ Run `sh scripts/upgrade.sh` from your installation directory. It checks publishe
 
 - Invite other people to create separate logins and private mailbox connections.
 - Connect Gmail with Google sign-in, Microsoft accounts with Microsoft Graph, or other IMAP/SMTP accounts, and use a unified inbox.
-- Read conversations, search mail, and organize messages with smart categories.
+- Read conversations, search mail, and filter Personal and Automated mail.
 - Compose rich-text messages with attachments, drafts, and scheduled sending.
 - Archive, snooze, star, move, and clean up messages in bulk.
 - Block unwanted senders across your mailboxes, with optional cleanup of older emails.
@@ -88,7 +88,6 @@ Use the Rust version in `rust-toolchain.toml`, Node.js 24, npm, Python 3, and Op
 npm ci --ignore-scripts
 npm ci --prefix workers/translation --ignore-scripts
 npm ci --prefix workers/push --ignore-scripts
-python3 scripts/fetch-classifier.py
 npm run build
 npm test
 cargo test --workspace --locked
@@ -96,7 +95,7 @@ cargo test --workspace --locked
 
 To build your own container image, run `docker build -t dakia:local .` and set `DAKIA_IMAGE=dakia:local`.
 
-The classifier is downloaded from a pinned revision and checked against its SHA-256 manifest. Translation models are downloaded and verified when needed.
+Mail classification uses deterministic local rules and needs no model download. Translation models are downloaded and verified when needed.
 
 Contributions are welcome through pull requests. Keep changes focused and include relevant checks. Never include mailbox data, credentials, or private captures in an issue or pull request.
 
@@ -116,3 +115,17 @@ limits, authorization, retention and offline behavior.
 ## Try Dakia
 
 Explore the app at [demo.dakiamail.com](https://demo.dakiamail.com). For the sandbox build, checks, and deployment, see [the demo guide](docs/demo.md).
+
+## Inbox classification
+
+Personal is the default inbox tab. Automated and All are one click away. Read mail stays in its tab, and uncertain or unavailable classification stays visible in Personal. Needs attention appears above every inbox tab and is independent of the main distinction.
+
+Detectors recognize overlapping receipts, invoices, orders, shipping, invitations, verification codes, flights, newsletters, offers, and security alerts. English text patterns and structural metadata provide best-effort detection. Missing a type never removes a message from its tab. Row shortcuts copy supported values or open a labelled destination; they never send calendar responses or make payments.
+
+Use More actions to correct Personal/Automated, remember or forget an exact sender for the current account, edit detected types, or change attention. Message corrections win over sender preferences and detector output. Reading does not dismiss attention. Codes stop highlighting at their stated expiry, or after 15 minutes without one. This cutoff does not determine whether a code is valid.
+
+Notifications are for Personal and active attention items, subject to blocking and snooze. Inbox history is progressively reprocessed without replaying notifications. Other messages are requested for classification when their folder results or reader are opened. User corrections and detected details survive body-cache eviction.
+
+Legacy category fields and operations remain available for one compatibility release. Migration preserves old manual choices and keeps their original value. It does not invent detailed types from those choices. Before upgrading, take the normal data and credential backup; restore that backup when reverting to an older image with the previous database schema.
+
+Keyboard: Tab reaches inbox tabs, filters, facts, and actions. Left/Right changes inbox tabs; arrow keys navigate menus and Right/Left opens/closes submenus. Escape restores focus to the triggering control. Existing mail shortcuts remain unchanged.

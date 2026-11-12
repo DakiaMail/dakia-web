@@ -8,6 +8,7 @@ test("saved inbox renders while refresh is pending, then settles without a diagn
     if (path === "/api/session") return route.fulfill({ json: { user_id: "fixture", csrf_token: "fixture" } });
     if (path === "/api/accounts") return route.fulfill({ json: [accounts[0]] });
     if (path === "/api/search") {
+      if (new URL(route.request().url()).searchParams.get("attention") === "true") return route.fulfill({json:{...mail,rows:[],continuation:null}});
       searches++;
       expect(new URL(route.request().url()).searchParams.get("q")).toBe("folder:INBOX");
       return route.fulfill({ json: { ...mail, pending: searches === 1, coverage: [{ ...mail.coverage[0], state: searches === 1 ? "pending" : "complete" }] } });

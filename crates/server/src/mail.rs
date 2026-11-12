@@ -3,15 +3,15 @@
 #[path = "archive_tests.rs"]
 mod archive_tests;
 mod conversation;
+#[cfg(test)]
+#[path = "graph_pipeline_tests.rs"]
+mod graph_pipeline_tests;
 mod inbox;
 #[cfg(test)]
 mod initial_sync_bench;
 #[cfg(test)]
 #[path = "mail_tests.rs"]
 mod integration_tests;
-#[cfg(test)]
-#[path = "graph_pipeline_tests.rs"]
-mod graph_pipeline_tests;
 mod reconcile;
 #[path = "mail_references.rs"]
 mod references;
@@ -281,9 +281,20 @@ fn arrival_time(value: &str) -> Result<String> {
 }
 impl MailRuntime {
     pub(crate) async fn wake_graph(&self, account: &str) {
-        if let Some(graph) = self.providers.lock().await.get(account).and_then(|p| p.graph()) { graph.wake(); }
+        if let Some(graph) = self
+            .providers
+            .lock()
+            .await
+            .get(account)
+            .and_then(|p| p.graph())
+        {
+            graph.wake();
+        }
     }
-    pub fn with_microsoft(mut self, config: Option<crate::microsoft_oauth::MicrosoftConfig>) -> Self {
+    pub fn with_microsoft(
+        mut self,
+        config: Option<crate::microsoft_oauth::MicrosoftConfig>,
+    ) -> Self {
         self.microsoft = config;
         self
     }
@@ -322,17 +333,28 @@ impl MailRuntime {
         let lane = self.reconciliation_lane(a).await;
         let _guard = lane.lock().await;
         let mut providers = self.providers.lock().await;
-        let account = store.accounts(a.user_id()).await?.into_iter().find(|account| account.id==a.id()).ok_or(Error::NotFound)?;
-        if account.email != confirmation { return Err(Error::Invalid.into()); }
+        let account = store
+            .accounts(a.user_id())
+            .await?
+            .into_iter()
+            .find(|account| account.id == a.id())
+            .ok_or(Error::NotFound)?;
+        if account.email != confirmation {
+            return Err(Error::Invalid.into());
+        }
         let unsubscribe = if let Some(graph) = providers.get(a.id()).and_then(|p| p.graph()) {
             crate::graph_push::prepare_removal(store, a, graph).await
-        } else { None };
+        } else {
+            None
+        };
         store.remove_account(a, confirmation).await?;
         if let Some(provider) = providers.remove(a.id()) {
             provider.retire();
         }
         drop(providers);
-        if let Some(request) = unsubscribe { let _ = request.send().await; }
+        if let Some(request) = unsubscribe {
+            let _ = request.send().await;
+        }
         self.inbox_refreshes.lock().await.remove(a.id());
         self.sync_lanes.lock().await.remove(a.id());
         Ok(())
@@ -458,17 +480,30 @@ impl MailRuntime {
         let input = store.credential(a).await?;
         let settings = self.settings(store, a).await?;
         if input.provider == ProviderKind::Microsoft {
-            let configuration = input.microsoft_oauth.zip(self.microsoft.clone())
-                .filter(|(grant, config)| config.client_id == grant.client_id && config.tenant == grant.tenant);
+            let configuration =
+                input
+                    .microsoft_oauth
+                    .zip(self.microsoft.clone())
+                    .filter(|(grant, config)| {
+                        config.client_id == grant.client_id && config.tenant == grant.tenant
+                    });
             let Some((grant, config)) = configuration else {
                 store.account_state(a, AccountState::Reconnect).await?;
-                return Err(ApiFailure(StatusCode::UNAUTHORIZED, "account_reconnect_required"));
+                return Err(ApiFailure(
+                    StatusCode::UNAUTHORIZED,
+                    "account_reconnect_required",
+                ));
             };
             let source = Arc::new(crate::microsoft_oauth::MicrosoftToken::new(
-                config, grant, store.clone(), a.clone(),
+                config,
+                grant,
+                store.clone(),
+                a.clone(),
             ));
             let graph = p::GraphProvider::new(
-                a.id().into(), source, p::FolderMapping {
+                a.id().into(),
+                source,
+                p::FolderMapping {
                     sent: settings.sent_folder,
                     archive: settings.archive_folder,
                     trash: settings.trash_folder,
@@ -702,7 +737,8 @@ impl MailRuntime {
             .map(|metadata| {
                 if metadata.reference.account_id != a.id()
                     || match &metadata.identity {
-                        p::Identity::Gmail { account_id, .. } | p::Identity::Graph { account_id, .. } => account_id != a.id(),
+                        p::Identity::Gmail { account_id, .. }
+                        | p::Identity::Graph { account_id, .. } => account_id != a.id(),
                         p::Identity::Imap(r) => r.account_id != a.id(),
                     }
                 {
@@ -715,22 +751,50 @@ impl MailRuntime {
                 })
             })
             .collect::<Result<_>>()?;
-        if metadata.iter().any(|m| matches!(m.identity, p::Identity::Graph { .. })) {
+        if metadata
+            .iter()
+            .any(|m| matches!(m.identity, p::Identity::Graph { .. }))
+        {
             let provider = self.provider(store, a).await?;
             if let Some(graph) = provider.graph() {
                 if !graph.immutable_ids().await.map_err(provider_error)? {
                     for (row, provider_id) in metadata.iter().zip(&provider_ids) {
-                        if store.known_provider_message(a, provider_id).await?.is_some() { continue; }
-                        let parsed = mail_parser::MessageParser::default().parse(&row.headers)
-                            .ok_or(ApiFailure(StatusCode::BAD_GATEWAY, "invalid_message_headers"))?;
-                        let Some(rfc_id) = conversation::message_id(&parsed) else { continue };
-                        let (_, document) = conversation::remembered_document("", &row.headers, None, row.size)?;
-                        let document: serde_json::Value = serde_json::from_str(&document).map_err(Error::from)?;
-                        let Some(fingerprint) = document["fingerprint"].as_str() else { continue };
-                        let Some(new_id) = &row.reference.graph_id else { continue };
-                        if let Some((id, old_id)) = store.graph_identity_candidate(a, &rfc_id, fingerprint, new_id).await? {
+                        if store
+                            .known_provider_message(a, provider_id)
+                            .await?
+                            .is_some()
+                        {
+                            continue;
+                        }
+                        let parsed = mail_parser::MessageParser::default()
+                            .parse(&row.headers)
+                            .ok_or(ApiFailure(
+                                StatusCode::BAD_GATEWAY,
+                                "invalid_message_headers",
+                            ))?;
+                        let Some(rfc_id) = conversation::message_id(&parsed) else {
+                            continue;
+                        };
+                        let (_, document) =
+                            conversation::remembered_document("", &row.headers, None, row.size)?;
+                        let document: serde_json::Value =
+                            serde_json::from_str(&document).map_err(Error::from)?;
+                        let Some(fingerprint) = document["fingerprint"].as_str() else {
+                            continue;
+                        };
+                        let Some(new_id) = &row.reference.graph_id else {
+                            continue;
+                        };
+                        if let Some((id, old_id)) = store
+                            .graph_identity_candidate(a, &rfc_id, fingerprint, new_id)
+                            .await?
+                        {
                             // Matching headers alone can be a copy. Prove the old locator is gone.
-                            if !graph.message_exists(&old_id).await.map_err(provider_error)? {
+                            if !graph
+                                .message_exists(&old_id)
+                                .await
+                                .map_err(provider_error)?
+                            {
                                 store.link_identity(a, provider_id, &id).await?;
                             }
                         }
@@ -803,6 +867,7 @@ impl MailRuntime {
                 starred: metadata.starred,
                 category: None,
                 category_status: CategoryStatus::Pending,
+                classification: None,
                 revision: 0,
             };
             if sent {
@@ -921,6 +986,7 @@ impl MailRuntime {
         a: &AuthorizedAccount,
         id: &str,
     ) -> Result<MessageContent> {
+        store.request_classification(a, &[id.to_owned()]).await?;
         let lane = self.content_lane(a, id).await;
         let _guard = lane.lock().await;
         if let Some(mut c) = store.cached_content(a, id).await? {

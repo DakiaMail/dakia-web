@@ -11,7 +11,7 @@ test("48-message cleanup is optimistic, silent across reload and eventually appl
   const writes: string[] = [];
   page.on("request", r => { if (r.method() === "POST") writes.push(new URL(r.url()).pathname); });
   await page.goto("/");
-  await page.getByRole("tab", { name: "List", exact: true }).click();
+  await page.getByRole("tab", { name: "All", exact: true }).click();
 
   // Virtualized rows can be below the initial viewport. The exact source is
   // discovered using the real read-only local catalogue, not guessed IDs.

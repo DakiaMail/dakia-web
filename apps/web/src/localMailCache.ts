@@ -1,7 +1,8 @@
+import { isClassification } from "./classification";
 import type { Account, Message, MessageContent, SearchPage } from "@dakia/api-types";
 import type { InfiniteData, QueryClient, QueryKey } from "@tanstack/react-query";
 
-const DB = "dakia-local-mail-v1";
+const DB = "dakia-local-mail-v2";
 const LIMIT = 64 * 1024 * 1024;
 const AGE = 7 * 86400000;
 const MAX_ENTRIES = 2000;
@@ -24,7 +25,7 @@ function message(value: unknown): value is Message {
   const m = value as Message | null;
   return !!m && [m.id, m.account_id, m.thread_id, m.provider_id, m.subject, m.preview, m.received_at, m.category_status].every(v => typeof v === "string") &&
     Number.isFinite(Date.parse(m.received_at)) && Number.isFinite(m.revision) && typeof m.unread === "boolean" && typeof m.starred === "boolean" &&
-    (m.category == null || typeof m.category === "string") && Array.isArray(m.folder_ids) && m.folder_ids.every(f => typeof f === "string") && address(m.sender) && Array.isArray(m.to) && m.to.every(address);
+    (m.classification == null || isClassification(m.classification)) && (m.category == null || typeof m.category === "string") && Array.isArray(m.folder_ids) && m.folder_ids.every(f => typeof f === "string") && address(m.sender) && Array.isArray(m.to) && m.to.every(address);
 }
 
 export class LocalMailCache {
@@ -63,6 +64,8 @@ export class LocalMailCache {
   }
   private open() {
     if (!this.db) this.db = new Promise<IDBDatabase>((resolve, reject) => {
+      // Discard the old category snapshots instead of leaving private mail in an unused database.
+      indexedDB.deleteDatabase("dakia-local-mail-v1");
       const r = indexedDB.open(DB, 1);
       r.onupgradeneeded = () => {
         r.result.createObjectStore("entries", { keyPath: "key" });

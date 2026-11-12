@@ -26,7 +26,7 @@ async function fixture(page: Page): Promise<FixtureState> {
         body: ": connected\n\n",
       });
     if (path === "/api/search" || path.endsWith("/messages"))
-      return respond(mail);
+      return respond(url.searchParams.get("attention") === "true" ? { ...mail, rows: [], continuation: null } : mail);
     if (path.endsWith("/unsubscribe")) return respond(null);
     if (path.endsWith("/conversation")) return respond({ rows: [mail.rows.find(m => path.includes(`/messages/${m.id}/`)) || content.message], continuation: null, complete: true });
     if (path.includes("/messages/"))
@@ -268,20 +268,21 @@ test("workspace management consolidates accounts, settings and notification cont
   await page.getByRole("button", { name: "Close", exact: true }).click();
   await workspace.getByRole("button", { name: "Back to mail" }).click();
   await expect(page.getByRole("combobox", { name: "Account filter" })).toHaveValue("work");
-  await expect(page.getByRole("tab", { name: "Smart" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Personal" })).toBeVisible();
 });
 test("mobile compact toolbar, FAB and real touch pull refresh have bounded requests", async ({ page, context }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await fixture(page);
   let searches = 0;
-  page.on("request", (request) => { if (new URL(request.url()).pathname === "/api/search") searches++; });
+  page.on("request", (request) => { const url = new URL(request.url()); if (url.pathname === "/api/search" && !url.searchParams.has("attention")) searches++; });
   await page.goto("/");
-  await expect(page.getByRole("tab", { name: "Smart" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Personal" })).toBeVisible();
   await expect(page.locator(".header-refresh")).toBeVisible();
   await expect(page.getByLabel("Loaded messages", { exact: true })).toBeHidden();
   const menu = await page.getByRole("button", { name: "Open navigation" }).boundingBox();
   const tabs = await page.getByRole("tablist", { name: "Inbox view" }).boundingBox();
-  expect(Math.abs(menu!.y - tabs!.y)).toBeLessThan(12);
+  expect(tabs!.y).toBeGreaterThan(menu!.y + menu!.height);
+  expect(tabs!.x + tabs!.width).toBeLessThanOrEqual(390);
   const fab = page.locator(".list-compose");
   const box = await fab.boundingBox();
   expect(box!.y).toBeGreaterThan(700);
@@ -1008,7 +1009,7 @@ test("notification deep link selects the owned account and message", async ({
     page.getByRole("combobox", { name: "Account filter" }),
   ).toHaveValue("work");
 });
-test("smart/list switching retains selected message and scroll position", async ({
+test("inbox tabs retain the reader and separate scroll positions", async ({
   page,
 }) => {
   // Keep sufficient overflow for the 160px scroll in the compact list too.
@@ -1020,11 +1021,14 @@ test("smart/list switching retains selected message and scroll position", async 
   await list.evaluate((el) => {
     el.scrollTop = 160;
   });
-  await page.getByRole("tab", { name: "List", exact: true }).click();
+  await page.getByRole("tab", { name: "All", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "A few thoughts on the launch" }),
   ).toBeVisible();
-  expect(await list.evaluate((el) => el.scrollTop)).toBe(160);
-  await page.getByRole("tab", { name: "Smart", exact: true }).click();
-  expect(await list.evaluate((el) => el.scrollTop)).toBe(160);
+  await expect.poll(() => list.evaluate((el) => el.scrollTop)).toBe(0);
+  await list.evaluate((el) => { el.scrollTop = 80; });
+  await page.getByRole("tab", { name: "Personal", exact: true }).click();
+  await expect.poll(() => list.evaluate((el) => el.scrollTop)).toBe(160);
+  await page.getByRole("tab", { name: "All", exact: true }).click();
+  await expect.poll(() => list.evaluate((el) => el.scrollTop)).toBe(80);
 });

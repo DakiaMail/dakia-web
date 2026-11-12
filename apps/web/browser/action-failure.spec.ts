@@ -24,7 +24,7 @@ for (const width of [390, 1480]) test(`opening unread mail identifies failed aut
     return respond([]);
   });
   await page.goto("/");
-  await page.getByRole("tab", { name: "List", exact: true }).click();
+  await page.getByRole("tab", { name: "All", exact: true }).click();
   await page.locator(".message-open").filter({ hasText: message.subject }).click();
   await expect(page.getByRole("status").filter({ hasText: "Still marked unread" })).toBeVisible();
   await expect(page.getByRole("alert")).toHaveCount(0);

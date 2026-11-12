@@ -106,7 +106,7 @@ test("folder count and body byte budgets evict oldest records", async () => {
     client.setQueryData(["content", "work", String(i)], { ...content, message: { ...content.message, id: String(i) }, html: "x".repeat(1024 * 1024) });
   }
   await cache.flush();
-  const db = await new Promise<IDBDatabase>((resolve, reject) => { const r = indexedDB.open("dakia-local-mail-v1"); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); });
+  const db = await new Promise<IDBDatabase>((resolve, reject) => { const r = indexedDB.open("dakia-local-mail-v2"); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); });
   const sizes = await new Promise<{ bytes: number }[]>(resolve => { const r = db.transaction("sizes").objectStore("sizes").getAll(); r.onsuccess = () => resolve(r.result); });
   expect(sizes.reduce((sum, entry) => sum + entry.bytes, 0)).toBeLessThanOrEqual(64 * 1024 * 1024);
   expect(sizes.length).toBeLessThan(40); db.close();
@@ -118,15 +118,15 @@ test("reconnecting an account with a new identity discards its previous mail", a
   expect(client.getQueryData(body)).toBeUndefined();
   expect(await cache.body(content.message.account_id, content.message.id)).toBeUndefined();
 });
-test("a malformed saved header falls back to live mail instead of crashing the reader", async () => {
+test.each(["subject", "classification"])("a malformed saved %s falls back to live mail instead of crashing the reader", async field => {
   await save();
-  const db = await new Promise<IDBDatabase>(resolve => { const r = indexedDB.open("dakia-local-mail-v1"); r.onsuccess = () => resolve(r.result); });
+  const db = await new Promise<IDBDatabase>(resolve => { const r = indexedDB.open("dakia-local-mail-v2"); r.onsuccess = () => resolve(r.result); });
   await new Promise<void>(resolve => {
     const tx = db.transaction("entries", "readwrite"), store = tx.objectStore("entries");
     const read = store.get(JSON.stringify(["alice", folder]));
     read.onsuccess = () => {
       const entry = read.result, data = JSON.parse(entry.json);
-      data.pages[0].rows[0].subject = { corrupt: true };
+      data.pages[0].rows[0][field] = { corrupt: true };
       entry.json = JSON.stringify(data); store.put(entry);
     };
     tx.oncomplete = () => resolve();
@@ -144,5 +144,13 @@ test("a late session response cannot authorize the cache again after sign-out", 
   client.setQueryData(body, content); await cache.flush();
   const fresh = new LocalMailCache(false), next = new QueryClient(); await auth(fresh, next);
   expect(await fresh.body(content.message.account_id, content.message.id)).toBeUndefined();
+  await fresh.clear(); next.clear();
+});
+
+test("opening the new namespace discards the obsolete category cache", async () => {
+  await new Promise<void>(resolve => { const r = indexedDB.open("dakia-local-mail-v1"); r.onsuccess = () => { r.result.close(); resolve(); }; });
+  const fresh = new LocalMailCache(false), next = new QueryClient();
+  await auth(fresh, next);
+  expect((await indexedDB.databases()).some(db => db.name === "dakia-local-mail-v1")).toBe(false);
   await fresh.clear(); next.clear();
 });

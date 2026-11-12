@@ -29,7 +29,7 @@ async function fixture(page: Page) {
     return respond([]);
   });
   await page.goto("/");
-  await expect(page.getByRole("tab", { name: "List", exact: true })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "All", exact: true })).toBeVisible();
 }
 async function screenshot(page: Page, name: string) {
   mkdirSync(dir, { recursive: true });
@@ -63,7 +63,7 @@ test("production manifest, real worker, installability and static-only Cache Sto
   await expect.poll(() => page.evaluate(() => caches.keys())).toEqual(["unrelated-app", "dakia-static-v1"]);
   await page.evaluate(() => fetch("/api/private-sentinel").then(r => r.json()));
   await page.reload();
-  await expect(page.getByRole("tab", { name: "List", exact: true })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "All", exact: true })).toBeVisible();
   expect(await page.evaluate(() => caches.keys())).toEqual(["unrelated-app", "dakia-static-v1"]);
   const cached = await page.evaluate(async () => (await (await caches.open("dakia-static-v1")).keys()).map(r => new URL(r.url).pathname));
   expect(cached.length).toBeGreaterThan(0);
@@ -84,7 +84,7 @@ test("production manifest, real worker, installability and static-only Cache Sto
   await screenshot(app, "chromium-installed-standalone");
   // Traverse the actual installed app's browser history, not only a viewport
   // emulation. Back closes the reader; Back at the root stays in the PWA.
-  await app.getByRole("tab", { name: "List", exact: true }).click();
+  await app.getByRole("tab", { name: "All", exact: true }).click();
   await app.locator(".message-open").first().click();
   await expect(app.locator(".app")).toHaveClass(/reading/);
   await app.goBack();

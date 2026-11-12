@@ -1,3 +1,4 @@
+import { optimisticClassification, type MailFilter } from "./classification";
 import { localTransport } from "./localTransport";
 import type {
   Account,
@@ -119,9 +120,10 @@ export const api = {
     excludeTrash = false,
     refresh = false,
     cacheFirst = false,
+    classification: MailFilter = {},
   ) =>
     request<SearchPage>(
-      `/search?${new URLSearchParams({ q, accounts: ids.join(","), ...(continuation ? { continuation } : {}), ...(category ? { category } : {}), ...(excludeTrash ? { exclude_trash: "true" } : {}), ...(refresh ? { refresh: "true" } : {}), ...(cacheFirst ? { cache_first: "true" } : {}) })}`,
+      `/search?${new URLSearchParams({ q, accounts: ids.join(","), ...(continuation ? { continuation } : {}), ...(category ? { category } : {}), ...(excludeTrash ? { exclude_trash: "true" } : {}), ...(refresh ? { refresh: "true" } : {}), ...(cacheFirst ? { cache_first: "true" } : {}), ...(classification.inbox_kind ? { inbox_kind: classification.inbox_kind } : {}), ...(classification.email_type ? { email_type: classification.email_type } : {}), ...(classification.attention ? { attention: "true" } : {}) })}`,
       { signal },
     ),
   content: (m: Message) =>
@@ -182,6 +184,10 @@ export function optimistic(message: Message, change: Change): Message {
       return { ...message, unread: !change.value };
     case "star":
       return { ...message, starred: change.value };
+    case "inbox_kind":
+    case "detected_type":
+    case "attention":
+      return optimisticClassification(message, change);
     case "category":
       return { ...message, category: change.value, category_status: "ready" };
     case "archive":
@@ -212,6 +218,9 @@ export function actionLabel(change: Change): string {
     case "move": return "Move";
     case "category": return "Change category";
     case "snooze": return "Snooze";
+    case "inbox_kind": return "Change inbox classification";
+    case "detected_type": return "Change detected type";
+    case "attention": return "Change attention";
   }
 }
 // Serialize each target's mutations. An older failure never restores stale state over a newer intent.

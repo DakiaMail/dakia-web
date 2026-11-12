@@ -7,6 +7,7 @@ use axum::{
 use dakia_domain::*;
 use dakia_inference::{ContentSnapshot, EmailClassificationInput, LocalEmailClassifier};
 use dakia_storage::{AuthorizedAccount, Error, ModelFailureReason};
+use mail_parser::MimeHeaders;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::{
@@ -64,7 +65,10 @@ pub(crate) async fn queue(
     let a = app.store.authorize(&user.user, &account).await?;
     source(&query.language)?;
     if !crate::translation_policy::mode(&app).await?.permits_host() {
-        return Err(ApiFailure(StatusCode::FORBIDDEN, "host_translation_disabled"));
+        return Err(ApiFailure(
+            StatusCode::FORBIDDEN,
+            "host_translation_disabled",
+        ));
     }
     let revision = translation_revision()?;
     Ok(Json(
@@ -152,27 +156,21 @@ pub(crate) async fn node_worker(
     result
 }
 pub async fn run(app: App) {
-    let path = std::env::var("DAKIA_CLASSIFIER_DIR")
-        .unwrap_or_else(|_| "crates/inference/assets/email-classifier-v2".into());
-    let classifier =
-        tokio::task::spawn_blocking(move || LocalEmailClassifier::from_dir(path)).await;
-    let (classifier, revision) = match classifier {
-        Ok(Ok(classifier)) => {
-            let revision = classifier.revision().to_owned();
-            (Some(Arc::new(Mutex::new(classifier))), revision)
-        }
-        _ => {
-            tracing::warn!("classification runtime unavailable");
-            (None, String::new())
-        }
-    };
+    let revision = dakia_inference::POLICY_REVISION.to_owned();
+    let classifier = Some(Arc::new(Mutex::new(LocalEmailClassifier)));
     let mut recovered = std::collections::HashSet::new();
     loop {
         if app.store.jobs_enabled().await.unwrap_or(false) {
             if let Ok(accounts) = app.store.job_accounts().await {
                 for a in accounts {
                     if !recovered.contains(a.id()) {
-                        if app.store.recover_models(&a).await.is_err() {
+                        if app.store.recover_models(&a).await.is_err()
+                            || app
+                                .store
+                                .requeue_classification_policy(&a, &revision)
+                                .await
+                                .is_err()
+                        {
                             continue;
                         }
                         recovered.insert(a.id().to_owned());
@@ -217,10 +215,10 @@ pub async fn run(app: App) {
                         let job_key = crate::diagnostics::correlation(&job.id);
                         if let Err(error) = app
                             .store
-                            .finish_model(
+                            .finish_classification(
                                 &a,
                                 job,
-                                category.as_deref(),
+                                category.as_ref(),
                                 translation.as_ref().map(|(s, c)| (s.as_str(), c)),
                             )
                             .await
@@ -236,23 +234,25 @@ pub async fn run(app: App) {
         tokio::time::sleep(Duration::from_secs(2)).await;
     }
 }
-async fn execute(
+pub(crate) async fn execute(
     app: &App,
     a: &AuthorizedAccount,
     job: &ModelJob,
     classifier: Option<Arc<Mutex<LocalEmailClassifier>>>,
     reason: &mut ModelFailureReason,
-) -> Result<Option<(Option<String>, Option<(String, MessageContent)>)>, Error> {
-    if job.kind == JobKind::Classify && !app.store.message(a, &job.message_id).await?.unread {
-        return Ok(None);
-    }
+) -> Result<Option<(Option<Classification>, Option<(String, MessageContent)>)>, Error> {
     if chrono::DateTime::parse_from_rfc3339(&job.deadline).map_err(|_| Error::Invalid)?
         <= chrono::Utc::now()
     {
         *reason = ModelFailureReason::Deadline;
         return Err(Error::Invalid);
     }
-    if job.kind == JobKind::Translate && !crate::translation_policy::mode(app).await.map_err(|_| Error::Invalid)?.permits_host() {
+    if job.kind == JobKind::Translate
+        && !crate::translation_policy::mode(app)
+            .await
+            .map_err(|_| Error::Invalid)?
+            .permits_host()
+    {
         return Ok(None);
     }
     let content = app
@@ -263,9 +263,6 @@ async fn execute(
             *reason = content_failure_reason(&error);
             Error::Invalid
         })?;
-    if job.kind == JobKind::Classify && !app.store.message(a, &job.message_id).await?.unread {
-        return Ok(None);
-    }
     if content.message.revision != job.content_revision {
         *reason = ModelFailureReason::RevisionChanged;
         return Err(Error::Conflict);
@@ -277,7 +274,13 @@ async fn execute(
             .await?
             .ok_or(Error::Invalid)?;
         let html = !content.html.is_empty();
-        if !crate::translation_policy::mode(app).await.map_err(|_| Error::Invalid)?.permits_host() { return Ok(None); }
+        if !crate::translation_policy::mode(app)
+            .await
+            .map_err(|_| Error::Invalid)?
+            .permits_host()
+        {
+            return Ok(None);
+        }
         let input = serde_json::json!({"job":job,"scope":{"account_id":a.id(),"message_id":job.message_id,"content_revision":job.content_revision},"source":source,"text":if html {&content.html}else{&content.text},"html":html});
         let result = tokio::select! {
             result = node_worker("translation", input) => result?,
@@ -288,7 +291,13 @@ async fn execute(
                 }
             } => return Ok(None),
         };
-        if !crate::translation_policy::mode(app).await.map_err(|_| Error::Invalid)?.permits_host() { return Ok(None); }
+        if !crate::translation_policy::mode(app)
+            .await
+            .map_err(|_| Error::Invalid)?
+            .permits_host()
+        {
+            return Ok(None);
+        }
         if result["account_id"] != job.account_id
             || result["message_id"] != job.message_id
             || result["job_id"] != job.id
@@ -316,15 +325,12 @@ async fn execute(
             *reason = content_failure_reason(&error);
             Error::Invalid
         })?;
-    if !app.store.message(a, &job.message_id).await?.unread {
-        return Ok(None);
-    }
     let parsed = mail_parser::MessageParser::default()
         .parse(&raw)
         .ok_or(Error::Invalid)?;
     let signals =
         dakia_inference::signals::classification_signals(&parsed, &content.message.folder_ids);
-    let input = EmailClassificationInput::new(
+    let mut input = EmailClassificationInput::new(
         content.message.sender.name.as_deref(),
         &content.message.sender.email,
         &content.message.subject,
@@ -336,6 +342,17 @@ async fn execute(
             .known_recipient(a, &content.message.sender.email)
             .await?,
     );
+    input.received_at = content.message.received_at.clone();
+    input.html = content.html.chars().take(256_000).collect();
+    input.calendar = parsed
+        .parts
+        .iter()
+        .filter(|part| part.is_content_type("text", "calendar"))
+        .filter_map(|part| part.text_contents())
+        .take(4)
+        .map(|text| text.chars().take(64_000).collect::<String>())
+        .collect::<Vec<_>>()
+        .join("\n");
     let job = job.clone();
     let classifier = classifier.ok_or(Error::Invalid)?;
     let category = tokio::task::spawn_blocking(move || {
@@ -343,11 +360,9 @@ async fn execute(
             account_id: &job.account_id,
             message_id: &job.message_id,
             content_revision: job.content_revision,
-            manual_category: None,
         };
         let mut classifier = classifier.lock().map_err(|_| Error::Invalid)?;
         dakia_inference::classify_job(&mut classifier, &job, &snapshot, input)
-            .map(|r| r.category)
             .map_err(|_| Error::Invalid)
     })
     .await
@@ -366,78 +381,6 @@ fn content_failure_reason(error: &ApiFailure) -> ModelFailureReason {
 #[cfg(test)]
 mod recovery_tests {
     use super::*;
-    #[tokio::test]
-    async fn read_after_claim_skips_content_fetch_and_classifier() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = dakia_storage::Store::open(dir.path(), [4; 32])
-            .await
-            .unwrap();
-        let user = store.user("issuer", "owner").await.unwrap();
-        let input = serde_json::from_value(serde_json::json!({
-            "email":"fixture@example.invalid","display_name":"Fixture","provider":"imap",
-            "imap_host":"imap.invalid","imap_port":993,"imap_tls":"implicit",
-            "smtp_host":"smtp.invalid","smtp_port":465,"smtp_tls":"implicit",
-            "username":"fixture","password":"fixture-only"
-        }))
-        .unwrap();
-        let account = store.connect(&user, &input).await.unwrap();
-        let a = store.authorize(&user, &account.id).await.unwrap();
-        let message: Message = serde_json::from_value(serde_json::json!({
-            "id":"fixture","account_id":a.id(),"thread_id":"thread","provider_id":"stable",
-            "folder_ids":["INBOX"],"sender":{"email":"sender@example.invalid","name":null},
-            "to":[],"subject":"Fixture","preview":"","received_at":"2026-10-30T00:00:00Z",
-            "unread":true,"starred":false,"category":null,"category_status":"pending","revision":0
-        }))
-        .unwrap();
-        let mut message = store.upsert_message(&a, message).await.unwrap();
-        store
-            .queue_model(&a, &message.id, JobKind::Classify, "fixture", None)
-            .await
-            .unwrap();
-        let mut job = store.claim_model(&a).await.unwrap().unwrap();
-        // Simulate an external read flag arriving through sync after claim.
-        message.unread = false;
-        store.upsert_message(&a, message).await.unwrap();
-        let app = App {
-            store,
-            mail: crate::mail::MailRuntime::default(),
-            config: Arc::new(crate::Config {
-                origin: "https://dakia.invalid".into(),
-                issuer: "https://id.invalid".into(),
-                client_id: "fixture".into(),
-                client_secret: "fixture".into(),
-                web_root: "missing".into(),
-            }),
-        };
-        // No content, provider reference or classifier exists. Any content fetch
-        // or inference would fail; a read message must instead skip successfully.
-        let mut reason = ModelFailureReason::WorkerFailed;
-        assert!(execute(&app, &a, &job, None, &mut reason)
-            .await
-            .unwrap()
-            .is_none());
-        // If it becomes unread again before finish, retain the skipped outcome
-        // and let scheduling create a job with its new revision.
-        let mut message = app.store.message(&a, &job.message_id).await.unwrap();
-        message.unread = true;
-        app.store.upsert_message(&a, message).await.unwrap();
-        job.status = JobStatus::Cancelled;
-        app.store
-            .finish_model(&a, job.clone(), None, None)
-            .await
-            .unwrap();
-        assert_eq!(
-            app.store.model_job(&a, &job.id).await.unwrap().status,
-            JobStatus::Cancelled
-        );
-        assert!(app
-            .store
-            .classification_candidate(&a)
-            .await
-            .unwrap()
-            .is_some());
-    }
-
     #[test]
     fn every_registered_english_model_is_accepted_as_source() {
         let registry: serde_json::Value =

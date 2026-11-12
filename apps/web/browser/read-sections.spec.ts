@@ -32,84 +32,41 @@ async function fixture(page: Page, failed = false) {
   return operations;
 }
 const notice = (page: Page, i: number) => page.locator(".message-row").filter({ hasText: `Notice ${i}` });
-const section = (page: Page, label: string) => page.getByRole("button", { name: new RegExp(`^${label} ·`) });
-
-test("read mail stays in Notifications until another email opens, then animates into Seen", async ({ page }) => {
+for (const width of [390, 1480]) test(`reading keeps mail in place without Seen groups at ${width}`, async ({ page }) => {
+  await page.setViewportSize({ width, height: 844 });
   const operations = await fixture(page);
-  const first = notice(page, 0);
-  await first.locator(".message-open").click();
+  const order = await page.locator(".message-row").evaluateAll(rows => rows.map(row => row.getAttribute("data-message-id") || row.textContent));
+  await notice(page, 0).locator(".message-open").click();
   await expect.poll(() => operations.length).toBe(1);
   expect(operations[0].change).toEqual({ kind: "read", value: true });
-  await expect(first).not.toHaveClass(/unread/);
-  await expect(section(page, "notifications")).toHaveAttribute("aria-label", "notifications · 3 loaded messages");
-  await expect(section(page, "seen")).toHaveCount(0);
-  const position = await first.boundingBox();
-  await page.waitForTimeout(350);
-  expect(await first.boundingBox()).toEqual(position);
+  if (width === 390) { await page.goBack(); await expect(page.locator(".app")).not.toHaveClass(/reading/); }
+  await expect(notice(page, 0)).not.toHaveClass(/unread/);
   await notice(page, 1).locator(".message-open").click();
-  await expect(first).toHaveClass(/leaving-section/);
-  await expect(first).toHaveCSS("animation-name", "read-section-exit");
-  await expect(section(page, "notifications")).toHaveAttribute("aria-label", "notifications · 2 loaded messages");
-  await expect(section(page, "seen")).toHaveAttribute("aria-label", "seen · 1 loaded messages");
-  await expect(first).not.toHaveClass(/leaving-section/);
-  await expect(page.locator(".message-row")).toHaveCount(3);
-});
-
-test("mobile returning to the list holds the read row until opening another message", async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await fixture(page);
-  await notice(page, 0).locator(".message-open").click();
-  await expect(page.locator(".app")).toHaveClass(/reading/);
-  await page.goBack();
-  await expect(page.locator(".app")).not.toHaveClass(/reading/);
+  if (width === 390) { await page.goBack(); await expect(page.locator(".app")).not.toHaveClass(/reading/); }
   await expect(notice(page, 0)).toBeVisible();
-  await expect(section(page, "seen")).toHaveCount(0);
-  await notice(page, 1).locator(".message-open").click();
-  await page.goBack();
-  await expect(section(page, "seen")).toHaveAttribute("aria-label", "seen · 1 loaded messages");
+  await expect(page.locator(".message-row")).toHaveCount(3);
+  await expect(page.locator(".group-heading")).toHaveCount(0);
+  await expect(notice(page, 0)).not.toHaveClass(/leaving-section/);
+  expect(await page.locator(".message-row").evaluateAll(rows => rows.map(row => row.getAttribute("data-message-id") || row.textContent))).toEqual(order);
 });
 
-test("failed reads remain unread in their category", async ({ page }) => {
+test("failed reads remain unread and visible", async ({ page }) => {
   await fixture(page, true);
   await notice(page, 0).locator(".message-open").click();
   await expect(page.getByRole("status").filter({ hasText: "Still marked unread" })).toBeVisible();
   await notice(page, 1).locator(".message-open").click();
   await expect(notice(page, 0)).toHaveClass(/unread/);
-  await expect(section(page, "notifications")).toHaveAttribute("aria-label", "notifications · 3 loaded messages");
-  await expect(section(page, "seen")).toHaveCount(0);
-});
-
-test("reduced motion disables the departure animation", async ({ page }) => {
-  await page.emulateMedia({ reducedMotion: "reduce" });
-  await fixture(page);
-  await notice(page, 0).locator(".message-open").click();
-  await notice(page, 1).locator(".message-open").click();
-  await expect(notice(page, 0)).toHaveClass(/leaving-section/);
-  await expect(notice(page, 0)).toHaveCSS("animation-name", "none");
-  await expect(section(page, "seen")).toBeVisible();
-});
-
-test("reopening a departing email cancels its removal", async ({ page }) => {
-  await fixture(page);
-  await notice(page, 0).locator(".message-open").click();
-  await notice(page, 1).locator(".message-open").click();
-  await expect(notice(page, 0)).toHaveClass(/leaving-section/);
-  // Keyboard activation also covers returning before the departure completes.
-  await notice(page, 0).locator(".message-open").press("Enter");
-  await expect(notice(page, 0)).not.toHaveClass(/leaving-section/);
-  await page.waitForTimeout(350);
-  await expect(section(page, "notifications")).toHaveAttribute("aria-label", "notifications · 2 loaded messages");
-  await expect(notice(page, 0)).toHaveClass(/selected/);
   await expect(page.locator(".message-row")).toHaveCount(3);
 });
 
-test("switching views keeps the selected mail without duplicates", async ({ page }) => {
+test("switching tabs preserves the selected reader after reading", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
   await fixture(page);
   await notice(page, 0).locator(".message-open").click();
   await expect(notice(page, 0)).not.toHaveClass(/unread/);
-  await page.getByRole("tab", { name: "List", exact: true }).click();
-  await expect(section(page, "notifications")).toHaveCount(0);
-  await page.getByRole("tab", { name: "Smart", exact: true }).click();
+  await page.getByRole("tab", { name: "All", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Notice 0", exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "Personal", exact: true }).click();
   await expect(notice(page, 0)).toHaveClass(/selected/);
   await expect(page.locator(".message-row")).toHaveCount(3);
 });

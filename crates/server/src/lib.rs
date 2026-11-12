@@ -2,15 +2,15 @@ pub mod diagnostics;
 mod discovery;
 pub mod executor;
 pub mod gmail_oauth;
-pub mod microsoft_oauth;
-mod graph_sync;
 mod graph_push;
+mod graph_sync;
 pub mod idle;
 mod images;
 mod language;
 mod local_auth;
 mod local_users;
 pub mod mail;
+pub mod microsoft_oauth;
 pub mod models;
 mod mutations;
 pub mod push;
@@ -20,8 +20,8 @@ mod search;
 mod sender_cleanup;
 mod sender_mail;
 mod sync;
-mod unsubscribe;
 mod translation_policy;
+mod unsubscribe;
 use axum::{
     extract::{Path, Query, Request, State},
     http::{header, HeaderMap, StatusCode},
@@ -214,8 +214,14 @@ pub fn router(app: App) -> Router {
 pub fn router_with_shutdown(app: App, shutdown: tokio::sync::watch::Sender<bool>) -> Router {
     let api = Router::new()
         .route("/session", get(session))
-        .route("/translation/settings", get(translation_policy::get_policy).put(translation_policy::set_policy))
-        .route("/translation/models/{hash}", get(translation_policy::download))
+        .route(
+            "/translation/settings",
+            get(translation_policy::get_policy).put(translation_policy::set_policy),
+        )
+        .route(
+            "/translation/models/{hash}",
+            get(translation_policy::download),
+        )
         .route("/logout", post(logout))
         .route("/local-access", get(local_users::access))
         .route("/releases", get(releases::status))
@@ -237,8 +243,14 @@ pub fn router_with_shutdown(app: App, shutdown: tokio::sync::watch::Sender<bool>
             get(gmail_oauth::status).post(gmail_oauth::start),
         )
         .route("/accounts/gmail/callback", get(gmail_oauth::callback))
-        .route("/accounts/microsoft", get(microsoft_oauth::status).post(microsoft_oauth::start))
-        .route("/accounts/microsoft/callback", get(microsoft_oauth::callback))
+        .route(
+            "/accounts/microsoft",
+            get(microsoft_oauth::status).post(microsoft_oauth::start),
+        )
+        .route(
+            "/accounts/microsoft/callback",
+            get(microsoft_oauth::callback),
+        )
         .route("/push/public-key", get(push::public_key))
         .route("/push/subscriptions", post(push::subscribe))
         .route(
@@ -328,7 +340,10 @@ pub fn router_with_shutdown(app: App, shutdown: tokio::sync::watch::Sender<bool>
                 .layer(axum::extract::DefaultBodyLimit::max(4096)),
         )
         .route("/auth/callback", get(callback))
-        .route("/api/microsoft/notifications", post(graph_push::notify).layer(axum::extract::DefaultBodyLimit::max(64 * 1024)))
+        .route(
+            "/api/microsoft/notifications",
+            post(graph_push::notify).layer(axum::extract::DefaultBodyLimit::max(64 * 1024)),
+        )
         .nest("/api", api)
         .fallback_service(
             ServeDir::new(&root).not_found_service(ServeFile::new(format!("{root}/index.html"))),
@@ -386,20 +401,26 @@ async fn messages(
     Query(query): Query<MailPage>,
 ) -> Result<Json<SearchPage>> {
     let a = app.store.authorize(&user.user, &account).await?;
-    Ok(Json(
-        app.mail
-            .page(
-                &app.store,
-                &a,
-                query.folder.as_deref().unwrap_or("INBOX"),
-                dakia_mail_provider::Search {
-                    text: query.q,
-                    ..Default::default()
-                },
-                query.continuation.as_deref(),
-            )
-            .await?,
-    ))
+    let page = app
+        .mail
+        .page(
+            &app.store,
+            &a,
+            query.folder.as_deref().unwrap_or("INBOX"),
+            dakia_mail_provider::Search {
+                text: query.q,
+                ..Default::default()
+            },
+            query.continuation.as_deref(),
+        )
+        .await?;
+    app.store
+        .request_classification(
+            &a,
+            &page.rows.iter().map(|m| m.id.clone()).collect::<Vec<_>>(),
+        )
+        .await?;
+    Ok(Json(page))
 }
 #[tracing::instrument(
     target = "dakia_server::diagnostics",
@@ -709,7 +730,10 @@ async fn connect(
     Extension(id): Extension<Identity>,
     Json(input): Json<ConnectAccount>,
 ) -> Result<Json<Account>> {
-    if input.gmail_oauth.is_some() || input.microsoft_oauth.is_some() || input.provider == ProviderKind::Microsoft {
+    if input.gmail_oauth.is_some()
+        || input.microsoft_oauth.is_some()
+        || input.provider == ProviderKind::Microsoft
+    {
         return Err(ApiFailure(StatusCode::BAD_REQUEST, "invalid_input"));
     }
     Ok(Json(app.store.connect(&id.user, &input).await?))
@@ -721,7 +745,10 @@ async fn reconnect(
     Json(input): Json<ConnectAccount>,
 ) -> Result<Json<Account>> {
     let a = app.store.authorize(&user.user, &account).await?;
-    if input.gmail_oauth.is_some() || input.microsoft_oauth.is_some() || input.provider == ProviderKind::Microsoft {
+    if input.gmail_oauth.is_some()
+        || input.microsoft_oauth.is_some()
+        || input.provider == ProviderKind::Microsoft
+    {
         return Err(ApiFailure(StatusCode::BAD_REQUEST, "invalid_input"));
     }
     Ok(Json(app.mail.reconnect(&app.store, &a, &input).await?))

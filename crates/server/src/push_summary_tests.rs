@@ -78,8 +78,30 @@ async fn newsletter_delivery_gate_reaches_real_worker_only_for_eligible_mail() {
         ("reclassified", Some("people")),
         ("person", Some("people")),
         ("transaction", Some("transactions")),
+        ("routine", Some("transactions")),
     ] {
         let mut m: Message = serde_json::from_value(serde_json::json!({"id":id,"account_id":a.id(),"thread_id":id,"provider_id":id,"folder_ids":["INBOX"],"sender":{"email":"fixture@example.invalid","name":null},"to":[],"subject":"Synthetic","preview":"","received_at":(chrono::Utc::now()+chrono::Duration::hours(1)).to_rfc3339(),"unread":true,"starred":false,"category":category,"category_status":if category.is_some(){"ready"}else{"pending"},"revision":0})).unwrap();
+        m.classification = Some(dakia_domain::Classification {
+            kind: if matches!(category, Some("newsletters" | "transactions")) {
+                InboxKind::Automated
+            } else {
+                InboxKind::Personal
+            },
+            status: if category.is_some() {
+                CategoryStatus::Ready
+            } else {
+                CategoryStatus::Pending
+            },
+            attention: if id == "transaction" {
+                vec![AttentionReason {
+                    label: "Payment failed".into(),
+                    expires_at: None,
+                }]
+            } else {
+                vec![]
+            },
+            ..Default::default()
+        });
         m = app.store.upsert_message(&a, m).await.unwrap();
         for _ in 0..2 {
             app.store
@@ -102,15 +124,37 @@ async fn newsletter_delivery_gate_reaches_real_worker_only_for_eligible_mail() {
         }
         if id == "reclassified" {
             let job = app.store.next_push(&a).await.unwrap().unwrap();
-            m.category = Some("newsletters".into());
-            app.store.upsert_message(&a, m).await.unwrap();
+            let model = app
+                .store
+                .queue_model(&a, id, JobKind::Classify, "fixture", None)
+                .await
+                .unwrap();
+            app.store
+                .finish_classification(
+                    &a,
+                    ModelJob {
+                        status: JobStatus::Succeeded,
+                        ..model
+                    },
+                    Some(&Classification {
+                        kind: InboxKind::Automated,
+                        status: CategoryStatus::Ready,
+                        ..Default::default()
+                    }),
+                    None,
+                )
+                .await
+                .unwrap();
             deliver(&app, &a, job, &send).await.unwrap();
         }
         while let Some(job) = app.store.next_push(&a).await.unwrap() {
             deliver(&app, &a, job, &send).await.unwrap();
         }
-        if matches!(id, "newsletter" | "pending" | "reclassified") {
-            assert_eq!(calls.load(Ordering::SeqCst), 0);
+        if matches!(id, "newsletter" | "pending" | "reclassified" | "routine") {
+            assert_eq!(
+                calls.load(Ordering::SeqCst),
+                if id == "routine" { 4 } else { 0 }
+            );
         }
     }
     assert_eq!(
@@ -156,6 +200,7 @@ async fn notification_summary_is_authorized_bounded_local_and_read_only() {
                 starred: false,
                 category: None,
                 category_status: CategoryStatus::Pending,
+                classification: None,
                 revision: 0,
             },
         )

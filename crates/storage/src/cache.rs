@@ -37,14 +37,25 @@ impl Store {
         before: Option<(&str, &str)>,
         category: Option<&str>,
     ) -> Result<Vec<Message>> {
+        self.starred_rows_filtered(a, before, category, &ClassificationFilter::default())
+            .await
+    }
+    pub async fn starred_rows_filtered(
+        &self,
+        a: &AuthorizedAccount,
+        before: Option<(&str, &str)>,
+        category: Option<&str>,
+        filter: &ClassificationFilter,
+    ) -> Result<Vec<Message>> {
         let db = self.db(a).await?;
-        let rows: Vec<String> = sqlx::query_scalar(
-            "SELECT document FROM messages m WHERE json_extract(document,'$.starred')=1 AND json_array_length(document,'$.folder_ids')>0
+        let rows: Vec<String> = sqlx::query_scalar(&format!(
+            "SELECT document FROM messages m CROSS JOIN (SELECT ? AS filter) cf WHERE json_extract(document,'$.starred')=1 AND json_array_length(document,'$.folder_ids')>0
              AND CASE WHEN json_valid(json_extract(document,'$.provider_id')) THEN NOT EXISTS(SELECT 1 FROM provider_documents v WHERE v.key='thread:epoch:'||json_extract(json_extract(m.document,'$.provider_id'),'$.folder') AND CAST(v.document AS INTEGER)<>json_extract(json_extract(m.document,'$.provider_id'),'$.uidvalidity')) ELSE 1 END
+             {CLASSIFICATION_SQL}
              AND (? IS NULL OR json_extract(document,'$.category') IS NULL OR json_extract(document,'$.category')=?)
              AND (? IS NULL OR (json_extract(document,'$.received_at'),id)<(?,?))
              ORDER BY json_extract(document,'$.received_at') DESC,id DESC LIMIT 51",
-        ).bind(category).bind(category)
+        )).bind(serde_json::to_string(filter)?).bind(category).bind(category)
             .bind(before.map(|b| b.0)).bind(before.map(|b| b.0)).bind(before.map(|b| b.1))
             .fetch_all(&db).await?;
         rows.into_iter()

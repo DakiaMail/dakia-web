@@ -72,7 +72,7 @@ export function DropdownMenu({ trigger, label, children, disabled = false, subme
     if (event.target === triggerRef.current && ((!submenu && (event.key === "ArrowDown" || event.key === "ArrowUp")) || (submenu && event.key === "ArrowRight"))) {
       event.preventDefault(); event.stopPropagation(); open(event.key === "ArrowUp" ? "last" : "first"); return;
     }
-    if ((event.target as HTMLElement).closest('[role="menu"]') !== panelRef.current) return;
+    if (!opened || (event.target as HTMLElement).closest('[role="menu"]') !== panelRef.current) return;
     initial.current = "first";
     if (event.key.length > 1) search.current.text = "";
     if (event.key === "Escape" || (submenu && event.key === "ArrowLeft")) {
@@ -126,17 +126,18 @@ export interface DropdownMenuItemProps extends Omit<MenuItemProps, "children" | 
   icon?: ReactNode;
   shortcutHint?: ReactNode;
   checked?: boolean;
+  checkRole?: "menuitemradio" | "menuitemcheckbox";
   /** Submenu triggers retain their parent menu. */
   closeOnSelect?: boolean;
   onClick?: MouseEventHandler<HTMLButtonElement>;
   "aria-label"?: string;
 }
 export const DropdownMenuItem = forwardRef<HTMLButtonElement, DropdownMenuItemProps>(function DropdownMenuItem(
-  { label, icon, shortcutHint, checked, closeOnSelect = true, onClick, ...props }, ref,
+  { label, icon, shortcutHint, checked, checkRole = "menuitemradio", closeOnSelect = true, onClick, ...props }, ref,
 ) {
   const context = useContext(MenuContext);
   return <Menu.Item {...props} ref={ref} data-menu-label={label} closeMenuOnClick={false}
-    renderRoot={rootProps => <button {...rootProps} role={checked === undefined ? "menuitem" : "menuitemradio"} aria-checked={checked} />}
+    renderRoot={rootProps => <button {...rootProps} role={checked === undefined ? "menuitem" : checkRole} aria-checked={checked} />}
     leftSection={<span className="dakia-menu-icon" aria-hidden="true">{checked ? "✓" : icon}</span>}
     rightSection={shortcutHint && <span className="dakia-menu-hint" aria-hidden="true">{shortcutHint}</span>}
     onClick={event => { if (closeOnSelect) context?.closeAll(); onClick?.(event); }}>

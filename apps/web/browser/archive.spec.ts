@@ -32,7 +32,7 @@ async function fixture(page: Page) {
     return respond([]);
   });
   await page.goto("/");
-  await page.getByRole("tab", { name: "List", exact: true }).click();
+  await page.getByRole("tab", { name: "All", exact: true }).click();
   await expect(checkbox(page, 0)).toBeVisible();
   return {
     operations, reads: () => reads,

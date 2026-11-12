@@ -7,9 +7,8 @@ WORKDIR /app
 COPY bin/ /app/
 COPY web/ /app/web/
 COPY workers/ /app/workers/
-COPY classifier/ /app/classifier/
 COPY licenses/ /app/licenses/
-ENV LD_LIBRARY_PATH=/app DAKIA_WORKERS=/app/workers DAKIA_CLASSIFIER_DIR=/app/classifier DAKIA_MODEL_CACHE=/data/models
+ENV DAKIA_WORKERS=/app/workers DAKIA_MODEL_CACHE=/data/models
 USER 1000:1000
-RUN node /app/workers/translation/smoke.mjs
+RUN node /app/workers/translation/smoke.mjs && /app/dakia-classifier-check
 ENTRYPOINT ["/app/dakia-server"]

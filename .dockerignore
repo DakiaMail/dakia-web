@@ -15,7 +15,7 @@ deploy/bundle
 *.sqlite*
 *.pem
 *.key
-
-crates/inference/assets/email-classifier-v2/.model-*
+**/artifacts
+**/dist-demo
 
 .dakia-upgrades

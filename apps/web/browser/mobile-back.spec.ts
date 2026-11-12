@@ -27,7 +27,7 @@ async function fixture(page: Page, standalone = true) {
 const inbox = (page: Page) => page.locator(".mailbox");
 const reader = (page: Page) => page.getByRole("region", { name: "Reading pane" });
 async function openMessage(page: Page) {
-  await page.getByRole("tab", { name: "List", exact: true }).click();
+  await page.getByRole("tab", { name: "All", exact: true }).click();
   await page.locator(".message-open").first().click();
   await expect(reader(page)).toBeVisible();
 }

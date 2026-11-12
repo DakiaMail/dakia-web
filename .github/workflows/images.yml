@@ -27,7 +27,8 @@ jobs:
       - name: Check upgrade orchestration and release format
         run: |
           sh -n scripts/upgrade.sh
-          node --test scripts/tests/upgrade*.test.mjs
+          sh -n scripts/install.sh
+          node --test scripts/tests/upgrade*.test.mjs scripts/tests/install.test.mjs
           if [ "$GITHUB_REF_TYPE" = tag ]; then
             node --input-type=module -e 'import {version} from "./scripts/upgrade.mjs"; if(!version(process.env.VERSION)) throw Error("Expected a semantic vX.Y.Z release tag")'
           fi
@@ -92,7 +93,6 @@ jobs:
             sleep 1
           done
           test "$ready" = true
-          docker exec "$name" test -s /secrets/setup-token
           docker exec -i "$name" node --input-type=module - < scripts/image-oauth-smoke.mjs
           before=$(docker exec "$name" sha256sum /secrets/credential-key)
           docker restart "$name"

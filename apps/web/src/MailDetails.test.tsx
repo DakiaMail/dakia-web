@@ -1,0 +1,21 @@
+import { afterEach, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import type { Message } from "@dakia/api-types";
+import { MailDetails } from "./MailDetails";
+import { classification } from "./classification";
+import { page as mail } from "../browser/fixtures";
+afterEach(()=>{cleanup();vi.unstubAllGlobals();});
+const message=():Message=>({...mail.rows[0],classification:{...classification(mail.rows[0]),status:"ready",types:["verification_code"],attention:[{label:"Verification code",expires_at:new Date(Date.now()+60000).toISOString()}],details:[{email_type:"verification_code",label:"Code",value:"123456",action:"copy"}]}});
+it("copies the exact detected code without opening the message",async()=>{
+ const writeText=vi.fn().mockResolvedValue(undefined);vi.stubGlobal("navigator",{clipboard:{writeText}});
+ render(<MailDetails message={message()}/>);fireEvent.click(screen.getByRole("button",{name:"Code: 123456"}));
+ expect(writeText).toHaveBeenCalledWith("123456");await screen.findByText("Code copied");
+});
+it("omits expired codes and never invents facts for a manually added type",()=>{
+ const m=message();m.classification!.attention[0].expires_at="2000-01-01T00:00:00.000Z";m.classification!.types.push("flight_booking");render(<MailDetails message={m}/>);
+ expect(screen.queryByRole("button")).toBeNull();expect(screen.getByText("Codes · Flights")).toBeTruthy();
+});
+it("shows the destination domain and rejects unsafe detected links",()=>{
+ const m=message();m.classification!.types=["shipping"];m.classification!.details=[{email_type:"shipping",label:"Track shipment",value:"https://carrier.example/track/123",action:"open"},{email_type:"shipping",label:"Unsafe",value:"javascript:alert(1)",action:"open"}];
+ render(<MailDetails message={m}/>);const link=screen.getByRole("link",{name:"Track shipment carrier.example"});expect(link.getAttribute("rel")).toBe("noopener noreferrer");expect(link.getAttribute("referrerpolicy")).toBe("no-referrer");expect(screen.queryByText("Unsafe")).toBeNull();
+});

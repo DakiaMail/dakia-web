@@ -31,9 +31,37 @@ jobs:
           if [ "$GITHUB_REF_TYPE" = tag ]; then
             node --input-type=module -e 'import {version} from "./scripts/upgrade.mjs"; if(!version(process.env.VERSION)) throw Error("Expected a semantic vX.Y.Z release tag")'
           fi
+  classification-checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.98.0
+      - uses: Swatinem/rust-cache@v2
+      - run: npm ci --ignore-scripts
+      - run: npm ci --prefix workers/push --ignore-scripts
+      - run: npm ci --prefix workers/translation --ignore-scripts
+      - run: cargo test --workspace --locked
+      - run: npm test
+      - run: npm run build
+      - run: npm run test:browser --workspace @dakia/web -- --config playwright.personal-first.config.ts
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: classification-evidence
+          path: apps/web/artifacts/personal-first
+          retention-days: 7
   image:
     if: github.event_name != 'pull_request'
-    needs: upgrade-checks
+    needs: [upgrade-checks, classification-checks]
     strategy:
       fail-fast: false
       matrix:

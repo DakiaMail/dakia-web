@@ -52,7 +52,7 @@ async fn newsletter_push_waits_for_classification_and_is_terminal_after_restart(
 }
 
 #[tokio::test]
-async fn newsletter_is_skipped_at_admission_without_consuming_attempts() {
+async fn newsletter_is_skipped_before_transport_without_consuming_attempts() {
     let (_dir, store, user, a, _) = fixture().await;
     store
         .subscribe(&user, "one", "{\"id\":\"one\"}")
@@ -66,6 +66,9 @@ async fn newsletter_is_skipped_at_admission_without_consuming_attempts() {
     m.received_at = (Utc::now() + Duration::hours(1)).to_rfc3339();
     m.category = Some("newsletters".into());
     m.category_status = CategoryStatus::Ready;
+    m.classification = Some(crate::classification::legacy_classification(
+        m.category.as_deref().unwrap_or("people"),
+    ));
     let m = store.upsert_message(&a, m).await.unwrap();
     for _ in 0..2 {
         store
@@ -74,6 +77,7 @@ async fn newsletter_is_skipped_at_admission_without_consuming_attempts() {
             .unwrap();
     }
     let db = store.db(&a).await.unwrap();
+    assert!(store.next_push(&a).await.unwrap().is_none());
     let rows: Vec<(String, i64)> = sqlx::query_as("SELECT state,attempts FROM push_jobs")
         .fetch_all(&db)
         .await
@@ -113,7 +117,7 @@ async fn delayed_classification_preserves_a_valid_delivery_deadline() {
         .unwrap();
     job.status = JobStatus::Succeeded;
     store
-        .finish_model(&a, job, Some("transactions"), None)
+        .finish_model(&a, job, Some("people"), None)
         .await
         .unwrap();
     let job = store.next_push(&a).await.unwrap().unwrap();
@@ -151,6 +155,9 @@ async fn final_push_decision_rechecks_category_and_never_revives_skipped_retries
         m.received_at = (Utc::now() + Duration::hours(1)).to_rfc3339();
         m.category = Some("people".into());
         m.category_status = CategoryStatus::Ready;
+        m.classification = Some(crate::classification::legacy_classification(
+            m.category.as_deref().unwrap_or("people"),
+        ));
         let m = store.upsert_message(&a, m).await.unwrap();
         store
             .record_incremental(&a, "INBOX", &[m], id)
@@ -162,7 +169,7 @@ async fn final_push_decision_rechecks_category_and_never_revives_skipped_retries
                 if id == "retry" {
                     store.finish_push(&a, id, "one", Some(0)).await.unwrap();
                 }
-                sqlx::query("UPDATE messages SET document=json_set(document,'$.category','newsletters') WHERE id=?").bind(id).execute(&db).await.unwrap();
+                sqlx::query("UPDATE messages SET document=json_set(document,'$.category','newsletters','$.classification.kind','automated') WHERE id=?").bind(id).execute(&db).await.unwrap();
                 if id == "recovered" {
                     store.recover_push(&a).await.unwrap();
                 }
@@ -180,7 +187,7 @@ async fn final_push_decision_rechecks_category_and_never_revives_skipped_retries
                 assert_eq!(state, "skipped");
             }
             "waiting" => {
-                sqlx::query("UPDATE messages SET document=json_set(document,'$.category',NULL,'$.category_status','pending') WHERE id=?").bind(id).execute(&db).await.unwrap();
+                sqlx::query("UPDATE messages SET document=json_set(document,'$.category',NULL,'$.category_status','pending','$.classification.status','pending') WHERE id=?").bind(id).execute(&db).await.unwrap();
                 assert!(!store.push_send_allowed(&a, id, "one").await.unwrap());
                 assert!(store.next_push(&a).await.unwrap().is_none());
             }
@@ -191,8 +198,8 @@ async fn final_push_decision_rechecks_category_and_never_revives_skipped_retries
                     "transaction" => (Some("transactions"), "ready"),
                     _ => (Some("newsletters"), "pending"),
                 };
-                sqlx::query("UPDATE messages SET document=json_set(document,'$.category',?,'$.category_status',?),category_override=? WHERE id=?")
-                    .bind(category).bind(status).bind(if id == "manual" {Some("people")} else {None}).bind(id).execute(&db).await.unwrap();
+                sqlx::query("UPDATE messages SET document=json_set(document,'$.category',?,'$.category_status',?,'$.classification.status',?,'$.classification.kind','personal','$.classification.source',?),category_override=? WHERE id=?")
+                    .bind(category).bind(status).bind(status).bind(if id == "manual" {"message"} else {"automatic"}).bind(if id == "manual" {Some("people")} else {None}).bind(id).execute(&db).await.unwrap();
                 assert!(store.push_send_allowed(&a, id, "one").await.unwrap());
                 assert!(!store
                     .push_send_allowed(&a, id, "foreign-subscription")
@@ -223,6 +230,9 @@ async fn bootstrap_arrivals_replay_restart_folders_and_accounts_preserve_push_de
     let mut arrival = message(&a, "arrival");
     arrival.category = Some("people".into());
     arrival.category_status = CategoryStatus::Ready;
+    arrival.classification = Some(crate::classification::legacy_classification(
+        arrival.category.as_deref().unwrap_or("people"),
+    ));
     arrival.received_at = (Utc::now() + Duration::hours(1)).to_rfc3339();
     let arrival = store.upsert_message(&a, arrival).await.unwrap();
     // Archive/label discovery is not itself new INBOX mail.

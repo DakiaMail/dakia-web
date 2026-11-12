@@ -24,7 +24,7 @@ async function fixture(page: Page) {
     return respond([]);
   });
   await page.goto("/");
-  await page.getByRole("tab", { name: "List", exact: true }).click();
+  await page.getByRole("tab", { name: "All", exact: true }).click();
   await page.locator(".message-open").first().click();
   await expect(page.locator(".conversation-message")).toHaveCount(1);
   return writes;
@@ -129,14 +129,14 @@ test("compose button remains keyboard accessible and dialog keys stay local", as
 
 test("tab and range keys only act without OS modifiers and leave native focus navigation", async ({ page }) => {
   await fixture(page);
-  const list = page.getByRole("tab", { name: "List", exact: true });
+  const list = page.getByRole("tab", { name: "All", exact: true });
   await list.focus();
   for (const init of [{ ctrlKey: true }, { metaKey: true }, { altKey: true }, { shiftKey: true }, { isComposing: true }]) {
     expect(await list.evaluate((el, init) => el.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true, cancelable: true, ...init })), init)).toBe(true);
     await expect(list).toHaveAttribute("aria-selected", "true");
   }
   await page.keyboard.press("Home");
-  await expect(page.getByRole("tab", { name: "Smart", exact: true })).toBeFocused();
+  await expect(page.getByRole("tab", { name: "Personal", exact: true })).toBeFocused();
   await page.keyboard.press("End");
   await expect(list).toBeFocused();
   const checks = page.locator(".message-select input");

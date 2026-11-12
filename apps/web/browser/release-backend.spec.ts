@@ -11,7 +11,7 @@ test.beforeEach(async ({ context }) => {
 
 test("received attachment downloads exact bytes with its original filename", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("tab", { name: "List", exact: true }).click();
+  await page.getByRole("tab", { name: "All", exact: true }).click();
   await page.locator(".message-open").filter({ hasText: "Synthetic 0" }).click();
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("link", { name: /example.txt/ }).click();
@@ -51,7 +51,7 @@ test("general search uses saved matches through real Rust HTTP and SQLite", asyn
 for (const [index, label, destination] of [[1, "Archive", "Archive"], [2, "Move to trash", "Trash"], [3, "Mark as spam", "Junk"]] as const) {
   test(`${label} completes through the real queue and survives reload`, async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("tab", { name: "List", exact: true }).click();
+    await page.getByRole("tab", { name: "All", exact: true }).click();
     const row = page.locator(".message-open").filter({ hasText: `Synthetic ${index}` });
     await row.click();
     if (label === "Mark as spam") await page.getByRole("button", { name: "More actions", exact: true }).click();
@@ -73,7 +73,7 @@ for (const [index, label, destination] of [[1, "Archive", "Archive"], [2, "Move 
 
 test("mark unread persists through the real provider boundary", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("tab", { name: "List", exact: true }).click();
+  await page.getByRole("tab", { name: "All", exact: true }).click();
   await page.locator(".message-open").filter({ hasText: "Synthetic 4" }).click();
   const accepted = page.waitForResponse(r => r.url().endsWith("/operations") && r.request().method() === "POST");
   await page.getByRole("region", { name: "Reading pane" }).getByRole("button", { name: "Mark unread", exact: true }).click();
@@ -87,7 +87,7 @@ test("sender count, read-only review and explicit Trash use real backend and dur
   const writes: { path: string; targets?: { id: string }[] }[] = [];
   page.on("request", r => { if (r.method() === "POST") writes.push({ path: new URL(r.url()).pathname, ...r.postDataJSON() }); });
   await page.goto("/");
-  await page.getByRole("tab", { name: "List", exact: true }).click();
+  await page.getByRole("tab", { name: "All", exact: true }).click();
   await page.locator(".message-open").filter({ hasText: "Synthetic 7" }).click();
   await page.getByRole("button", { name: "Unsubscribe", exact: true }).click();
   const dialog = page.getByRole("dialog");

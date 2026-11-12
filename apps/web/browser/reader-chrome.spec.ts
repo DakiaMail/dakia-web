@@ -110,7 +110,7 @@ for (const failure of ["expired", "provider", "snapshot"] as const) test(`conver
 for (const action of ["Archive", "Move to trash", "Star selected messages"] as const) test(`mobile selection applies ${action} to exact targets`, async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const state = await fixture(page);
-  await page.getByRole("tab", { name: "List", exact: true }).click();
+  await page.getByRole("tab", { name: "All", exact: true }).click();
   const checks = page.locator(".message-select input");
   await checks.nth(0).check(); await checks.nth(1).check();
   const bar = page.getByRole("group", { name: "Selected message actions", exact: true });
@@ -123,7 +123,7 @@ for (const action of ["Archive", "Move to trash", "Star selected messages"] as c
 for (const width of [320, 390, 600, 1480]) test(`selection actions ${width}`, async ({ page }) => {
   await page.setViewportSize({ width, height: 844 });
   const state = await fixture(page);
-  await page.getByRole("tab", { name: "List", exact: true }).click();
+  await page.getByRole("tab", { name: "All", exact: true }).click();
   const checks = page.locator(".message-select input");
   await checks.nth(0).check(); await checks.nth(1).check();
   const bar = page.getByRole("group", { name: "Selected message actions", exact: true });

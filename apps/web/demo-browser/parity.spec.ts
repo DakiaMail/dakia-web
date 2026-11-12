@@ -9,7 +9,7 @@ test("normal and sandbox builds render identical inbox and reader", async ({ pag
   const normal = await browser.newPage({ viewport: { width: 1480, height: 980 } });
   const sceneTime = new Date("2026-11-08T12:00:00Z");
   let state = seed(sceneTime.getTime());
-  const mailbox = new DemoMailbox({ read: async () => structuredClone(state), write: async value => { state = structuredClone(value); } });
+  const mailbox = new DemoMailbox({ read: async () => structuredClone(state), write: async value => { state = structuredClone(value); } }, () => sceneTime.getTime());
   await normal.route("**/api/**", async route => {
     if (new URL(route.request().url()).pathname.endsWith("/events")) {
       await route.fulfill({ status: 200, contentType: "text/event-stream", body: 'event: ready\ndata: {"cursor":1,"reset":true}\n\n' }); return;

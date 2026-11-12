@@ -1,3 +1,4 @@
+import { classification, matchesClassification, optimisticClassification, type MailFilter } from "../classification";
 import type { Draft, MailRule, Message, MessageContent, Operation, SearchPage, Submission, SubmitRequest } from "@dakia/api-types";
 import type { CleanupJob, CleanupRequest } from "../cleanupJobs";
 import { defaultSettings, frenchTranslation, identity, paragraphs, seed, type DemoState, type StoredAttachment } from "./seed";
@@ -27,7 +28,7 @@ export function browserPersistence(): Persistence {
 function compatible(value: unknown): value is DemoState {
   if (!value || typeof value !== "object") return false;
   const s = value as DemoState;
-  return s.version === 1 && typeof s.user === "string" && Number.isSafeInteger(s.cursor)
+  return s.version === 2 && typeof s.user === "string" && Number.isSafeInteger(s.cursor)
     && Array.isArray(s.accounts) && s.accounts.every(a => a && typeof a.id === "string" && typeof a.email === "string")
     && !!s.contents && Object.values(s.contents).every(c => c?.message && Array.isArray(c.message.folder_ids) && typeof c.text === "string" && typeof c.html === "string")
     && [s.drafts, s.submissions, s.attachments, s.operations, s.settings, s.jobs, s.snoozed].every(v => !!v && typeof v === "object" && !Array.isArray(v))
@@ -43,6 +44,36 @@ function apply(message: Message, change: Operation["change"], state: DemoState):
   switch (change.kind) {
     case "read": result.unread = !change.value; break;
     case "star": result.starred = change.value; break;
+    case "inbox_kind":
+    case "detected_type":
+    case "attention": {
+      const id = identity(message.account_id, message.id);
+      const overrides = state.classificationOverrides[id] ||= {};
+      if (change.kind === "inbox_kind") {
+        if (change.sender) {
+          const sender = identity(message.account_id, message.sender.email.toLowerCase());
+          if (change.value) state.senderClassifications[sender] = change.value; else delete state.senderClassifications[sender];
+          if (change.value) overrides.kind = null;
+        } else overrides.kind = change.value;
+      }
+      if (change.kind === "attention") overrides.attention = change.value;
+      if (change.kind === "detected_type") {
+        overrides.added = (overrides.added || []).filter(t => t !== change.value);
+        overrides.removed = (overrides.removed || []).filter(t => t !== change.value);
+        (change.present ? overrides.added : overrides.removed).push(change.value);
+      }
+      const effective = (m: Message) => {
+        const k = identity(m.account_id, m.id), o = state.classificationOverrides[k] || {};
+        const c = structuredClone(state.automaticClassifications[k] || classification(m));
+        const sender = state.senderClassifications[identity(m.account_id, m.sender.email.toLowerCase())];
+        c.kind = o.kind || sender || c.kind; c.source = o.kind ? "message" : sender ? "sender" : "automatic";
+        c.types = [...new Set([...c.types, ...(o.added || [])])].filter(t => !o.removed?.includes(t));
+        c.attention_override = o.attention ?? null;
+        return { ...m, classification: c };
+      };
+      if (change.kind === "inbox_kind" && change.sender) for (const content of Object.values(state.contents)) if (content.message.account_id === message.account_id && content.message.sender.email === message.sender.email && content.message.id !== message.id) content.message = { ...effective(content.message), revision: content.message.revision + 1 };
+      return effective(result);
+    }
     case "category": result.category = change.value; result.category_status = "ready"; break;
     case "archive": result.folder_ids = [state.settings[message.account_id]?.archive_folder || "Archive"]; break;
     case "trash": result.folder_ids = [state.settings[message.account_id]?.trash_folder || "Trash"]; break;
@@ -324,6 +355,8 @@ export class DemoMailbox {
     if (folder) contents = contents.filter(c => folder === "Starred" ? c.message.starred : c.message.folder_ids.includes(folder));
     if (params.get("exclude_trash") === "true") contents = contents.filter(c => !c.message.folder_ids.includes("Trash"));
     if (params.get("category")) contents = contents.filter(c => c.message.category === params.get("category"));
+    const filter = { inbox_kind: params.get("inbox_kind") || undefined, email_type: params.get("email_type") || undefined, attention: params.get("attention") === "true" } as MailFilter;
+    contents = contents.filter(c => matchesClassification(c.message, filter, this.now()));
     const query = params.get("q") || "";
     const hideSnoozed = /(?:^|\s)(?:folder|in):INBOX(?:\s|$)/i.test(query);
     if (hideSnoozed) contents = contents.filter(c => !this.state.snoozed[identity(c.message.account_id, c.message.id)]);

@@ -9,18 +9,30 @@ impl Store {
         before: Option<(&str, &str)>,
         category: Option<&str>,
     ) -> Result<Vec<Message>> {
+        self.inbox_rows_filtered(a, before, category, &ClassificationFilter::default())
+            .await
+    }
+    pub async fn inbox_rows_filtered(
+        &self,
+        a: &AuthorizedAccount,
+        before: Option<(&str, &str)>,
+        category: Option<&str>,
+        filter: &ClassificationFilter,
+    ) -> Result<Vec<Message>> {
         let db = self.db(a).await?;
-        let rows: Vec<String> = sqlx::query_scalar(
-            r#"SELECT m.document FROM messages m
+        let rows: Vec<String> = sqlx::query_scalar(&format!(
+            r#"SELECT m.document FROM messages m CROSS JOIN (SELECT ? AS filter) cf
              WHERE instr(upper(json_extract(m.document,'$.folder_ids')),'"INBOX"')>0
              AND EXISTS(SELECT 1 FROM json_each(m.document,'$.folder_ids') f WHERE upper(f.value)='INBOX')
              AND CASE WHEN json_valid(json_extract(m.document,'$.provider_id')) THEN NOT EXISTS(SELECT 1 FROM provider_documents v WHERE v.key='thread:epoch:'||json_extract(json_extract(m.document,'$.provider_id'),'$.folder') AND CAST(v.document AS INTEGER)<>json_extract(json_extract(m.document,'$.provider_id'),'$.uidvalidity')) ELSE 1 END
              AND NOT EXISTS(SELECT 1 FROM operations o WHERE json_extract(o.document,'$.target_id')=m.id AND json_extract(o.document,'$.status')='pending' AND json_extract(o.document,'$.change.kind') IN ('archive','spam','trash'))
              AND NOT EXISTS(SELECT 1 FROM snoozes s WHERE s.thread_id=json_extract(m.document,'$.thread_id') AND s.until>?)
+             {CLASSIFICATION_SQL}
              AND (? IS NULL OR json_extract(m.document,'$.category') IS NULL OR json_extract(m.document,'$.category')=?)
              AND (? IS NULL OR (json_extract(m.document,'$.received_at'),m.id)<(?,?))
              ORDER BY json_extract(m.document,'$.received_at') DESC,m.id DESC LIMIT 51"#,
-        )
+        ))
+        .bind(serde_json::to_string(filter)?)
         .bind(now())
         .bind(category).bind(category)
         .bind(before.map(|b| b.0)).bind(before.map(|b| b.0)).bind(before.map(|b| b.1))

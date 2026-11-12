@@ -71,7 +71,7 @@ async function fixture(page: Page, options: Options = {}) {
     return respond([]);
   });
   await page.goto("/");
-  await page.getByRole("tab", { name: "List", exact: true }).click();
+  await page.getByRole("tab", { name: "All", exact: true }).click();
   await page.getByRole("button", { name: /List email 0/ }).click();
   await page.getByRole("button", { name: "Unsubscribe", exact: true }).first().click();
   return { rows, jobs, batches, accept, release, sends: () => sends, reads: () => reads,

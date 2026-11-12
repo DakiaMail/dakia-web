@@ -1,11 +1,13 @@
 //! Ownership is resolved before opening account databases. All public account access
 //! requires an unforgeable capability tied to this Store instance.
+mod classification;
+use classification::CLASSIFICATION_SQL;
 mod attachments;
 mod backup;
 mod cache;
+mod graph;
 mod inbox;
 mod jobs;
-mod graph;
 mod lists;
 mod models;
 pub use models::ModelFailureReason;
@@ -244,7 +246,9 @@ impl Store {
     pub async fn connect(&self, user: &str, input: &ConnectAccount) -> Result<Account> {
         let _guard = self.gate.read().await;
         if input.email.is_empty()
-            || (input.password.is_empty() && input.gmail_oauth.is_none() && input.microsoft_oauth.is_none())
+            || (input.password.is_empty()
+                && input.gmail_oauth.is_none()
+                && input.microsoft_oauth.is_none())
             || (input.provider == ProviderKind::Microsoft && input.microsoft_oauth.is_none())
             || input.imap_host.is_empty()
             || input.smtp_host.is_empty()
@@ -284,7 +288,9 @@ impl Store {
     ) -> Result<Account> {
         let _guard = self.gate.read().await;
         self.db(a).await?;
-        if (input.password.is_empty() && input.gmail_oauth.is_none() && input.microsoft_oauth.is_none())
+        if (input.password.is_empty()
+            && input.gmail_oauth.is_none()
+            && input.microsoft_oauth.is_none())
             || (input.provider == ProviderKind::Microsoft && input.microsoft_oauth.is_none())
             || input.username.is_empty()
             || input.imap_host.is_empty()
@@ -307,18 +313,31 @@ impl Store {
                 .fetch_one(&mut *tx)
                 .await?;
         let mut account: Account = serde_json::from_str(&raw)?;
-        let same_microsoft_identity = if account.provider == ProviderKind::Microsoft && input.provider == ProviderKind::Microsoft {
-            let sealed: Vec<u8> = sqlx::query_scalar("SELECT credential FROM accounts WHERE id=? AND user_id=?")
-                .bind(&a.id).bind(&a.user_id).fetch_one(&mut *tx).await?;
-            let old = self.open_credential(a,&sealed)?;
-            old.microsoft_oauth.zip(input.microsoft_oauth.clone())
-                .is_some_and(|(old,new)| !old.subject.is_empty() && old.subject==new.subject)
-        } else { false };
-        if (!account.email.eq_ignore_ascii_case(&input.email) && !same_microsoft_identity) || account.provider != input.provider {
+        let same_microsoft_identity = if account.provider == ProviderKind::Microsoft
+            && input.provider == ProviderKind::Microsoft
+        {
+            let sealed: Vec<u8> =
+                sqlx::query_scalar("SELECT credential FROM accounts WHERE id=? AND user_id=?")
+                    .bind(&a.id)
+                    .bind(&a.user_id)
+                    .fetch_one(&mut *tx)
+                    .await?;
+            let old = self.open_credential(a, &sealed)?;
+            old.microsoft_oauth
+                .zip(input.microsoft_oauth.clone())
+                .is_some_and(|(old, new)| !old.subject.is_empty() && old.subject == new.subject)
+        } else {
+            false
+        };
+        if (!account.email.eq_ignore_ascii_case(&input.email) && !same_microsoft_identity)
+            || account.provider != input.provider
+        {
             return Err(Error::Invalid);
         }
         let sealed = self.seal_credential(&format!("{}:{}", a.user_id, a.id), input)?;
-        if same_microsoft_identity { account.email = input.email.clone(); }
+        if same_microsoft_identity {
+            account.email = input.email.clone();
+        }
         account.state = AccountState::Connecting;
         account.display_name = input.display_name.clone();
         account.revision = account.revision.checked_add(1).ok_or(Error::Invalid)?;
@@ -371,13 +390,15 @@ impl Store {
         }
         grant.refresh_token = new.into();
         let replacement = self.seal_credential(&format!("{}:{}", a.user_id, a.id), &input)?;
-        let changed = sqlx::query("UPDATE accounts SET credential=? WHERE id=? AND user_id=? AND credential=?")
-            .bind(replacement)
-            .bind(&a.id)
-            .bind(&a.user_id)
-            .bind(sealed)
-            .execute(&self.control)
-            .await?;
+        let changed = sqlx::query(
+            "UPDATE accounts SET credential=? WHERE id=? AND user_id=? AND credential=?",
+        )
+        .bind(replacement)
+        .bind(&a.id)
+        .bind(&a.user_id)
+        .bind(sealed)
+        .execute(&self.control)
+        .await?;
         if changed.rows_affected() != 1 {
             return Err(Error::Conflict);
         }

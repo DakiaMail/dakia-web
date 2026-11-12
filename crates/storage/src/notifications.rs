@@ -1,8 +1,8 @@
 use super::*;
 
-// Use the effective category, including the owner's existing manual override.
-const PUSH_ELIGIBLE: &str = "SELECT id FROM messages WHERE id=push_jobs.message_id AND COALESCE(category_override,json_extract(document,'$.category'),'')<>'newsletters' AND (category_override IS NOT NULL OR json_extract(document,'$.category_status') IN ('ready','failed'))";
-const PUSH_SUPPRESSED: &str = "SELECT id FROM messages WHERE id=push_jobs.message_id AND COALESCE(category_override,json_extract(document,'$.category'),'')='newsletters'";
+// Resolve current classification and attention again at the send boundary.
+const PUSH_ELIGIBLE: &str = "SELECT id FROM messages m WHERE m.id=push_jobs.message_id AND (COALESCE(json_extract(m.document,'$.classification.kind'),'personal')='personal' OR (json_extract(m.document,'$.classification.attention_override')=1 OR (json_extract(m.document,'$.classification.attention_override') IS NULL AND EXISTS(SELECT 1 FROM json_each(m.document,'$.classification.attention') reason WHERE json_extract(reason.value,'$.expires_at') IS NULL OR json_extract(reason.value,'$.expires_at')>strftime('%Y-%m-%dT%H:%M:%fZ','now'))))) AND (json_extract(m.document,'$.classification.status') IN ('ready','failed') OR json_extract(m.document,'$.classification.source') IN ('message','sender') OR json_extract(m.document,'$.classification.attention_override')=1)";
+const PUSH_SUPPRESSED: &str = "SELECT id FROM messages m WHERE m.id=push_jobs.message_id AND json_extract(m.document,'$.classification.kind')='automated' AND json_extract(m.document,'$.classification.status') IN ('ready','failed') AND NOT COALESCE((json_extract(m.document,'$.classification.attention_override')=1 OR (json_extract(m.document,'$.classification.attention_override') IS NULL AND EXISTS(SELECT 1 FROM json_each(m.document,'$.classification.attention') reason WHERE json_extract(reason.value,'$.expires_at') IS NULL OR json_extract(reason.value,'$.expires_at')>strftime('%Y-%m-%dT%H:%M:%fZ','now')))),0)";
 impl Store {
     pub async fn subscribe(&self, user: &str, id: &str, document: &str) -> Result<()> {
         let _guard = self.gate.read().await;

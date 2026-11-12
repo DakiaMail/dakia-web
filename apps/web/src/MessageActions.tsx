@@ -1,6 +1,8 @@
 import { DropdownMenu, DropdownMenuItem, DropdownSubmenu, MailActionButton } from "@dakia/ui";
 import { Archive, Clock, FolderInput, Mail, MoreHorizontal, ShieldAlert, Star, Trash2 } from "lucide-react";
 import { KeyHint } from "./KeyboardHints";
+import { classification, emailTypes, needsAttention } from "./classification";
+import type { Change, DetectedType } from "@dakia/api-types";
 import type { Account, Message } from "@dakia/api-types";
 import { SenderBlock, type SenderAction } from "./BlockedSenders";
 
@@ -18,9 +20,8 @@ interface Props {
   snooze: () => void;
   restore?: () => void;
   move: () => void;
-  category?: string;
-  categories: string[];
-  setCategory: (value: string) => void;
+  messages: Message[];
+  classify: (change: Change) => void;
   pending: boolean;
 }
 
@@ -35,9 +36,21 @@ function ActionToolbar(props: Props & { senderAction?: SenderAction }) {
     {props.restore && <DropdownMenuItem label="Snooze" icon={<Clock size={18} />} shortcutHint={<KeyHint keys="B" />} disabled={props.pending} onClick={props.snooze} />}
     <DropdownMenuItem label="Move" icon={<FolderInput size={18} />} shortcutHint={<KeyHint keys="M" />} disabled={props.pending} onClick={props.move} />
     <DropdownMenuItem label="Mark as spam" icon={<ShieldAlert size={18} />} shortcutHint={<KeyHint keys="!" />} disabled={props.pending} onClick={props.spam} />
-    {props.category !== undefined && <DropdownSubmenu label="Category" disabled={props.pending}>
-      {props.categories.map(category => <DropdownMenuItem key={category} label={category.charAt(0).toUpperCase() + category.slice(1)} checked={category === props.category} disabled={props.pending} onClick={() => props.setCategory(category)} />)}
-    </DropdownSubmenu>}
+    {<>
+      <DropdownSubmenu label="Personal or Automated" disabled={props.pending}>
+        {(["personal", "automated"] as const).map(value => <DropdownMenuItem key={value} label={value === "personal" ? "Personal" : "Automated"} checked={props.messages.every(m => classification(m).kind === value)} onClick={() => props.classify({ kind: "inbox_kind", value, sender: false })} />)}
+        <DropdownMenuItem label="Use automatic classification" onClick={() => props.classify({ kind: "inbox_kind", value: null, sender: false })} />
+        {props.messages.length === 1 && <>
+          <DropdownMenuItem label="Always Personal for this sender" onClick={() => props.classify({ kind: "inbox_kind", value: "personal", sender: true })} />
+          <DropdownMenuItem label="Always Automated for this sender" onClick={() => props.classify({ kind: "inbox_kind", value: "automated", sender: true })} />
+          <DropdownMenuItem label="Forget sender preference" onClick={() => props.classify({ kind: "inbox_kind", value: null, sender: true })} />
+        </>}
+      </DropdownSubmenu>
+      <DropdownSubmenu label="Detected types" disabled={props.pending}>
+        {Object.entries(emailTypes).map(([value,label]) => { const present = props.messages.every(m => classification(m).types.includes(value as DetectedType)) || false; return <DropdownMenuItem key={value} label={label} checkRole="menuitemcheckbox" checked={present} onClick={() => props.classify({ kind: "detected_type", value: value as DetectedType, present: !present })} />; })}
+      </DropdownSubmenu>
+      <DropdownMenuItem label={props.messages.every(m => needsAttention(m)) ? "Dismiss attention" : "Needs attention"} disabled={props.pending} onClick={() => props.classify({ kind: "attention", value: !props.messages.every(m => needsAttention(m)) })} />
+    </>}
     <DropdownMenuItem label="Mark read" icon={<Mail size={18} />} shortcutHint={<KeyHint keys="Shift+U" />} disabled={props.pending} onClick={props.read} />
     <DropdownMenuItem label={props.starred ? "Unstar" : "Star"} aria-label={props.starred ? "Unstar selected messages" : "Star selected messages"} icon={<Star size={18} fill={props.starred ? "currentColor" : "none"} />} shortcutHint={<KeyHint keys="S" />} disabled={props.pending} onClick={props.toggleStar} />
     {props.senderAction?.()}

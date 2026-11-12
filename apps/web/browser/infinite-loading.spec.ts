@@ -8,7 +8,7 @@ const make = (i: number, values: Partial<Message> = {}): Message => ({
   ...mail.rows[0], id: `mail-${i}`, subject: `Fictional mail ${i}`, provider_id: `mail-${i}`, thread_id: `mail-${i}`,
   received_at: new Date(Date.UTC(2026, 9, 30, 0, -i)).toISOString(), unread: false, ...values,
 });
-async function fixture(page: Page, options: { size?: number; empty?: boolean; loop?: boolean; smart?: boolean; fail?: boolean; delay?: number } = {}) {
+async function fixture(page: Page, options: { size?: number; empty?: boolean; loop?: boolean; mixedRead?: boolean; fail?: boolean; delay?: number } = {}) {
   const calls: string[] = [], writes: string[] = [];
   let failing = !!options.fail;
   await page.route("**/api/**", async route => {
@@ -19,6 +19,7 @@ async function fixture(page: Page, options: { size?: number; empty?: boolean; lo
     if (path === "/api/accounts") return respond(accounts);
     if (path.endsWith("/events")) return route.fulfill({ contentType: "text/event-stream", body: ": ready\n\n" });
     if (path === "/api/search" || path.endsWith("/messages")) {
+      if (url.searchParams.get("attention") === "true") return respond({ ...mail, rows: [], continuation: null });
       const cursor = url.searchParams.get("continuation") || "initial";
       calls.push(cursor);
       if (cursor !== "initial") {
@@ -28,7 +29,7 @@ async function fixture(page: Page, options: { size?: number; empty?: boolean; lo
       const index = cursor === "initial" ? 0 : Number(cursor);
       const size = options.size ?? 24;
       let rows = options.empty ? [] : Array.from({ length: size }, (_, i) => make(index * size + i,
-        options.smart && i < 10 ? { unread: true, category: "People" } : {}));
+        options.mixedRead && i < 10 ? { unread: true, category: "People" } : {}));
       if (index && !options.empty) rows.push(make(0)); // Duplicate across provider pages.
       if (!options.empty) rows.push(make(0, { account_id: "personal", subject: "Personal twin" }));
       const selected = url.searchParams.get("accounts")?.split(",");
@@ -50,11 +51,11 @@ async function top(page: Page) {
 }
 const check = (page: Page, name: string) => page.getByRole("checkbox", { name: `Select ${name}`, exact: true });
 for (const width of [390, 1480]) {
-  test(`automatic provider pages and Seen reveal remain bounded and deduplicated at ${width}`, async ({ page }) => {
+  test(`automatic provider pages remain bounded and deduplicated at ${width}`, async ({ page }) => {
 
     await page.setViewportSize({ width, height: 780 });
     const state = await fixture(page);
-    // First reveal can fill the viewport, but must not fetch provider mail.
+    // The first page fills the viewport without fetching more provider mail.
     expect(state.calls).toEqual(["initial"]);
     for (let i = 0; i < 18; i++) {
       await bottom(page); await page.waitForTimeout(240);
@@ -73,13 +74,15 @@ for (const width of [390, 1480]) {
     expect(names.size).toBe(73);
     await expect(page.getByRole("status").filter({ hasText: "End of loaded mail" })).toBeVisible();
     const dir = resolve("../../verification/infinite-loading"); mkdirSync(dir, { recursive: true });
-    await page.screenshot({ path: `${dir}/${width}-seen-end.png`, fullPage: true });
-    await page.getByRole("tab", { name: "List", exact: true }).click();
-    await top(page); await bottom(page);
+    await page.screenshot({ path: `${dir}/${width}-personal-end.png`, fullPage: true });
+    await page.getByRole("tab", { name: "All", exact: true }).click();
+      for (let i = 0; i < 3; i++) { await bottom(page); await page.waitForTimeout(240); }
+    await bottom(page);
     await expect(check(page, "Fictional mail 71")).toBeVisible();
-    await page.screenshot({ path: `${dir}/${width}-list-end.png`, fullPage: true });
+    await page.screenshot({ path: `${dir}/${width}-all-end.png`, fullPage: true });
+    const beforeRefresh = state.calls.length;
     await page.locator(".header-refresh").click();
-    await expect.poll(() => state.calls.length).toBe(6);
+    await expect.poll(() => state.calls.length).toBe(beforeRefresh + 3);
     await page.getByRole("combobox", { name: "Account filter" }).selectOption("personal");
     await expect(check(page, "Personal twin")).toBeVisible();
     await expect(check(page, "Fictional mail 0")).toHaveCount(0);
@@ -90,7 +93,6 @@ for (const width of [390, 1480]) {
 
 test("network failure keeps rows and requires accessible explicit retry", async ({ page }) => {
   const state = await fixture(page, { fail: true });
-  await page.getByRole("tab", { name: "List", exact: true }).click();
   await bottom(page);
   await expect(page.getByRole("button", { name: "Retry loading mail" })).toBeVisible();
   const dir = resolve("../../verification/infinite-loading"); mkdirSync(dir, { recursive: true });
@@ -111,10 +113,10 @@ test("short empty pages never cascade; native fallback reaches the end", async (
   await expect.poll(() => state.calls).toEqual(["initial", "1"]);
   await page.waitForTimeout(500);
   expect(state.calls).toEqual(["initial", "1"]);
-  const fallback = page.getByRole("button", { name: "Load more mail", exact: true });
+  const fallback = page.getByRole("button", { name: "Load more", exact: true });
   await fallback.focus(); await page.keyboard.press("Space");
   await expect.poll(() => state.calls).toEqual(["initial", "1", "2"]);
-  await expect(page.getByText("All caught up", { exact: true })).toBeVisible();
+  await expect(page.getByText("No personal mail", { exact: true })).toBeVisible();
 });
 
 test("provider cursor cycle stops after one progress page", async ({ page }) => {
@@ -125,21 +127,19 @@ test("provider cursor cycle stops after one progress page", async ({ page }) => 
   expect(state.calls).toEqual(["initial", "1"]);
 });
 
-test("collapsed categories stay collapsed while Seen grows automatically", async ({ page }) => {
-  const state = await fixture(page, { size: 40, smart: true });
-  const people = page.getByRole("button", { name: /^people ·/ });
-  await people.click();
-  await expect(people).toHaveAttribute("aria-expanded", "false");
+test("read and unread mail stay in the same chronology while pages grow", async ({ page }) => {
+  const state = await fixture(page, { size: 40, mixedRead: true });
+  await expect(check(page, "Fictional mail 0")).toBeVisible();
   for (let i = 0; i < 5; i++) { await bottom(page); await page.waitForTimeout(240); }
   await top(page);
-  await expect(people).toHaveAttribute("aria-expanded", "false");
-  await expect(check(page, "Fictional mail 0")).toHaveCount(0);
+  await expect(check(page, "Fictional mail 0")).toBeVisible();
+  await expect(page.locator(".group-heading")).toHaveCount(0);
+  expect(state.calls).toEqual(["initial", "1", "2"]);
   expect(state.writes).toEqual([]);
 });
 
 test("keyboard scroll uses the list container and coalesces pending provider requests", async ({ page }) => {
   const state = await fixture(page, { delay: 900 });
-  await page.getByRole("tab", { name: "List", exact: true }).click();
   await page.waitForTimeout(200);
   expect(state.calls).toEqual(["initial"]);
   const list = page.getByRole("region", { name: "Messages", exact: true });
@@ -157,10 +157,11 @@ test("keyboard scroll uses the list container and coalesces pending provider req
   expect(state.writes).toEqual([]);
 });
 
-test("viewport resize reveals nearby cached rows without draining provider pages", async ({ page }) => {
+test("viewport resize keeps cached rows without draining provider pages", async ({ page }) => {
   await page.setViewportSize({ width: 1480, height: 480 });
   const state = await fixture(page, { size: 12 });
-  await expect(check(page, "Fictional mail 11")).toHaveCount(0);
+  await expect(check(page, "Fictional mail 11")).toHaveCount(1);
+  expect(state.calls).toEqual(["initial"]);
   await page.setViewportSize({ width: 1480, height: 1200 });
   await expect(check(page, "Fictional mail 11")).toHaveCount(1);
   await expect.poll(() => state.calls).toEqual(["initial", "1"]);
@@ -171,7 +172,6 @@ test("viewport resize reveals nearby cached rows without draining provider pages
 
 test("switching accounts during provider paging cannot leak the previous page", async ({ page }) => {
   const state = await fixture(page, { delay: 900 });
-  await page.getByRole("tab", { name: "List", exact: true }).click();
   await bottom(page);
   await expect.poll(() => state.calls.includes("1")).toBe(true);
   await page.getByRole("combobox", { name: "Account filter" }).selectOption("personal");

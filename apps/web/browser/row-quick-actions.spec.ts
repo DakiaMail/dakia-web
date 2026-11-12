@@ -30,7 +30,7 @@ async function fixture(page: Page, failed = false) {
     return respond([]);
   });
   await page.goto("/");
-  await page.getByRole("tab", { name: "List", exact: true }).click();
+  await page.getByRole("tab", { name: "All", exact: true }).click();
   await expect(page.locator(".message-row")).toHaveCount(2);
   return { operations, release, bodyReads: () => bodyReads, discoveries: () => discoveries };
 }

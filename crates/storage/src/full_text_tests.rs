@@ -87,6 +87,7 @@ async fn ids(store: &Store, a: &AuthorizedAccount, q: &str) -> BTreeSet<String> 
             .full_text_rows(
                 a,
                 &CachedSearchFilter {
+                    classification: dakia_domain::ClassificationFilter::default(),
                     text: Some(q),
                     ..Default::default()
                 },
@@ -163,6 +164,7 @@ async fn full_text_unicode_substrings_filters_restart_purge_and_account_isolatio
     }
     let folders = vec!["Sent".to_owned()];
     let filter = CachedSearchFilter {
+        classification: dakia_domain::ClassificationFilter::default(),
         from: Some("école"),
         subject: Some("%_"),
         text: Some("café"),
@@ -348,6 +350,7 @@ async fn full_text_authoritative_scale_benchmark() {
             .full_text_rows(
                 &a,
                 &CachedSearchFilter {
+                    classification: dakia_domain::ClassificationFilter::default(),
                     text: Some(q),
                     ..Default::default()
                 },
@@ -383,6 +386,7 @@ async fn full_text_authoritative_scale_benchmark() {
                 .full_text_rows(
                     &a,
                     &CachedSearchFilter {
+                        classification: dakia_domain::ClassificationFilter::default(),
                         text: Some("content"),
                         ..Default::default()
                     },

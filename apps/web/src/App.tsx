@@ -50,7 +50,7 @@ import type {
   Submission,
 } from "@dakia/api-types";
 import { escapeHtml } from "@dakia/mail-renderer";
-import { api, ApiFailure, OperationQueue } from "./api";
+import { api, ApiFailure, OperationQueue, optimistic } from "./api";
 import { SearchSuggestions } from "./SearchSuggestions";
 import { Composer, newDraft } from "./Composer";
 import { AccountSetup } from "./AccountSetup";
@@ -79,9 +79,11 @@ import { Conversation } from "./Conversation";
 import { useCleanupProjection } from "./cleanupJobs";
 import { replyDraft } from "./reply";
 import { emptySelection, reconcileSelection, selectMail } from "./selection";
-import { groups, sectionSize, smartItems, type MailItem, type SectionState } from "./smartView";
+import { classification, matchesClassification, emailTypes, type InboxTab, type MailFilter } from "./classification";
+import type { DetectedType } from "@dakia/api-types";
+import { MailDetails } from "./MailDetails";
+import { AttentionStrip } from "./AttentionStrip";
 import { mailRows } from "./mailRows";
-import { useReadSections } from "./useReadSections";
 import { useMailInfiniteLoading } from "./useMailInfiniteLoading";
 import { notificationLink, rememberNotificationLink } from "./notificationLink";
 import { useAppHistory, useBackLayer } from "./appHistory";
@@ -143,15 +145,32 @@ export function App() {
   const [shortcutHelp, setShortcutHelp] = useState(false);
   const [account, setAccount] = useState("all");
   const [nav, setNav] = useState<Nav>("INBOX");
-  const [view, setView] = useState<"smart" | "list">("smart");
+  const [view, setView] = useState<InboxTab>("personal");
+  const [typeFilter, setTypeFilter] = useState<DetectedType | "">("");
+  const tabOwner = useRef("");
+  useEffect(() => {
+    const owner = session.data?.user_id;
+    if (!owner) return;
+    if (tabOwner.current !== owner) {
+      tabOwner.current = owner;
+      try { const saved = localStorage.getItem(`dakia-inbox-tab:${owner}`); setView(saved === "automated" || saved === "all" ? saved : "personal"); } catch { setView("personal"); }
+    }
+  }, [session.data?.user_id]);
+  function changeTab(tab: InboxTab) {
+    positions.current[`${account}/${nav}/${q}/${view}/${typeFilter}`] = listRef.current?.scrollTop || 0;
+    savedSelections.current[`${account}/${nav}/${q}/${view}/${typeFilter}`] = currentSelection;
+    setView(tab);
+    try { if (session.data) localStorage.setItem(`dakia-inbox-tab:${session.data.user_id}`, tab); } catch { /* denied storage */ }
+  }
   const [search, setSearch] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
-  const categoryFilter = "";
-
   const [q, setQ] = useState("");
-  const [sections, setSections] = useState<{ scope: string; values: Record<string, SectionState> }>({ scope: "", values: {} });
+  const inboxFilter: MailFilter = !q && nav === "INBOX" ? { ...(view !== "all" ? { inbox_kind: view } : {}), ...(view === "automated" && typeFilter ? { email_type: typeFilter } : {}) } : {};
+  const categoryFilter = JSON.stringify({ revision: "personal-first-1", ...inboxFilter });
+
   const [selected, setSelected] = useState<Message | null>(null);
-  const [selection, setSelection] = useState(() => emptySelection("", "smart"));
+  const savedSelections = useRef<Record<string, ReturnType<typeof emptySelection>>>({});
+  const [selection, setSelection] = useState(() => emptySelection("", "personal"));
   const [overrides, setOverrides] = useState<Record<string, Message>>({});
   const [removed, setRemoved] = useState<Record<string, symbol>>({});
   const [restoredRows, setRestoredRows] = useState<Record<string, { message: Message; scope: string; token: symbol }>>({});
@@ -208,11 +227,11 @@ export function App() {
   const [manualRefreshing, setManualRefreshing] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const positions = useRef<Record<string, number>>({});
-  const route = { account, nav, view, q, search, categoryFilter, selected, workspace };
+  const route = { account, nav, view, typeFilter, q, search, categoryFilter, selected, workspace };
   const navigation = useAppHistory(route, next => {
     deepLinkPending.current = false; setDeepLinkError(undefined);
     if (account !== next.account || nav !== next.nav || q !== next.q) clearSelection();
-    setAccount(next.account); setNav(next.nav); setView(next.view);
+    setAccount(next.account); setNav(next.nav); setView(next.view); setTypeFilter(next.typeFilter);
     setQ(next.q); setSearch(next.search);
     setSelected(next.selected); setWorkspace(next.workspace); setSidebar(false);
   }, !!session.data);
@@ -309,7 +328,7 @@ export function App() {
     queryFn: async ({ pageParam, signal }): Promise<SearchPage> => {
       if (q) return client.fetchQuery({
         queryKey: ["search-page", q, ids, categoryFilter, pageParam],
-        queryFn: ({ signal }) => api.search(q, ids, pageParam, categoryFilter, signal, false, false, true),
+        queryFn: ({ signal }) => api.search(q, ids, pageParam, undefined, signal, false, false, true),
         staleTime: pageParam ? 30000 : 0,
         retry: false,
       });
@@ -328,6 +347,7 @@ export function App() {
           false,
           explicitRefresh.current,
           true,
+          inboxFilter,
         );
       return api.messages(ids[0], nav, pageParam, signal);
     },
@@ -351,7 +371,7 @@ export function App() {
       );
     if (!q && nav === "Snoozed" && snoozeState.isSuccess) all = all.filter(m => !!snoozedThreads[`${m.account_id}/${m.thread_id}`]);
     if (nav === "Starred") all = all.filter((m) => m.starred);
-    return all;
+    return all.filter(m => matchesClassification(m, inboxFilter));
   }, [mail.data, overrides, removed, restoredRows, nav, q, account, categoryFilter, accounts.data, cleanupRows, snoozedThreads, snoozeState.isSuccess]);
   const lastContinuation = mail.data?.pages.at(-1)?.continuation;
   // Start provider reconciliation after a preview without waiting for scroll.
@@ -366,7 +386,7 @@ export function App() {
     if (q && lastContinuation && !mail.isFetching && !mail.isError)
       void client.prefetchQuery({
         queryKey: ["search-page", q, ids, categoryFilter, lastContinuation],
-        queryFn: ({ signal }) => api.search(q, ids, lastContinuation, categoryFilter, signal, false, false, true),
+        queryFn: ({ signal }) => api.search(q, ids, lastContinuation, undefined, signal, false, false, true),
         staleTime: 30000,
         retry: false,
       });
@@ -384,38 +404,20 @@ export function App() {
   }, [client]);
   const pull = usePullToRefresh(listRef, !workspace && !mail.isPending && !["Drafts", "Scheduled"].includes(nav), refreshMail);
   const sectionScope = JSON.stringify([account, nav, q, categoryFilter, ids]);
-  const heldReadSections = useReadSections(rows, selected, sectionScope, view === "smart" && !q && nav === "INBOX" && !workspace);
-  function updateSection(label: string, change: (old: SectionState) => SectionState) {
-    setSections(old => {
-      const values = old.scope === sectionScope ? old.values : {};
-      return { scope: sectionScope, values: { ...values, [label]: change(values[label] || {}) } };
-    });
-  }
-  const groupedItems = useMemo<MailItem[]>(() => {
-    if (view === "list" || q || nav !== "INBOX")
-      return rows.map((message) => ({ kind: "mail", message }));
-    return smartItems(rows, sections.scope === sectionScope ? sections.values : {}, heldReadSections);
-  }, [rows, view, q, nav, sections, sectionScope, heldReadSections]);
-  // Fold the final section's reveal action into the provider footer, so the
-  // bottom never offers two adjacent Load more buttons. Reveal cached mail
-  // before requesting another page; collapsed sections stay collapsed.
-  const lastItem = groupedItems.at(-1);
-  const bottomSection = lastItem?.kind === "more" ? lastItem.label : null;
-  const items = useMemo(() => bottomSection === null ? groupedItems : groupedItems.slice(0, -1), [groupedItems, bottomSection]);
-  function loadMore(section: string) {
-    if (section) {
-      updateSection(section, old => old.collapsed ? old : ({ ...old, limit: (old.limit || sectionSize) + sectionSize }));
-    } else if (mail.hasNextPage && !mail.isFetching) {
-      void mail.fetchNextPage({ cancelRefetch: false });
-    }
+  const items = useMemo(() => rows.map(message => ({ kind: "mail" as const, message })), [rows]);
+  function loadMore() {
+    if (mail.hasNextPage && !mail.isFetching) void mail.fetchNextPage({ cancelRefetch: false });
   }
   const infiniteScroll = useMailInfiniteLoading(listRef, `${sectionScope}/${view}`, !workspace && !mail.isFetching && !mail.isError && !["Drafts", "Scheduled"].includes(nav), loadMore);
   const selectionOrder = useMemo(() => items.flatMap(item =>
-    item.kind === "mail" ? [identity(item.message)] : []), [items]);
-  const selectionScope = JSON.stringify([account, nav, q, categoryFilter, ids, workspace]);
-  const currentSelection = useMemo(() => reconcileSelection(
-    selection, [...selectionOrder, ...Object.keys(pendingTargets)], selectionScope, view,
-  ), [selection, selectionOrder, selectionScope, view, pendingTargets]);
+    [identity(item.message)]), [items]);
+  const selectionScope = JSON.stringify([account, nav, q, view === "automated" ? typeFilter : "", ids, workspace]);
+  const currentSelection = useMemo(() => {
+    const saved = selection.view !== view ? savedSelections.current[`${account}/${nav}/${q}/${view}/${typeFilter}`] : undefined;
+    const candidate = saved || selection;
+    if (mail.isPending && candidate.scope === selectionScope) return candidate;
+    return reconcileSelection(candidate, [...selectionOrder, ...Object.keys(pendingTargets)], selectionScope, view);
+  }, [selection, selectionOrder, selectionScope, view, pendingTargets, mail.isPending]);
   const checked = currentSelection.checked;
   useEffect(() => {
     if (selection !== currentSelection) setSelection(currentSelection);
@@ -432,15 +434,12 @@ export function App() {
   const virtual = useVirtualizer({
     count: items.length,
     getScrollElement: () => listRef.current,
-    estimateSize: (i) => (items[i].kind === "heading" ? 38 : items[i].kind === "more" ? 44 : 64),
+    estimateSize: () => 88,
     // display:none on mobile must not collapse every measured row to zero.
     measureElement: (element, entry, instance) => measureElement(element, entry, instance)
       || instance.measurementsCache[instance.indexFromElement(element)]?.size || 64,
     overscan: 8,
-    getItemKey: (i) =>
-      items[i].kind !== "mail"
-        ? `${items[i].kind}:${items[i].label}`
-        : identity((items[i] as { kind: "mail"; message: Message }).message),
+    getItemKey: (i) => identity(items[i].message),
   });
   const active = selected
     ? overrides[identity(selected)] ||
@@ -486,8 +485,8 @@ export function App() {
     // hidden. Restore again when its rows regain height, before paint.
     if (listRef.current && listHeight)
       listRef.current.scrollTop =
-        positions.current[`${account}/${nav}/${q}/${view}`] || 0;
-  }, [account, nav, q, view, mail.isPending, selected, listHeight]);
+        positions.current[`${account}/${nav}/${q}/${view}/${typeFilter}`] || 0;
+  }, [account, nav, q, view, typeFilter, mail.isPending, selected, listHeight]);
   useEffect(() => {
     const t = setTimeout(() => applySearch(search.trim()), 350);
     return () => clearTimeout(t);
@@ -560,6 +559,7 @@ export function App() {
   }
   async function act(input: Message[], change: Change, destinations?: Record<string, string>, background = false) {
     const messages = [...new Map(input.map(message => [identity(message), message])).values()];
+    const localClassification = ["inbox_kind", "detected_type", "attention", "category"].includes(change.kind);
     if (!messages.length) return { applied: 0, failed: 0 };
     if (!background && change.kind === "read") {
       for (const message of messages) attemptedReads.current.delete(identity(message));
@@ -569,12 +569,16 @@ export function App() {
         return next;
       });
     }
-    const cacheAccounts = ["archive", "trash", "spam", "move", "snooze"].includes(change.kind) ? [...new Set(messages.map(m => m.account_id))] : [];
+    const cacheAccounts = ["archive", "trash", "spam", "move", "snooze", "inbox_kind", "detected_type", "attention", "category"].includes(change.kind) ? [...new Set(messages.map(m => m.account_id))] : [];
     const cacheStarted = Date.now();
     const cacheInvalidation = cacheAccounts.length ? localMailCache.invalidateFolders(cacheAccounts) : Promise.resolve();
     const failures: string[] = [];
     setError(undefined);
     const removing = ["archive", "trash", "spam", "move", "snooze"].includes(change.kind);
+    if (localClassification && document.activeElement?.closest(".selection-actions")) {
+      requestAnimationFrame(() => { if (document.activeElement === document.body) listRef.current?.focus(); });
+    }
+
     if (removing && document.activeElement instanceof Element) {
       const focused = document.activeElement.closest<HTMLElement>("[data-message-id]")?.dataset.messageId;
       const removedIds = new Set(messages.map(identity));
@@ -593,13 +597,19 @@ export function App() {
     if (removing) setSelection(old => ({ ...old, checked: new Set([...old.checked].filter(id => !selectedTargets.has(id))) }));
     setPendingTargets(old => {
       const next = { ...old };
-      if (!background) for (const message of messages) next[identity(message)] = (next[identity(message)] || 0) + 1;
+      if (!background && !localClassification) for (const message of messages) next[identity(message)] = (next[identity(message)] || 0) + 1;
       return next;
     });
     await Promise.all(
       messages.map((m) => {
         const token = Symbol();
         mutationTokens.current.set(identity(m), token);
+        const senderTargets = change.kind === "inbox_kind" && change.sender
+          ? mailRows(client.getQueriesData<InfiniteData<SearchPage>>({ queryKey: ["mail"] }).flatMap(([, data]) => data?.pages || []), overrides)
+            .filter(row => row.account_id === m.account_id && row.sender.email.trim().toLowerCase() === m.sender.email.trim().toLowerCase() && identity(row) !== identity(m) && classification(row).source !== "message") : [];
+        for (const row of senderTargets) mutationTokens.current.set(identity(row), token);
+        if (senderTargets.length) setOverrides(old => ({ ...old, ...Object.fromEntries(senderTargets.map(row => [identity(row), optimistic(row, change)])) }));
+
         if (removing) {
           setRemoved(old => ({ ...old, [identity(m)]: token }));
         }
@@ -607,14 +617,26 @@ export function App() {
           .enqueue(
             m,
             destinations ? { kind: "move", folder_id: destinations[m.account_id] } : change,
-            (_id, value) =>
-              setOverrides((old) => ({ ...old, [identity(value)]: value })),
+            (_id, value) => {
+              setOverrides(old => ({ ...old, [identity(value)]: value }));
+              setSelected(old => old && identity(old) === identity(value) ? value : old);
+            },
             () => {
               settledTokens.current.set(identity(m), token);
+              for (const row of senderTargets) settledTokens.current.set(identity(row), token);
             },
           )
+          .then(async () => {
+            if (["inbox_kind","detected_type","attention","category"].includes(change.kind) && selected && identity(selected) === identity(m)) {
+              const current = await api.content(m).catch(() => null);
+              if (current && mutationTokens.current.get(identity(m)) === token) setSelected(old => old && identity(old) === identity(m) ? current.message : old);
+            }
+          })
           .catch((e) => {
             failures.push(e instanceof Error ? e.message : "Mail action could not be verified.");
+            setOverrides(old => ({ ...old, ...Object.fromEntries(senderTargets.filter(row => mutationTokens.current.get(identity(row)) === token).map(row => [identity(row), row])) }));
+            if (mutationTokens.current.get(identity(m)) === token) setSelected(old => old && identity(old) === identity(m) ? m : old);
+
             if (background) setReadFailures(old => ({ ...old, [identity(m)]: true }));
             else setActionError(failureSummary(failures));
             // Restore this item immediately, without overwriting newer intent.
@@ -629,7 +651,7 @@ export function App() {
                 return next;
               });
             }
-          }).finally(() => { if (!background) releasePending(identity(m)); });
+          }).finally(() => { if (!background && !localClassification) releasePending(identity(m)); });
       }),
     );
     await reconcileMail(background);
@@ -704,7 +726,7 @@ export function App() {
   async function open(m: Message, linkedAccount?: string) {
     prefetch.foreground(m);
     if (!selected && listRef.current)
-      positions.current[`${account}/${nav}/${q}/${view}`] = listRef.current.scrollTop;
+      positions.current[`${account}/${nav}/${q}/${view}/${typeFilter}`] = listRef.current.scrollTop;
     const url = new URL(location.href);
     url.searchParams.set("account", m.account_id); url.searchParams.set("message", m.id);
     if (!selected || identity(selected) !== identity(m)) navigation.push({ ...route, account: linkedAccount || account, selected: m, workspace: false }, url.href);
@@ -745,7 +767,7 @@ export function App() {
     });
   }
   function navigate(next: Nav) {
-    positions.current[`${account}/${nav}/${q}/${view}`] =
+    positions.current[`${account}/${nav}/${q}/${view}/${typeFilter}`] =
       listRef.current?.scrollTop || 0;
     if (nav !== next || selected || workspace || q) navigation.push({ ...route, nav: next, selected: null, workspace: false, q: "", search: "" });
     clearSelection();
@@ -817,9 +839,8 @@ export function App() {
     spam={() => removeFromReader("spam")}
     restore={bulk.every(m => !!snoozedThreads[`${m.account_id}/${m.thread_id}`]) ? () => void restoreInbox([...bulk]) : undefined}
     snooze={() => setSnooze([...bulk])} move={() => setMove([...bulk])}
-    category={bulk.every(message => message.category === bulk[0].category) ? bulk[0].category || "" : ""}
-    categories={groups.filter(g => g !== "pending" && g !== "other")}
-    setCategory={value => void act(bulk, { kind: "category", value })}
+    messages={bulk}
+    classify={change => void act(bulk, change)}
   /> : null;
   const coverage = mail.data?.pages.at(-1);
   const inboxCoverage = !q && nav === "INBOX" ? coverage : undefined;
@@ -1023,6 +1044,7 @@ export function App() {
           <RefreshButton updating={updating} failed={refreshFailed} status={refreshStatus} onRefresh={() => void refreshMail()} />
         </header>
         {q && !sidebar && searchForm}
+        {nav === "INBOX" && !q && <AttentionStrip account={account} ids={ids} overrides={overrides} removed={{...removed,...cleanupRows}} snoozed={snoozedThreads} open={message => void open(message)} act={(messages, change) => void act(messages, change)} />}
         <div className="view-toolbar">
           {nav === "INBOX" && !q && <div role="tablist" aria-label="Inbox view" onKeyDown={(event) => {
             if (!plainKey(event.nativeEvent) || event.repeat) return;
@@ -1034,34 +1056,7 @@ export function App() {
             tabs[next]?.focus();
             tabs[next]?.click();
           }}>
-            <button title="Smart"
-              role="tab"
-              aria-selected={view === "smart"}
-              className={view === "smart" ? "active" : ""}
-              onClick={() => {
-                positions.current[`${account}/${nav}/${q}/${view}`] =
-                  listRef.current?.scrollTop || 0;
-                positions.current[`${account}/${nav}/${q}/smart`] ??=
-                  listRef.current?.scrollTop || 0;
-                setView("smart");
-              }}
-            >
-              Smart
-            </button>
-            <button title="List"
-              role="tab"
-              aria-selected={view === "list"}
-              className={view === "list" ? "active" : ""}
-              onClick={() => {
-                positions.current[`${account}/${nav}/${q}/${view}`] =
-                  listRef.current?.scrollTop || 0;
-                positions.current[`${account}/${nav}/${q}/list`] ??=
-                  listRef.current?.scrollTop || 0;
-                setView("list");
-              }}
-            >
-              List
-            </button>
+            {(["personal", "automated", "all"] as const).map(tab => <button key={tab} role="tab" aria-selected={view === tab} tabIndex={view === tab ? 0 : -1} className={view === tab ? "active" : ""} onClick={() => changeTab(tab)}>{tab[0].toUpperCase() + tab.slice(1)}</button>)}
           </div>}
           {checked.size > 0 && (
             <button title="Clear selection" className="selection-clear-desktop" onClick={clearSelection}>
@@ -1070,6 +1065,10 @@ export function App() {
           )}
 
         </div>
+        {nav === "INBOX" && !q && view === "automated" && <div className="email-type-filters" role="group" aria-label="Filter automated email">
+          <button aria-pressed={!typeFilter} onClick={() => setTypeFilter("")}>All automated</button>
+          {Object.entries(emailTypes).map(([type, label]) => <button key={type} aria-pressed={typeFilter === type} onClick={() => setTypeFilter(type as DetectedType)}>{label}</button>)}
+        </div>}
         <div className="pull-status" role="status" style={{ height: pull.refreshing ? 44 : pull.distance }}>
           {(pull.distance > 0 || pull.refreshing) && <span><RefreshCw size={15} />{pull.refreshing ? "Refreshing…" : pull.distance >= 64 ? "Release to refresh" : "Pull to refresh"}</span>}
         </div>
@@ -1176,7 +1175,7 @@ export function App() {
         ) : mail.isPending ? (
           <Empty title="Loading mail…" />
         ) : !rows.length && !mail.error && !mail.hasNextPage && !paginationStalled ? (
-          <div className="message-list" ref={listRef}><Empty title={q ? coverage?.coverage.some(c => c.state !== "complete") ? "No matches in checked mail" : "No matches" : nav === "INBOX" && coverage?.coverage.some(c => c.state !== "complete") ? "Checking for mail…" : "All caught up"}>
+          <div className="message-list" ref={listRef}><Empty title={q ? coverage?.coverage.some(c => c.state !== "complete") ? "No matches in checked mail" : "No matches" : nav === "INBOX" && coverage?.coverage.some(c => c.state !== "complete") ? "Checking for mail…" : nav === "INBOX" ? view === "personal" ? "No personal mail" : view === "automated" ? "No matching automated mail" : "All caught up" : "All caught up"}>
             <p>
               {q ? coverage?.coverage.some(c => c.state !== "complete") ? "Search coverage is incomplete. Try searching again when the provider is available." : "Try a different search." : nav === "INBOX" && coverage?.coverage.some(c => c.state !== "complete") ? "Your inbox will update as mail arrives." : "New mail will appear here."}
             </p>
@@ -1193,7 +1192,7 @@ export function App() {
               infiniteScroll();
               // Mobile hides this pane while reading, which can emit a zero
               // scroll event. Keep the position captured before opening mail.
-              if (listRef.current?.clientHeight) positions.current[`${account}/${nav}/${q}/${view}`] =
+              if (listRef.current?.clientHeight) positions.current[`${account}/${nav}/${q}/${view}/${typeFilter}`] =
                 listRef.current?.scrollTop || 0;
             }}
           >
@@ -1215,30 +1214,9 @@ export function App() {
                       transform: `translateY(${v.start}px)`,
                     }}
                   >
-                    {item.kind === "heading" ? (
-                      <button title={`${item.label} · ${item.count} loaded messages`}
-                        className="group-heading"
-                        aria-label={`${item.label} · ${item.count} loaded messages`}
-                        aria-expanded={!item.collapsed}
-                        onClick={() => updateSection(item.label, old => ({ ...old, collapsed: !item.collapsed }))}
-                      >
-                        <ChevronDown size={13} aria-hidden="true" style={{ transform: item.collapsed ? "rotate(-90deg)" : undefined }} />
-                        {item.label}
-                        <span>{item.count}</span>
-                      </button>
-                    ) : item.kind === "more" ? (
-                      <button title={`Load more ${item.label} messages`}
-                        className="section-more"
-                        data-mail-more={item.label}
-                        aria-label={`Load more ${item.label} messages`}
-                        onClick={() => loadMore(item.label)}
-                      >
-                        Load more
-                      </button>
-                    ) : (
                       <div
                         data-message-id={identity(item.message)}
-                        className={`message-row ${selected && identity(item.message) === identity(selected) ? "selected" : ""} ${item.message.unread ? "unread" : ""} ${heldReadSections[identity(item.message)]?.leaving ? "leaving-section" : ""}`}
+                        className={`message-row ${selected && identity(item.message) === identity(selected) ? "selected" : ""} ${item.message.unread ? "unread" : ""}`}
                       >
                         <label className="message-select" onClick={(e) => {
                           // Label-forwarded checkbox clicks can lose modifier keys.
@@ -1301,6 +1279,7 @@ export function App() {
                             {accounts.data?.find((a) => a.id === item.message.account_id)?.display_name || item.message.account_id}
                           </span>
                         </button>
+                        <MailDetails message={item.message} />
                         <div className="row-quick-actions" role="group" aria-label="Quick message actions">
                           {snoozedThreads[`${item.message.account_id}/${item.message.thread_id}`] && <IconButton label="Move back to Inbox" disabled={pendingTargets[identity(item.message)] > 0} onClick={() => void restoreInbox([item.message])}><FolderInput size={16} /></IconButton>}
                           {([
@@ -1349,26 +1328,25 @@ export function App() {
                           />
                         </button>
                       </div>
-                    )}
                   </div>
                 );
               })}
             </div>
-            {(bottomSection !== null || (mail.hasNextPage && !mail.isFetchNextPageError)) && (
-              <button title={view === "smart" && !q && nav === "INBOX" ? "Load more mail" : "Load more"}
+            {(mail.hasNextPage && !mail.isFetchNextPageError) && (
+              <button title={"Load more"}
                 className="load-more"
-                data-mail-more={bottomSection || (items.some(item => item.kind === "mail") || !rows.length ? "" : undefined)}
-                aria-label={view === "smart" && !q && nav === "INBOX" ? "Load more mail" : "Load more"}
-                disabled={bottomSection === null && mail.isFetching}
-                onClick={() => loadMore(bottomSection || "")}
+                data-mail-more={""}
+                aria-label={"Load more"}
+                disabled={mail.isFetching}
+                onClick={() => loadMore()}
               >
-                {bottomSection === null && mail.isFetchingNextPage ? "Loading…" : "Load more"}
+                {mail.isFetchingNextPage ? "Loading…" : "Load more"}
               </button>
             )}
             <p className="mail-load-status" role="status">
-              {mail.isFetchNextPageError ? "Couldn’t load more mail. Your loaded messages are still available." : mail.isFetchingNextPage ? "Loading more mail…" : paginationStalled ? "Paging stopped because the mailbox returned a repeated page. Refresh mail to try again." : bottomSection === null && !mail.hasNextPage && rows.length ? "End of loaded mail" : ""}
+              {mail.isFetchNextPageError ? "Couldn’t load more mail. Your loaded messages are still available." : mail.isFetchingNextPage ? "Loading more mail…" : paginationStalled ? "Paging stopped because the mailbox returned a repeated page. Refresh mail to try again." : !mail.hasNextPage && rows.length ? "End of loaded mail" : ""}
             </p>
-            {mail.isFetchNextPageError && <button title="Retry loading mail" className="load-more" disabled={mail.isFetching} onClick={() => loadMore("")}>Retry loading mail</button>}
+            {mail.isFetchNextPageError && <button title="Retry loading mail" className="load-more" disabled={mail.isFetching} onClick={() => loadMore()}>Retry loading mail</button>}
           </div>
         )}
         <div className="keyboard-hints">

@@ -88,6 +88,7 @@ pub(super) async fn page(
             .full_text_rows(
                 a,
                 &dakia_storage::CachedSearchFilter {
+                    classification: r.classification(),
                     from: query.from.as_deref(),
                     to: query.to.as_deref(),
                     subject: query.subject.as_deref(),
@@ -155,7 +156,11 @@ pub(super) async fn page(
     let total = rows.len() as u32;
     let classified = rows
         .iter()
-        .filter(|m| m.category_status == CategoryStatus::Ready)
+        .filter(|m| {
+            m.classification
+                .as_ref()
+                .is_some_and(|c| c.status == CategoryStatus::Ready)
+        })
         .count() as u32;
     Ok(Some(SearchPage {
         rows,

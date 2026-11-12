@@ -22,6 +22,7 @@ async function setup(page: Page) {
     if (p === "/api/logout") { state.authenticated = false; return respond(null); }
     if (p.endsWith("/events")) return route.fulfill({ contentType: "text/event-stream", body: ": ready\n\n" });
     if (p === "/api/search" || p.endsWith("/messages")) {
+      if (url.searchParams.get("attention") === "true") return respond({ ...mail, rows: [], continuation: null });
       state.lists++; await state.listGate;
       const isSent = url.searchParams.get("folder") === "Sent" || url.searchParams.get("q") === "folder:Sent";
       return respond({ ...mail, rows: isSent ? [sent] : [{ ...row, subject: state.freshSubject }], continuation: null });
@@ -40,7 +41,7 @@ async function setup(page: Page) {
 }
 async function countSaved(page: Page) {
   return page.evaluate(() => new Promise<number>(resolve => {
-    const r = indexedDB.open("dakia-local-mail-v1");
+    const r = indexedDB.open("dakia-local-mail-v2");
     r.onsuccess = () => { const db = r.result; const count = db.transaction("entries").objectStore("entries").count(); count.onsuccess = () => { resolve(count.result); db.close(); }; };
   }));
 }
@@ -63,7 +64,10 @@ test("saved folders switch immediately after reload while both folder requests a
   const state = await setup(page);
   await page.getByRole("button", { name: "Sent", exact: true }).focus(); await page.keyboard.press("Enter");
   await expect(page.getByText("Saved sent fixture", { exact: true })).toBeVisible();
-  await expect.poll(() => countSaved(page)).toBeGreaterThanOrEqual(3);
+  await expect.poll(() => page.evaluate(() => new Promise<boolean>(resolve => {
+    const r = indexedDB.open("dakia-local-mail-v2");
+    r.onsuccess = () => { const db = r.result; const entries = db.transaction("entries").objectStore("entries").getAll(); entries.onsuccess = () => { resolve(entries.result.some(e => e.kind === "folder" && e.query[2] === "Sent")); db.close(); }; };
+  }))).toBe(true);
   state.holdLists(); await page.reload();
   await expect(page.getByText("Saved inbox fixture", { exact: true })).toBeVisible();
   const start = performance.now();

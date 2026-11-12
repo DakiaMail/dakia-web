@@ -3,7 +3,7 @@ import type { Message } from "@dakia/api-types";
 const identity = (message: Message) => `${message.account_id}/${message.id}`;
 
 // Each federated page is sorted independently, not relative to earlier pages.
-// Merge the complete loaded set before section limits or list virtualization.
+// Merge the complete loaded set before list virtualization.
 export function mailRows(pages: { rows: Message[], cache_preview?: boolean | null, coverage?: { state: string }[] }[], overrides: Record<string, Message>): Message[] {
   const unique = new Map<string, Message>();
   const complete = pages.filter(p => p.coverage).at(-1)?.coverage?.every(c => c.state === "complete");

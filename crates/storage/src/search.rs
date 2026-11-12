@@ -8,6 +8,7 @@ pub struct CachedSearchFilter<'a> {
     pub seen: Option<bool>,
     pub starred: Option<bool>,
     pub folders: Option<&'a [String]>,
+    pub classification: ClassificationFilter,
     pub category: Option<&'a str>,
     pub snoozed_only: bool,
     pub hide_snoozed: bool,
@@ -22,8 +23,8 @@ impl Store {
     ) -> Result<Vec<Message>> {
         let db = self.db(a).await?;
         let folders = filter.folders.map(serde_json::to_string).transpose()?;
-        let rows: Vec<String> = sqlx::query_scalar(
-            "SELECT m.document FROM messages m
+        let rows: Vec<String> = sqlx::query_scalar(&format!(
+            "SELECT m.document FROM messages m CROSS JOIN (SELECT ? AS filter) cf
              WHERE CASE WHEN json_valid(json_extract(m.document,'$.provider_id')) THEN NOT EXISTS(SELECT 1 FROM provider_documents v WHERE v.key='thread:epoch:'||json_extract(json_extract(m.document,'$.provider_id'),'$.folder') AND CAST(v.document AS INTEGER)<>json_extract(json_extract(m.document,'$.provider_id'),'$.uidvalidity')) ELSE 1 END
              AND (? IS NULL OR instr(lower(json_extract(m.document,'$.subject')),lower(?))>0)
              AND (? IS NULL OR instr(lower(json_extract(m.document,'$.sender.email')),lower(?))>0 OR instr(lower(COALESCE(json_extract(m.document,'$.sender.name'),'')),lower(?))>0)
@@ -32,11 +33,13 @@ impl Store {
              AND (? IS NULL OR json_extract(m.document,'$.unread')<>?)
              AND (? IS NULL OR json_extract(m.document,'$.starred')=?)
              AND (? IS NULL OR EXISTS(SELECT 1 FROM json_each(m.document,'$.folder_ids') f WHERE f.value IN (SELECT value FROM json_each(?))))
+             {CLASSIFICATION_SQL}
              AND (? IS NULL OR json_extract(m.document,'$.category') IS NULL OR json_extract(m.document,'$.category')=?)
              AND (?=0 OR EXISTS(SELECT 1 FROM snoozes s WHERE s.thread_id=json_extract(m.document,'$.thread_id') AND s.until>?))
              AND (?=0 OR NOT EXISTS(SELECT 1 FROM snoozes s WHERE s.thread_id=json_extract(m.document,'$.thread_id') AND s.until>?))
              ORDER BY json_extract(m.document,'$.received_at') DESC,m.id DESC LIMIT 50",
-        )
+        ))
+        .bind(serde_json::to_string(&filter.classification)?)
         .bind(filter.subject).bind(filter.subject)
         .bind(filter.from).bind(filter.from).bind(filter.from)
         .bind(filter.to).bind(filter.to).bind(filter.to)

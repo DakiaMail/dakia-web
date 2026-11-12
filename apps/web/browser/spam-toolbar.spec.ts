@@ -30,7 +30,7 @@ async function fixture(page: Page, reject = false) {
     return respond([]);
   });
   await page.goto("/");
-  await page.getByRole("tab", { name: "List", exact: true }).click();
+  await page.getByRole("tab", { name: "All", exact: true }).click();
   return { operations, reads: () => reads, settle(status: "applied" | "failed") { for (const [id, op] of operations) operations.set(id, { ...op, status, revision: 3 }); } };
 }
 async function capture(page: Page, name: string) {
@@ -68,7 +68,7 @@ for (const width of [320, 390, 768, 901, 1024, 1480]) for (const theme of ["ligh
       await page.keyboard.press("ArrowDown");
       await expect(page.getByRole("menuitem", { name: "Mark as spam", exact: true })).toBeFocused();
       await page.keyboard.press("ArrowDown");
-      await expect(page.getByRole("menuitem", { name: "Category", exact: true })).toBeFocused();
+      await expect(page.getByRole("menuitem", { name: "Personal or Automated", exact: true })).toBeFocused();
       await page.keyboard.press("ArrowRight");
       await expect(page.getByRole("menuitemradio").first()).toBeFocused();
       await page.keyboard.press("ArrowLeft");

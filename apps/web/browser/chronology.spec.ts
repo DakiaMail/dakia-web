@@ -36,6 +36,7 @@ async function fixture(page: Page) {
       return respond({ ...op, status: "applied", revision: 2 });
     }
     if (path === "/api/search") {
+      if (url.searchParams.get("attention") === "true") return respond({ ...mail,rows:[],continuation:null });
       const cursor = url.searchParams.get("continuation") || "initial";
       calls.push(cursor);
       const rows = cursor === "second" ? second : cursor === "third" ? third : first;
@@ -51,7 +52,7 @@ async function fixture(page: Page) {
     return respond([]);
   });
   await page.goto("/");
-  await expect(page.locator(".group-heading")).toHaveCount(2);
+  await expect(page.locator(".group-heading")).toHaveCount(0);
   return { calls, operations, refresh: () => { refreshed = true; } };
 }
 
@@ -59,10 +60,10 @@ async function fixture(page: Page) {
 const displayed = (page: Page) => page.locator(".message-row input").evaluateAll(els => els.map(el => el.getAttribute("aria-label")!.slice(7)));
 
 for (const width of [390, 1480]) {
-  test(`chronological Seen across three account pages, refresh and read transitions at ${width}`, async ({ page }) => {
+  test(`chronological mail across three account pages, refresh and read transitions at ${width}`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1200 });
     const state = await fixture(page);
-    const footer = page.getByRole("button", { name: "Load more mail", exact: true });
+    const footer = page.getByRole("button", { name: "Load more", exact: true });
     await expect.poll(() => state.calls).toEqual(["initial", "second"]);
     await footer.click();
     await expect.poll(() => state.calls).toEqual(["initial", "second", "third"]);
@@ -70,25 +71,24 @@ for (const width of [390, 1480]) {
     await expect.poll(() => displayed(page)).toEqual(["Unread October 30", ...expected]);
     await page.locator(".message-open").filter({ hasText: "Unread October 30" }).click();
     if (width === 390) await page.getByRole("button", { name: "Back to inbox", exact: true }).click();
-    await expect(page.locator(".group-heading")).toHaveCount(2);
+    await expect(page.locator(".group-heading")).toHaveCount(0);
     await expect.poll(() => displayed(page)).toEqual(["Unread October 30", ...expected]);
     const dir = resolve("../../docs/screenshots/chronology"); mkdirSync(dir, { recursive: true });
     await page.screenshot({ path: `${dir}/${width}-seen.png`, fullPage: true });
     state.refresh();
     await page.locator(".header-refresh").click();
     // Read status and refreshed pages must not move the email being read.
-    await expect(page.getByRole("button", { name: /^seen ·/ })).toHaveAccessibleName("seen · 8 loaded messages");
-    await expect.poll(() => displayed(page)).toEqual(["Unread October 30", "New arrival", ...expected]);
+    await expect.poll(() => displayed(page)).toEqual(["New arrival", "Unread October 30", ...expected]);
     await page.locator(".message-open").filter({ hasText: "October 29" }).click();
     if (width === 390) await page.getByRole("button", { name: "Back to inbox", exact: true }).click();
-    await expect(page.locator(".group-heading")).toHaveCount(1);
-    await expect(page.getByRole("button", { name: /^seen ·/ })).toHaveAccessibleName("seen · 9 loaded messages");
+    await expect(page.locator(".group-heading")).toHaveCount(0);
     await expect.poll(() => displayed(page)).toEqual(["New arrival", "Unread October 30", ...expected]);
     await page.locator(".message-open").filter({ hasText: "Unread October 30" }).click();
     await page.getByRole("button", { name: "Mark unread", exact: true }).click();
     if (width === 390) await page.getByRole("button", { name: "Back to inbox", exact: true }).click();
-    await expect.poll(() => displayed(page)).toEqual(["Unread October 30", "New arrival", ...expected]);
-    await page.getByRole("tab", { name: "List", exact: true }).click();
+    await expect.poll(() => displayed(page)).toEqual(["New arrival", "Unread October 30", ...expected]);
+    await page.getByRole("tab", { name: "All", exact: true }).click();
+    await footer.click();
     await expect.poll(() => displayed(page)).toEqual(["New arrival", "Unread October 30", ...expected]);
     expect(state.operations.every(op => op.account_id === "work" && op.target_id === "Unread October 30" && op.change.kind === "read")).toBe(true);
     expect(new Set(await displayed(page)).size).toBe(9);

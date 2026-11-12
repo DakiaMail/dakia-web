@@ -1,5 +1,5 @@
 use super::*;
-pub(crate) const CLASSIFICATION_CANDIDATE_QUERY: &str = "SELECT document FROM messages WHERE category_override IS NULL AND json_extract(document,'$.unread')=1 AND json_extract(document,'$.category_status')='pending' AND NOT EXISTS (SELECT 1 FROM model_jobs WHERE json_extract(model_jobs.document,'$.message_id')=messages.id AND state IN ('pending','running')) ORDER BY json_extract(document,'$.received_at') DESC LIMIT 1";
+pub(crate) const CLASSIFICATION_CANDIDATE_QUERY: &str = "SELECT m.document FROM messages m WHERE json_extract(m.document,'$.classification.status')='pending' AND (instr(upper(json_extract(m.document,'$.folder_ids')),'\"INBOX\"')>0 OR EXISTS(SELECT 1 FROM message_classifications c WHERE c.message_id=m.id AND c.requested=1)) AND NOT EXISTS (SELECT 1 FROM model_jobs WHERE json_extract(model_jobs.document,'$.message_id')=m.id AND state IN ('pending','running')) ORDER BY json_extract(m.document,'$.received_at') DESC LIMIT 1";
 #[derive(Debug, Clone, Copy)]
 pub enum ModelFailureReason {
     ContentUnavailable,
@@ -55,7 +55,7 @@ impl Store {
         let can_retry = matches!(reason, ModelFailureReason::ContentUnavailable)
             && job.kind == JobKind::Classify;
         let changed = if can_retry {
-            sqlx::query("UPDATE model_jobs SET state='pending',document=json_set(document,'$.status','pending'),retry_at=?+CASE WHEN retry_count=0 THEN 30 ELSE 120 END,retry_count=retry_count+1 WHERE id=? AND state='running' AND retry_count<2 AND EXISTS(SELECT 1 FROM messages WHERE id=json_extract(model_jobs.document,'$.message_id') AND json_extract(messages.document,'$.unread')=1) AND unixepoch(json_extract(document,'$.deadline'))>?+CASE WHEN retry_count=0 THEN 30 ELSE 120 END")
+            sqlx::query("UPDATE model_jobs SET state='pending',document=json_set(document,'$.status','pending'),retry_at=?+CASE WHEN retry_count=0 THEN 30 ELSE 120 END,retry_count=retry_count+1 WHERE id=? AND state='running' AND retry_count<2 AND unixepoch(json_extract(document,'$.deadline'))>?+CASE WHEN retry_count=0 THEN 30 ELSE 120 END")
                 .bind(Utc::now().timestamp()).bind(&job.id).bind(Utc::now().timestamp()).execute(&mut *tx).await?.rows_affected()==1
         } else {
             false
@@ -91,17 +91,6 @@ impl Store {
             .bind(message)
             .fetch_optional(&mut *tx)
             .await?;
-        if kind == JobKind::Classify {
-            let unread: Option<bool> = sqlx::query_scalar(
-                "SELECT json_extract(document,'$.unread') FROM messages WHERE id=?",
-            )
-            .bind(message)
-            .fetch_optional(&mut *tx)
-            .await?;
-            if !unread.ok_or(Error::NotFound)? {
-                return Err(Error::Conflict);
-            }
-        }
         let job = ModelJob {
             id: Uuid::new_v4().to_string(),
             account_id: a.id.clone(),
@@ -131,10 +120,6 @@ impl Store {
         let _guard = self.gate.read().await;
         let db = self.db(a).await?;
         let mut tx = db.begin().await?;
-        // Cancel even delayed retries, so old work cannot block a fresh unread job.
-        // Cancellation leaves the message/category untouched and is not a failure.
-        sqlx::query("UPDATE model_jobs SET state='cancelled',failure_reason=NULL,document=json_set(document,'$.status','cancelled') WHERE state='pending' AND json_extract(document,'$.kind')='classify' AND EXISTS(SELECT 1 FROM messages WHERE id=json_extract(model_jobs.document,'$.message_id') AND json_extract(messages.document,'$.unread')=0)")
-            .execute(&mut *tx).await?;
         let raw:Option<String>=sqlx::query_scalar("UPDATE model_jobs SET state='running' WHERE id=(SELECT id FROM model_jobs WHERE state='pending' AND retry_at<=unixepoch('now') ORDER BY rowid LIMIT 1) AND state='pending' RETURNING document").fetch_optional(&mut *tx).await?;
         let Some(raw) = raw else {
             tx.commit().await?;
@@ -163,8 +148,19 @@ impl Store {
     pub async fn finish_model(
         &self,
         a: &AuthorizedAccount,
-        mut job: ModelJob,
+        job: ModelJob,
         category: Option<&str>,
+        translation: Option<(&str, &MessageContent)>,
+    ) -> Result<()> {
+        let classification = category.map(classification::legacy_classification);
+        self.finish_classification(a, job, classification.as_ref(), translation)
+            .await
+    }
+    pub async fn finish_classification(
+        &self,
+        a: &AuthorizedAccount,
+        mut job: ModelJob,
+        classification: Option<&Classification>,
         translation: Option<(&str, &MessageContent)>,
     ) -> Result<()> {
         let _guard = self.gate.read().await;
@@ -182,8 +178,7 @@ impl Store {
             .fetch_one(&mut *tx)
             .await?;
         let mut message: Message = serde_json::from_str(&raw)?;
-        if job.kind == JobKind::Classify && (!message.unread || job.status == JobStatus::Cancelled)
-        {
+        if job.kind == JobKind::Classify && job.status == JobStatus::Cancelled {
             job.status = JobStatus::Cancelled;
             sqlx::query(
                 "UPDATE model_jobs SET document=?,state='cancelled',failure_reason=NULL WHERE id=?",
@@ -218,26 +213,24 @@ impl Store {
                 .await?;
         }
         if valid && job.kind == JobKind::Classify {
-            let manual: Option<String> =
-                sqlx::query_scalar("SELECT category_override FROM messages WHERE id=?")
-                    .bind(&job.message_id)
-                    .fetch_one(&mut *tx)
-                    .await?;
-            if manual.is_none() {
-                message.category = category.map(str::to_owned);
-                message.category_status = if category.is_some() {
-                    CategoryStatus::Ready
-                } else {
-                    CategoryStatus::Failed
-                };
-                message.revision += 1;
-                sqlx::query("UPDATE messages SET revision=?,document=? WHERE id=?")
-                    .bind(message.revision)
-                    .bind(serde_json::to_string(&message)?)
-                    .bind(&message.id)
-                    .execute(&mut *tx)
-                    .await?;
-            }
+            let failed = Classification {
+                status: CategoryStatus::Failed,
+                policy_revision: job.model_revision.clone(),
+                ..Default::default()
+            };
+            Self::apply_classification_tx(
+                &mut tx,
+                &mut message,
+                Some(classification.unwrap_or(&failed)),
+            )
+            .await?;
+            message.revision += 1;
+            sqlx::query("UPDATE messages SET revision=?,document=? WHERE id=?")
+                .bind(message.revision)
+                .bind(serde_json::to_string(&message)?)
+                .bind(&message.id)
+                .execute(&mut *tx)
+                .await?;
         }
         if valid && job.status == JobStatus::Succeeded {
             if let Some((source, content)) = translation {
@@ -267,8 +260,7 @@ impl Store {
     }
     pub async fn recover_models(&self, a: &AuthorizedAccount) -> Result<()> {
         let db = self.db(a).await?;
-        sqlx::query("UPDATE model_jobs SET state='cancelled',failure_reason=NULL,document=json_set(document,'$.status','cancelled') WHERE state='running' AND json_extract(document,'$.kind')='classify' AND EXISTS(SELECT 1 FROM messages WHERE id=json_extract(model_jobs.document,'$.message_id') AND json_extract(messages.document,'$.unread')=0)")
-            .execute(&db).await?;
+
         sqlx::query("UPDATE model_jobs SET state='failed',failure_reason='interrupted',document=json_set(document,'$.status','failed') WHERE state='running'").execute(&db).await?;
         Ok(())
     }

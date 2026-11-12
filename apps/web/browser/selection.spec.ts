@@ -58,7 +58,7 @@ async function fixture(page: Page, source = initial) {
   await expect(page.locator(".message-row").first()).toBeVisible();
   return { operations, discoveries, bodyReads, replace: (next: Message[]) => { rows = next; } };
 }
-async function list(page: Page) { await page.getByRole("tab", { name: "List", exact: true }).click(); }
+async function list(page: Page) { await page.getByRole("tab", { name: "All", exact: true }).click(); }
 
 test("inclusive forward range, stable anchor, reverse range and deselection", async ({ page }) => {
   const state = await fixture(page); await list(page);
@@ -85,15 +85,14 @@ test("first Shift-click and clear reset have no stale anchor", async ({ page }) 
   await checkbox(page, 6).click({ modifiers: ["Shift"] }); await selected(page, [6]);
 });
 
-test("Smart mode uses category display order, excludes headings and resets anchor on List switch", async ({ page }) => {
+test("chronological tabs preserve available checkmarks and reset the range anchor", async ({ page }) => {
   await fixture(page, initial.map(m => ({ ...m, unread: true })));
-  await expect(page.locator(".message-select input").first()).toHaveAttribute("type", "checkbox");
   await checkbox(page, 3).click();
   await checkbox(page, 2).click({ modifiers: ["Shift"] });
-  await selected(page, [3, 5, 7, 0, 2]);
-  await list(page); await selected(page, [3, 5, 7, 0, 2]);
+  await selected(page, [2, 3]);
+  await list(page); await selected(page, [2, 3]);
   await checkbox(page, 6).click({ modifiers: ["Shift"] });
-  await selected(page, [3, 5, 7, 0, 2, 6]);
+  await selected(page, [2, 3, 6]);
 });
 
 test("checkbox label hit area preserves Shift and leaves star/open separate", async ({ page }) => {

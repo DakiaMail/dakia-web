@@ -43,7 +43,6 @@ Optional/runtime settings:
 | `DAKIA_LISTEN` | Image: `0.0.0.0:3025`; standalone: `127.0.0.1:3025`. Compose publishes only host loopback by default |
 | `DAKIA_WEB_ROOT` | `apps/web/dist`; set `/app/web` in the packaged image |
 | `DAKIA_DURABLE_ATTACHMENT_BUDGET_BYTES` | 1073741824 per account; positive integer |
-| `DAKIA_CLASSIFIER_DIR` | Model directory containing `MANIFEST.json` and verified artifacts |
 | `DAKIA_WORKERS` | Node worker source/dependency directory |
 | `DAKIA_NODE` | Node executable, default `node` |
 | `DAKIA_MODEL_CACHE` | Writable cache for public translation models |
@@ -59,7 +58,7 @@ The first local login is the owner. Workspace provides owner-only invitation cre
 
 GitHub Actions builds application source changes on `main` for Linux AMD64 and ARM64. Source images use `ghcr.io/dakiamail/dakia-web:sha-<source-commit>` and carry the source commit in the `org.opencontainers.image.revision` label. Semantic version tags publish versioned images, then a GitHub release with a digest manifest and the paired upgrade scripts after packaged-runtime checks pass. Stable releases take priority over previews for update discovery. Manual workflow runs can build a chosen source revision.
 
-Each native image must pass packaged classifier, translation-worker, health, Gmail OAuth, and restart checks before the multi-platform image is published. The classifier check loads the bundled model and classifies a synthetic message as the normal app user. The OAuth checks use synthetic credentials with networking disabled. `edge` tracks a successful `main` build; the Compose default uses an explicitly verified digest. Documentation and Compose-pin-only changes do not rebuild unchanged application code.
+Each native image must pass packaged classifier, translation-worker, health, Gmail OAuth, and restart checks before the multi-platform image is published. The classification check verifies the deterministic policy on synthetic messages as the normal app user. The OAuth checks use synthetic credentials with networking disabled. `edge` tracks a successful `main` build; the Compose default uses an explicitly verified digest. Documentation and Compose-pin-only changes do not rebuild unchanged application code.
 
 Use the source-revision label and immutable digest to identify an image. Keep operator credentials and mail data in runtime configuration and persistent volumes, outside the image.
 
@@ -68,13 +67,12 @@ Use the source-revision label and immutable digest to identify an image. Keep op
 Install the requirements and run the checks in the root README. Retrieve the oversized model first:
 
 ```sh
-python3 scripts/fetch-classifier.py
 sh deploy/build-bundle.sh
 ```
 
-The builder installs locked npm dependencies, builds/tests the UI, tests the workers and Rust workspace, builds release binaries, and creates `deploy/bundle/runtime.tar.gz`. It packages copied binaries, web assets, workers and classifier artifacts, excluding account data and operator secrets. Build on Linux x86_64 using Node 24 LTS and the pinned Rust toolchain. The model fetch is explicit so offline builds can use a previously verified local artifact.
+The builder installs locked npm dependencies, builds/tests the UI, tests the workers and Rust workspace, builds release binaries, and creates `deploy/bundle/runtime.tar.gz`. It packages copied binaries, web assets, workers and classification policy, excluding account data and operator secrets. Build on Linux x86_64 using Node 24 LTS and the pinned Rust toolchain. Classification requires no model files or runtime downloads.
 
-Extract the archive into a new build directory and build the included Dockerfile with an explicit local tag. It expects `bin/`, `web/`, `workers/` and `classifier/` beside it. The image runs as UID/GID 1000. Mount persistent storage at `/data`, set the required environment and mount private configuration files at their configured paths. Configure `DAKIA_WEB_ROOT=/app/web`; the image already sets the classifier, worker and model-cache paths. A private VAPID file is needed for push, not embedded in the image.
+Extract the archive into a new build directory and build the included Dockerfile with an explicit local tag. It expects `bin/`, `web/`, `workers/` beside it. The image runs as UID/GID 1000. Mount persistent storage at `/data`, set the required environment and mount private configuration files at their configured paths. Configure `DAKIA_WEB_ROOT=/app/web`; the image already sets the worker and translation model-cache paths. A private VAPID file is needed for push, not embedded in the image.
 
 Use a read-only root filesystem, no new privileges, dropped capabilities and suitable resource limits. Networking must permit OIDC discovery/backchannel, mail provider TLS, selected model downloads and supported push endpoints. Do not bypass TLS verification to resolve routing failures. Ensure `/sw.js` serves JavaScript rather than the SPA fallback.
 
@@ -137,7 +135,7 @@ docker run --rm -v "$PWD:/source" -w /source dakia-release-builder \
 
 Run this on a native Linux amd64 host. Mount a source checkout and optional
 isolated Cargo/target caches only. Never mount production data or credentials
-into the builder. Package all three binaries and matching ONNX runtime libraries,
+into the builder. Package all three binaries without classifier model or runtime assets,
 and run the release gate before activation. Back up the stopped app before
 changing the production image, retain its previous tag, and verify database
 integrity, mounts, health and unchanged account/submission counts afterwards.

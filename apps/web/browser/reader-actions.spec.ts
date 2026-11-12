@@ -24,8 +24,8 @@ async function fixture(page: Page, empty = false) {
     return respond([]);
   });
   await page.goto("/");
-  await expect(page.getByRole("tab", { name: "List", exact: true })).toBeVisible();
-  await page.getByRole("tab", { name: "List", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "All", exact: true })).toBeVisible();
+  await page.getByRole("tab", { name: "All", exact: true }).click();
   return writes;
 }
 async function screenshot(page: Page, name: string) {

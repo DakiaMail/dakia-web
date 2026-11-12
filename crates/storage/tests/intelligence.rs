@@ -1,3 +1,14 @@
+fn legacy(category: &str) -> dakia_domain::Classification {
+    dakia_domain::Classification {
+        kind: if matches!(category, "people" | "other") {
+            dakia_domain::InboxKind::Personal
+        } else {
+            dakia_domain::InboxKind::Automated
+        },
+        status: dakia_domain::CategoryStatus::Ready,
+        ..Default::default()
+    }
+}
 use dakia_domain::*;
 use dakia_storage::Store;
 async fn fixture() -> (
@@ -126,6 +137,7 @@ async fn initial_and_historical_mail_never_push_but_new_mail_deduplicates_and_wa
     fresh.provider_id = "new-provider".into();
     fresh.category = Some("people".into());
     fresh.category_status = CategoryStatus::Ready;
+    fresh.classification = Some(legacy(fresh.category.as_deref().unwrap_or("people")));
     fresh.received_at = (chrono::Utc::now() + chrono::Duration::seconds(1)).to_rfc3339();
     fresh = s.upsert_message(&a, fresh).await.unwrap();
     page.rows = vec![fresh];
@@ -277,7 +289,7 @@ async fn upgrade_retries_legacy_failed_classification_once_without_touching_manu
     manual.id = "manual".into();
     manual.provider_id = "manual".into();
     s.upsert_message(&a, manual).await.unwrap();
-    sqlx::query("UPDATE messages SET category_override='people' WHERE id='manual'")
+    sqlx::query("UPDATE messages SET category_override='people',document=json_set(document,'$.category_status','failed') WHERE id='manual'")
         .execute(&db)
         .await
         .unwrap();
@@ -324,20 +336,18 @@ async fn set_read(s: &Store, a: &dakia_storage::AuthorizedAccount, id: &str, rea
 }
 
 #[tokio::test]
-async fn classification_only_selects_unread_and_queue_rechecks_read_state() {
+async fn classification_includes_read_mail_and_read_transitions_preserve_results() {
     let (_d, s, a, m) = fixture().await;
     assert_eq!(
         s.classification_candidate(&a).await.unwrap().unwrap().id,
         m.id
     );
-    // A read operation can race the candidate lookup.
+    // A read transition must not remove mail from classification coverage.
     set_read(&s, &a, &m.id, true).await;
-    assert!(s.classification_candidate(&a).await.unwrap().is_none());
-    assert!(matches!(
-        s.queue_model(&a, &m.id, JobKind::Classify, "model", None)
-            .await,
-        Err(dakia_storage::Error::Conflict)
-    ));
+    assert_eq!(
+        s.classification_candidate(&a).await.unwrap().unwrap().id,
+        m.id
+    );
     set_read(&s, &a, &m.id, false).await;
     assert_eq!(
         s.classification_candidate(&a).await.unwrap().unwrap().id,
@@ -359,7 +369,7 @@ async fn classification_only_selects_unread_and_queue_rechecks_read_state() {
 }
 
 #[tokio::test]
-async fn queued_read_classification_is_cancelled_without_blocking_translation() {
+async fn queued_read_classification_remains_claimable_before_translation() {
     let (_d, s, a, m) = fixture().await;
     let job = s
         .queue_model(&a, &m.id, JobKind::Classify, "model", None)
@@ -371,17 +381,18 @@ async fn queued_read_classification_is_cancelled_without_blocking_translation() 
         .queue_model(&a, &m.id, JobKind::Translate, "model", Some("et"))
         .await
         .unwrap();
+    assert_eq!(s.claim_model(&a).await.unwrap().unwrap().id, job.id);
     assert_eq!(s.claim_model(&a).await.unwrap().unwrap().id, translation.id);
     assert_eq!(
         s.model_job(&a, &job.id).await.unwrap().status,
-        JobStatus::Cancelled
+        JobStatus::Running
     );
     assert!(s.model_failure_reason(&a, &job.id).await.unwrap().is_none());
     assert_eq!(s.message(&a, &m.id).await.unwrap(), before);
 }
 
 #[tokio::test]
-async fn reading_cancels_delayed_classification_retries_across_restart() {
+async fn reading_preserves_delayed_classification_retries_across_restart() {
     use dakia_storage::ModelFailureReason as R;
     let (d, s, a, m) = fixture().await;
     s.queue_model(&a, &m.id, JobKind::Classify, "model", None)
@@ -399,13 +410,13 @@ async fn reading_cancels_delayed_classification_retries_across_restart() {
     assert!(reopened.claim_model(&auth).await.unwrap().is_none());
     assert_eq!(
         reopened.model_job(&auth, &job.id).await.unwrap().status,
-        JobStatus::Cancelled
+        JobStatus::Pending
     );
     assert!(reopened
         .model_failure_reason(&auth, &job.id)
         .await
         .unwrap()
-        .is_none());
+        .is_some());
     assert_eq!(
         reopened
             .message(&auth, &m.id)
@@ -415,11 +426,11 @@ async fn reading_cancels_delayed_classification_retries_across_restart() {
         CategoryStatus::Pending
     );
     set_read(&s, &a, &m.id, false).await;
-    assert!(s.classification_candidate(&a).await.unwrap().is_some());
+    assert!(s.classification_candidate(&a).await.unwrap().is_none());
 }
 
 #[tokio::test]
-async fn reading_during_classification_prevents_retry_and_late_category_commit() {
+async fn reading_during_classification_preserves_retry_but_stale_results_cannot_commit() {
     use dakia_storage::ModelFailureReason as R;
     for succeeds in [true, false] {
         let (_d, s, a, m) = fixture().await;
@@ -429,7 +440,7 @@ async fn reading_during_classification_prevents_retry_and_late_category_commit()
         let mut job = s.claim_model(&a).await.unwrap().unwrap();
         set_read(&s, &a, &m.id, true).await;
         let before = s.message(&a, &m.id).await.unwrap();
-        assert!(!s
+        assert!(s
             .defer_model_failure(&a, &job, R::ContentUnavailable)
             .await
             .unwrap());
@@ -443,15 +454,21 @@ async fn reading_during_classification_prevents_retry_and_late_category_commit()
             .unwrap();
         assert_eq!(
             s.model_job(&a, &job.id).await.unwrap().status,
-            JobStatus::Cancelled
+            JobStatus::Failed
         );
-        assert!(s.model_failure_reason(&a, &job.id).await.unwrap().is_none());
+        assert_eq!(
+            s.model_failure_reason(&a, &job.id)
+                .await
+                .unwrap()
+                .as_deref(),
+            Some("revision_changed")
+        );
         assert_eq!(s.message(&a, &m.id).await.unwrap(), before);
     }
 }
 
 #[tokio::test]
-async fn restart_cancels_read_classification_that_was_running() {
+async fn restart_fails_interrupted_read_classification_without_changing_mail() {
     let (_d, s, a, m) = fixture().await;
     s.queue_model(&a, &m.id, JobKind::Classify, "model", None)
         .await
@@ -462,41 +479,101 @@ async fn restart_cancels_read_classification_that_was_running() {
     s.recover_models(&a).await.unwrap();
     assert_eq!(
         s.model_job(&a, &job.id).await.unwrap().status,
-        JobStatus::Cancelled
+        JobStatus::Failed
     );
-    assert!(s.model_failure_reason(&a, &job.id).await.unwrap().is_none());
+    assert_eq!(
+        s.model_failure_reason(&a, &job.id)
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("interrupted")
+    );
     assert_eq!(s.message(&a, &m.id).await.unwrap(), before);
 }
 
 #[tokio::test]
 async fn snooze_metadata_counts_thread_messages_and_only_successful_inbox_restore_clears_it() {
     let (dir, s, a, m) = fixture().await;
-    let mut sibling = m.clone(); sibling.id = "sibling".into(); sibling.provider_id = "second".into();
+    let mut sibling = m.clone();
+    sibling.id = "sibling".into();
+    sibling.provider_id = "second".into();
     s.upsert_message(&a, sibling).await.unwrap();
     let until = "2099-01-01T09:00:00Z";
-    s.operation(&a, Operation { id: "snooze-metadata".into(), account_id: a.id().into(), target_id: m.id.clone(), expected_revision: m.revision,
-        change: Change::Snooze { until: until.into() }, status: OperationStatus::Pending, revision: 0 }).await.unwrap();
+    s.operation(
+        &a,
+        Operation {
+            id: "snooze-metadata".into(),
+            account_id: a.id().into(),
+            target_id: m.id.clone(),
+            expected_revision: m.revision,
+            change: Change::Snooze {
+                until: until.into(),
+            },
+            status: OperationStatus::Pending,
+            revision: 0,
+        },
+    )
+    .await
+    .unwrap();
     let rows = s.active_snoozes(&a).await.unwrap();
-    assert_eq!(rows.len(), 1); assert_eq!(rows[0]["message_count"], 2);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["message_count"], 2);
     assert_eq!(rows[0]["thread_id"], m.thread_id);
     assert_eq!(rows[0]["until"], "2099-01-01T09:00:00.000Z");
     assert!(s.inbox_rows(&a, None, None).await.unwrap().is_empty());
     let mut archived = s.message(&a, &m.id).await.unwrap();
     archived.folder_ids = vec!["Archive".into()];
     let current = s.upsert_message(&a, archived).await.unwrap();
-    let pending = s.operation(&a, Operation { id: "restore-failed".into(), account_id: a.id().into(), target_id: m.id.clone(), expected_revision: current.revision,
-        change: Change::Move { folder_id: "INBOX".into() }, status: OperationStatus::Pending, revision: 0 }).await.unwrap();
-    let mut failed = pending; failed.status = OperationStatus::Failed;
+    let pending = s
+        .operation(
+            &a,
+            Operation {
+                id: "restore-failed".into(),
+                account_id: a.id().into(),
+                target_id: m.id.clone(),
+                expected_revision: current.revision,
+                change: Change::Move {
+                    folder_id: "INBOX".into(),
+                },
+                status: OperationStatus::Pending,
+                revision: 0,
+            },
+        )
+        .await
+        .unwrap();
+    let mut failed = pending;
+    failed.status = OperationStatus::Failed;
     s.finish_mutation(&a, failed, None).await.unwrap();
-    assert_eq!(s.active_snoozes(&a).await.unwrap().len(), 1, "a failed restore must not unsnooze");
+    assert_eq!(
+        s.active_snoozes(&a).await.unwrap().len(),
+        1,
+        "a failed restore must not unsnooze"
+    );
     let current = s.message(&a, &m.id).await.unwrap();
-    let mut applied = s.operation(&a, Operation { id: "restore-success".into(), account_id: a.id().into(), target_id: m.id.clone(), expected_revision: current.revision,
-        change: Change::Move { folder_id: "INBOX".into() }, status: OperationStatus::Pending, revision: 0 }).await.unwrap();
+    let mut applied = s
+        .operation(
+            &a,
+            Operation {
+                id: "restore-success".into(),
+                account_id: a.id().into(),
+                target_id: m.id.clone(),
+                expected_revision: current.revision,
+                change: Change::Move {
+                    folder_id: "INBOX".into(),
+                },
+                status: OperationStatus::Pending,
+                revision: 0,
+            },
+        )
+        .await
+        .unwrap();
     applied.status = OperationStatus::Applied;
-    s.finish_mutation(&a, applied, Some(vec!["INBOX".into()])).await.unwrap();
+    s.finish_mutation(&a, applied, Some(vec!["INBOX".into()]))
+        .await
+        .unwrap();
     assert!(s.active_snoozes(&a).await.unwrap().is_empty());
     assert_eq!(s.inbox_rows(&a, None, None).await.unwrap().len(), 2);
-    let reopened = Store::open(dir.path(), [4;32]).await.unwrap();
+    let reopened = Store::open(dir.path(), [4; 32]).await.unwrap();
     let a = reopened.authorize(a.user_id(), a.id()).await.unwrap();
     assert!(reopened.active_snoozes(&a).await.unwrap().is_empty());
     assert_eq!(reopened.inbox_rows(&a, None, None).await.unwrap().len(), 2);
@@ -505,14 +582,63 @@ async fn snooze_metadata_counts_thread_messages_and_only_successful_inbox_restor
 #[tokio::test]
 async fn restoring_a_snoozed_inbox_member_does_not_copy_it_to_the_same_provider_folder() {
     let (_dir, s, a, m) = fixture().await;
-    let snoozed = s.operation(&a, Operation { id: "local-snooze".into(), account_id: a.id().into(), target_id: m.id.clone(), expected_revision: m.revision,
-        change: Change::Snooze { until: "2099-01-01T09:00:00Z".into() }, status: OperationStatus::Pending, revision: 0 }).await.unwrap();
-    let restored = s.operation(&a, Operation { id: "local-restore".into(), account_id: a.id().into(), target_id: m.id.clone(), expected_revision: snoozed.revision,
-        change: Change::Move { folder_id: "INBOX".into() }, status: OperationStatus::Pending, revision: 0 }).await.unwrap();
+    let snoozed = s
+        .operation(
+            &a,
+            Operation {
+                id: "local-snooze".into(),
+                account_id: a.id().into(),
+                target_id: m.id.clone(),
+                expected_revision: m.revision,
+                change: Change::Snooze {
+                    until: "2099-01-01T09:00:00Z".into(),
+                },
+                status: OperationStatus::Pending,
+                revision: 0,
+            },
+        )
+        .await
+        .unwrap();
+    let restored = s
+        .operation(
+            &a,
+            Operation {
+                id: "local-restore".into(),
+                account_id: a.id().into(),
+                target_id: m.id.clone(),
+                expected_revision: snoozed.revision,
+                change: Change::Move {
+                    folder_id: "INBOX".into(),
+                },
+                status: OperationStatus::Pending,
+                revision: 0,
+            },
+        )
+        .await
+        .unwrap();
     assert_eq!(restored.status, OperationStatus::Applied);
-    let repeated = s.operation(&a, Operation { id: "already-restored".into(), account_id: a.id().into(), target_id: m.id.clone(), expected_revision: restored.revision,
-        change: Change::Move { folder_id: "INBOX".into() }, status: OperationStatus::Pending, revision: 0 }).await.unwrap();
-    assert_eq!(repeated.status, OperationStatus::Applied, "repeat and same-thread bulk restores must not queue a copy to Inbox");
+    let repeated = s
+        .operation(
+            &a,
+            Operation {
+                id: "already-restored".into(),
+                account_id: a.id().into(),
+                target_id: m.id.clone(),
+                expected_revision: restored.revision,
+                change: Change::Move {
+                    folder_id: "INBOX".into(),
+                },
+                status: OperationStatus::Pending,
+                revision: 0,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        repeated.status,
+        OperationStatus::Applied,
+        "repeat and same-thread bulk restores must not queue a copy to Inbox"
+    );
     assert!(s.claim_mutation(&a).await.unwrap().is_none());
     assert!(s.active_snoozes(&a).await.unwrap().is_empty());
     assert_eq!(s.inbox_rows(&a, None, None).await.unwrap().len(), 1);

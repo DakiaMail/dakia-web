@@ -9,6 +9,8 @@ mod full_text_tests;
 mod idle_notification_tests;
 #[path = "incremental_tests.rs"]
 mod incremental_tests;
+#[path = "personal_classification_tests.rs"]
+mod personal_classification_tests;
 #[path = "release_safety_tests.rs"]
 mod release_safety_tests;
 #[path = "scan_freshness_tests.rs"]

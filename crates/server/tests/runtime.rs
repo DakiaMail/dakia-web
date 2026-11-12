@@ -69,7 +69,6 @@ async fn runtime_translation_queue_and_mutation_http_boundaries() {
         .env("DAKIA_LISTEN", address.to_string())
         .env("DAKIA_DURABLE_ATTACHMENT_BUDGET_BYTES", "10")
         .env("DAKIA_WORKERS", root.join("workers"))
-        .env("DAKIA_CLASSIFIER_DIR", dir.path().join("absent-classifier"))
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()

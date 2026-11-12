@@ -6,7 +6,9 @@ use crate::models::CLASSIFICATION_CANDIDATE_QUERY;
 async fn classification_history_uses_active_index_and_releases_single_connection() {
     let (_dir, store, user, a, input) = fixture().await;
     let db = store.db(&a).await.unwrap();
-    let template = serde_json::to_string(&message(&a, "template")).unwrap();
+    let mut template_message = message(&a, "template");
+    template_message.classification = Some(Classification::default());
+    let template = serde_json::to_string(&template_message).unwrap();
     sqlx::query("WITH RECURSIVE n(i) AS (VALUES(1) UNION ALL SELECT i+1 FROM n WHERE i<2000) INSERT INTO messages(id,revision,document) SELECT printf('m%04d',i),0,json_set(?,'$.id',printf('m%04d',i),'$.received_at',printf('2026-10-29T00:%02d:%02dZ',i/60,i%60)) FROM n")
         .bind(template).execute(&db).await.unwrap();
     sqlx::query(
@@ -36,10 +38,10 @@ async fn classification_history_uses_active_index_and_releases_single_connection
     );
     assert!(
         plan.iter()
-            .any(|s| s.contains("messages_unread_classification")),
-        "classification must not rescan the read archive: {plan:?}"
+            .any(|s| s.contains("messages_pending_classification")),
+        "classification must use the pending index: {plan:?}"
     );
-    // Read mail remains pending but must not be selected even when newer.
+    // Read mail remains eligible, as do manually classified messages needing type detection.
     sqlx::query("UPDATE messages SET document=json_set(document,'$.unread',0) WHERE id='m1997'")
         .execute(&db)
         .await
@@ -54,7 +56,7 @@ async fn classification_history_uses_active_index_and_releases_single_connection
     })
     .await
     .expect("classification history starved sync evidence");
-    assert_eq!(candidate.unwrap().unwrap().id, "m1996");
+    assert_eq!(candidate.unwrap().unwrap().id, "m1998");
     assert_eq!(known.unwrap().unwrap().id, "m0001");
     // The same message/job IDs in another account must not influence this one.
     let b = store.connect(&user, &input).await.unwrap();

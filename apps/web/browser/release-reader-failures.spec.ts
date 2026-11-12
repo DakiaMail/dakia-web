@@ -40,7 +40,7 @@ for (const width of [390, 1480]) test(`opening mail remains readable during simu
     return route.fulfill({ status: 500, json: { code: "unexpected_fixture_request", message: path } });
   });
   await page.goto("/");
-  await page.getByRole("tab", { name: "List", exact: true }).click();
+  await page.getByRole("tab", { name: "All", exact: true }).click();
   await page.locator(".message-open").filter({ hasText: message.subject }).click();
   const body = page.frameLocator('iframe[title="Message body"]').locator("body");
   await expect(body).toContainText("Your saved message is readable");

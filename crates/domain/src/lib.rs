@@ -17,7 +17,14 @@ macro_rules! values {
         pub enum $name { $($v),* }
     };
 }
-values!(ProviderKind { Gmail, Imap, Microsoft });
+mod classification;
+pub use classification::*;
+
+values!(ProviderKind {
+    Gmail,
+    Imap,
+    Microsoft
+});
 values!(AccountState {
     Connecting,
     Ready,
@@ -95,7 +102,28 @@ impl Default for MailboxSettings {
 }
 dto!(Address { email: String, name: Option<String> });
 dto!(RemoteImageRequest { url: String });
-dto!(Message { id: String, account_id: String, thread_id: String, provider_id: String, folder_ids: Vec<String>, sender: Address, to: Vec<Address>, subject: String, preview: String, received_at: String, unread: bool, starred: bool, category: Option<String>, category_status: CategoryStatus, revision: u32 });
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[ts(export, export_to = "../../../packages/api-types/src/generated/")]
+pub struct Message {
+    pub id: String,
+    pub account_id: String,
+    pub thread_id: String,
+    pub provider_id: String,
+    pub folder_ids: Vec<String>,
+    pub sender: Address,
+    pub to: Vec<Address>,
+    pub subject: String,
+    pub preview: String,
+    pub received_at: String,
+    pub unread: bool,
+    pub starred: bool,
+    pub category: Option<String>,
+    pub category_status: CategoryStatus,
+    pub revision: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub classification: Option<Classification>,
+}
 dto!(Attachment {
     id: String,
     filename: String,
@@ -120,14 +148,35 @@ dto!(ScheduledMessage { submission: Submission, subject: String, to: Vec<Address
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[ts(export, export_to = "../../../packages/api-types/src/generated/")]
 pub enum Change {
-    Read { value: bool },
-    Star { value: bool },
+    Read {
+        value: bool,
+    },
+    Star {
+        value: bool,
+    },
     Archive,
     Trash,
     Spam,
-    Move { folder_id: String },
-    Category { value: String },
-    Snooze { until: String },
+    Move {
+        folder_id: String,
+    },
+    Category {
+        value: String,
+    },
+    Snooze {
+        until: String,
+    },
+    InboxKind {
+        value: Option<InboxKind>,
+        sender: bool,
+    },
+    DetectedType {
+        value: DetectedType,
+        present: bool,
+    },
+    Attention {
+        value: Option<bool>,
+    },
 }
 dto!(Operation {
     id: String,

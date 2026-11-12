@@ -115,6 +115,12 @@ impl Store {
         tx: &mut sqlx::SqliteConnection,
         mut message: Message,
     ) -> Result<Message> {
+        if message.classification.is_none() && message.category_status == CategoryStatus::Ready {
+            message.classification = message
+                .category
+                .as_deref()
+                .map(classification::legacy_classification);
+        }
         sqlx::query("UPDATE messages SET revision=revision WHERE id=?")
             .bind(&message.id)
             .execute(&mut *tx)
@@ -131,6 +137,7 @@ impl Store {
                 message.category = old.category.clone();
                 message.category_status = old.category_status.clone();
             }
+            message.classification = old.classification.clone();
             previous = Some(old);
             message.revision = row
                 .get::<u32, _>("revision")
@@ -143,6 +150,7 @@ impl Store {
         } else {
             message.revision = 1;
         }
+        Self::apply_classification_tx(tx, &mut message, None).await?;
         let pending:Vec<String>=sqlx::query_scalar("SELECT document FROM operations WHERE json_extract(document,'$.target_id')=? AND json_extract(document,'$.status')='pending' ORDER BY json_extract(document,'$.revision')").bind(&message.id).fetch_all(&mut *tx).await?;
         for raw in pending {
             let op: Operation = serde_json::from_str(&raw)?;
@@ -249,6 +257,9 @@ impl Store {
                     .execute(&mut *tx)
                     .await?;
             }
+            Change::InboxKind { .. } | Change::DetectedType { .. } | Change::Attention { .. } => {
+                Self::classification_change_tx(tx, &mut m, &op.change).await?;
+            }
             Change::Snooze { until } => {
                 let until = DateTime::parse_from_rfc3339(until)
                     .map_err(|_| Error::Invalid)?
@@ -266,9 +277,15 @@ impl Store {
                 // Only skip the provider move if no earlier action can change membership.
                 let queued: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM outbox q JOIN operations o ON o.id=q.target_id WHERE q.kind='mutation' AND q.state IN ('pending','running') AND json_extract(o.document,'$.target_id')=?)")
                     .bind(&m.id).fetch_one(&mut *tx).await?;
-                if !queued && m.folder_ids.iter().any(|folder| folder.eq_ignore_ascii_case("INBOX")) {
+                if !queued
+                    && m.folder_ids
+                        .iter()
+                        .any(|folder| folder.eq_ignore_ascii_case("INBOX"))
+                {
                     sqlx::query("DELETE FROM snoozes WHERE thread_id=?")
-                        .bind(&m.thread_id).execute(&mut *tx).await?;
+                        .bind(&m.thread_id)
+                        .execute(&mut *tx)
+                        .await?;
                     op.status = OperationStatus::Applied;
                 }
                 if op.status == OperationStatus::Pending {
@@ -284,9 +301,19 @@ impl Store {
             // Provider adapter applies its discovered folder semantics. No invented folder IDs.
             Change::Archive | Change::Trash | Change::Spam | Change::Move { .. } => {}
         }
+        if matches!(op.change, Change::Category { .. }) {
+            Self::classification_change_tx(tx, &mut m, &op.change).await?;
+        }
         m.revision = m.revision.checked_add(1).ok_or(Error::Invalid)?;
         op.revision = m.revision;
-        if matches!(op.change, Change::Category { .. } | Change::Snooze { .. }) {
+        if matches!(
+            op.change,
+            Change::Category { .. }
+                | Change::Snooze { .. }
+                | Change::InboxKind { .. }
+                | Change::DetectedType { .. }
+                | Change::Attention { .. }
+        ) {
             op.status = OperationStatus::Applied
         }
         sqlx::query("UPDATE messages SET revision=?,document=? WHERE id=?")

@@ -44,7 +44,7 @@ for (const [width, dark] of [[320, false], [390, false], [390, true], [600, fals
     await fixture(page);
     // Continuous-row density is a List-mode invariant. Smart View inserts
     // section headers and reveal controls between its capped groups.
-    await page.getByRole("tab", { name: "List", exact: true }).click();
+    await page.getByRole("tab", { name: "All", exact: true }).click();
     await page.evaluate(() => document.fonts.ready);
     const measurements = await page.locator(".message-row").evaluateAll(elements => elements.map(el => {
       const box = el.getBoundingClientRect();
@@ -98,7 +98,7 @@ test("keyboard selection, bulk state, stars and opening preserve separate target
 test("resizing actual list pane switches layout and remeasures virtual offsets", async ({ page }) => {
   await page.setViewportSize({ width: 1480, height: 980 });
   await fixture(page);
-  await page.getByRole("tab", { name: "List", exact: true }).click();
+  await page.getByRole("tab", { name: "All", exact: true }).click();
   await expect(page.locator(".message-row").first()).toHaveCSS("height", "64px");
   await expect(page.getByRole("slider", { name: "Message list width" })).toHaveCount(0);
   await expect(page.getByLabel("Loaded messages")).toHaveCount(0);

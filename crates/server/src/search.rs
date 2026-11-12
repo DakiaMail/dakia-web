@@ -12,6 +12,10 @@ pub(super) struct SearchRequest {
     accounts: Option<String>,
     continuation: Option<String>,
     category: Option<String>,
+    inbox_kind: Option<InboxKind>,
+    email_type: Option<DetectedType>,
+    #[serde(default)]
+    attention: bool,
     #[serde(default)]
     exclude_trash: bool,
     #[serde(default)]
@@ -20,6 +24,15 @@ pub(super) struct SearchRequest {
     cache_first: bool,
     #[serde(default)]
     suggest: bool,
+}
+impl SearchRequest {
+    fn classification(&self) -> ClassificationFilter {
+        ClassificationFilter {
+            inbox_kind: self.inbox_kind.clone(),
+            email_type: self.email_type.clone(),
+            attention: self.attention,
+        }
+    }
 }
 #[derive(Default, Serialize, Deserialize)]
 struct Cursor {
@@ -37,6 +50,8 @@ struct Cursor {
     local_starred: bool,
     q: String,
     category: Option<String>,
+    #[serde(default)]
+    classification: ClassificationFilter,
     accounts: Vec<String>,
     folders: BTreeMap<String, Vec<String>>,
     #[serde(default)]
@@ -194,11 +209,13 @@ pub(super) async fn search(
             exclude_trash: r.exclude_trash,
             q: r.q.clone(),
             category: r.category.clone(),
+            classification: r.classification(),
             accounts: accounts.clone(),
             ..Default::default()
         },
     };
     if cursor.q != r.q
+        || cursor.classification != r.classification()
         || cursor.category != r.category
         || cursor.accounts != accounts
         || cursor.exclude_trash != r.exclude_trash
@@ -297,6 +314,12 @@ pub(super) async fn search(
                     .iter()
                     .all(|c| c.state == CoverageState::Complete);
                 *cursor.full_coverage.entry(a.id().into()).or_insert(true) &= complete;
+                app.store
+                    .request_classification(
+                        &a,
+                        &page.rows.iter().map(|m| m.id.clone()).collect::<Vec<_>>(),
+                    )
+                    .await?;
                 for row in page.rows {
                     if r.exclude_trash
                         && row.folder_ids.iter().any(|folder| {
@@ -323,7 +346,12 @@ pub(super) async fn search(
                     let key = format!("{}:{}", a.id(), row.id);
                     if cursor.seen.insert(key) {
                         // Unknown classification remains visible until the classifier can decide.
-                        if r.category
+                        if r.classification().matches(
+                            &row,
+                            &chrono::Utc::now()
+                                .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+                        ) && r
+                            .category
                             .as_ref()
                             .is_none_or(|c| row.category.as_ref().is_none_or(|v| v == c))
                         {
@@ -377,7 +405,11 @@ pub(super) async fn search(
     });
     let classified = rows
         .iter()
-        .filter(|m| m.category_status == CategoryStatus::Ready)
+        .filter(|m| {
+            m.classification
+                .as_ref()
+                .is_some_and(|c| c.status == CategoryStatus::Ready)
+        })
         .count() as u32;
     let total = rows.len() as u32;
     let continuation = if pending {
@@ -426,11 +458,11 @@ async fn inbox(
                 .map(|(date, id)| (date.as_str(), id.as_str()));
             let mut page = if cursor.local_starred {
                 app.store
-                    .starred_rows(&a, before, r.category.as_deref())
+                    .starred_rows_filtered(&a, before, r.category.as_deref(), &r.classification())
                     .await?
             } else {
                 app.store
-                    .inbox_rows(&a, before, r.category.as_deref())
+                    .inbox_rows_filtered(&a, before, r.category.as_deref(), &r.classification())
                     .await?
             };
             if page.len() > 50 {
@@ -466,7 +498,11 @@ async fn inbox(
     let total = rows.len() as u32;
     let classified = rows
         .iter()
-        .filter(|m| m.category_status == CategoryStatus::Ready)
+        .filter(|m| {
+            m.classification
+                .as_ref()
+                .is_some_and(|c| c.status == CategoryStatus::Ready)
+        })
         .count() as u32;
     let pending = coverage.iter().any(|c| c.state == CoverageState::Pending);
     let continuation = if more {

@@ -136,6 +136,21 @@ Create a Droplet or Cloud server from Ubuntu 24.04 with at least 1 GB of memory.
 
 Both providers bill hourly, so a short test costs cents. Keep the server running: synchronization, scheduled sending, and the exclusive lock on the data directory need one always-on instance. Add the provider's backups or snapshots; they must include both Dakia volumes and the Docker volumes that hold them.
 
+### Memory on a 1 GB server
+
+1 GB works for a single mailbox, but there is little left over. Measured on a 1 GB Droplet with HTTPS running and no mail synced yet: the container used about 430 MB, Docker and system services about 400 MB, and roughly 130 MB stayed free. Loading a second copy of the classifier, or running translation for several languages, exhausted that free memory and the kernel killed the server process; Docker restarted it and it recovered, but mail was unavailable for a few seconds.
+
+Add swap before you connect a mailbox. With 2 GB of swap the same work completed without a restart:
+
+```sh
+fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+echo '/swapfile none swap sw 0 0' >> /etc/fstab
+```
+
+Choose 2 GB of memory if the installation will hold more than one mailbox or translate regularly; that removes the guesswork instead of relying on swap.
+
+Debian 13 used about 35 MB less than Ubuntu 24.04 and installs the same way. On Ubuntu, `systemctl mask --now multipathd` and `systemctl disable --now unattended-upgrades` free another 40 MB or so. Those numbers are small next to the container's own usage, so pick the distribution you can maintain rather than the one that looks smallest.
+
 ### Proxmox
 
 1. Use a Debian or Ubuntu VM with persistent local disk storage.

@@ -20,10 +20,9 @@ assert.equal((await request('/api/releases')).status, 401);
 if (process.argv.includes('--resume')) {
   ({ cookie } = JSON.parse(await readFile(sessionPath, 'utf8')));
 } else {
-  const code = (await readFile('/secrets/setup-token', 'utf8')).trim();
   const response = await request('/auth/login', {
     method: 'POST',
-    body: new URLSearchParams({ code, username: 'image-smoke', password: randomBytes(32).toString('base64url') }),
+    body: new URLSearchParams({ username: 'image-smoke', password: randomBytes(32).toString('base64url') }),
   });
   assert.equal(response.status, 303);
   cookie = response.headers.get('set-cookie')?.split(';')[0];

@@ -18,6 +18,14 @@ Dakia is under active development. Back up your installation and try a disposabl
 
 You need Docker Compose and an HTTPS address through your reverse proxy or Tailscale Serve.
 
+On a fresh Debian or Ubuntu server, point your domain at it and run one command. It installs Docker, starts Dakia with automatic HTTPS in `/opt/dakia`, and needs ports 80 and 443 reachable:
+
+```sh
+curl -fsSL -o dakia-install.sh https://raw.githubusercontent.com/DakiaMail/dakia-web/main/scripts/install.sh && sudo sh dakia-install.sh --domain mail.example.com
+```
+
+To install manually instead:
+
 ```sh
 git clone https://github.com/DakiaMail/dakia-web.git
 cd dakia-web
@@ -26,13 +34,9 @@ cp .env.example .env
 docker compose up -d
 ```
 
-Open your HTTPS address and choose **Sign in**. Read your private setup code from the host:
+Use `docker compose -f compose.yaml -f compose.caddy.yaml up -d --wait` instead when you want Caddy in the same stack to obtain the certificate. See [hosting](docs/hosting.md) for both HTTPS options.
 
-```sh
-docker compose exec dakia cat /secrets/setup-token
-```
-
-Create your username and a password with at least 12 characters, then connect your first mailbox. Your Dakia password is separate from your email provider’s password.
+Open your HTTPS address and choose **Sign in**. Create the first login, choosing a username and a password with at least 12 characters, then connect your first mailbox. That first login owns the installation, so create it before you share the address. Your Dakia password is separate from your email provider’s password.
 
 For Gmail, choose **Continue with Google** when Google sign-in is configured for your installation. Each operator supplies their own Google OAuth client. Dakia keeps the refresh token encrypted on your server and renews access automatically. App passwords remain available.
 

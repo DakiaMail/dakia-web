@@ -31,7 +31,7 @@ try {
   compose('up', '-d', '--wait', '--wait-timeout', '100');
   let cid = compose('ps', '-q', 'dakia');
   docker('exec', cid, 'node', '--input-type=module', '-e', `import fs from 'node:fs';
-import os from 'node:os'; const code=fs.readFileSync('/secrets/setup-token','utf8').trim();const r=await fetch('http://127.0.0.1:3025/auth/login',{method:'POST',headers:{Origin:'https://mail.test'},body:new URLSearchParams({code,username:'upgrade-fixture',password:'synthetic-disposable-password'}),redirect:'manual'});if(r.status!==303)throw Error('setup failed');fs.writeFileSync('/data/fixture-cookie',r.headers.get('set-cookie').split(';')[0]);`);
+import os from 'node:os'; const r=await fetch('http://127.0.0.1:3025/auth/login',{method:'POST',headers:{Origin:'https://mail.test'},body:new URLSearchParams({username:'upgrade-fixture',password:'synthetic-disposable-password'}),redirect:'manual'});if(r.status!==303)throw Error('setup failed');fs.writeFileSync('/data/fixture-cookie',r.headers.get('set-cookie').split(';')[0]);`);
   const key = docker('exec', cid, 'sha256sum', '/secrets/credential-key');
   compose('stop', 'dakia');
   const mount = ['--volumes-from', cid];

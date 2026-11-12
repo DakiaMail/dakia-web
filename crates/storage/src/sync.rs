@@ -245,7 +245,7 @@ impl Store {
         Ok(())
     }
 
-    async fn observe_memberships(
+    pub(crate) async fn observe_memberships(
         &self,
         tx: &mut sqlx::SqliteConnection,
         a: &AuthorizedAccount,
@@ -307,7 +307,7 @@ impl Store {
         }
         Ok(())
     }
-    async fn finish_snapshot(
+    pub(crate) async fn finish_snapshot(
         &self,
         tx: &mut sqlx::SqliteConnection,
         folder: &str,
@@ -351,7 +351,7 @@ impl Store {
         Ok(())
     }
 
-    async fn seed_projected_memberships(
+    pub(crate) async fn seed_projected_memberships(
         &self,
         tx: &mut sqlx::SqliteConnection,
         folder: &str,

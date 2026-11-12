@@ -11,6 +11,7 @@ async fn cache_lane_waiters_have_a_deadline_without_network_io() {
     let _scan = p.scan_cache.lock().await;
     let _folders = p.folder_cache.lock().await;
     let reference = MessageRef {
+        graph_id: None,
         account_id: p.account_id().into(),
         folder: "INBOX".into(),
         uidvalidity: 1,
@@ -71,6 +72,7 @@ async fn actual_tls_scan_is_single_flight_and_failed_mutation_invalidates_cached
     // second connection, and the failed mutation must not leave its old page.
     assert!(p.scan("INBOX", &q, None, 50).await.is_ok());
     let reference = MessageRef {
+        graph_id: None,
         account_id: p.account_id().into(),
         folder: "INBOX".into(),
         uidvalidity: 17,
@@ -250,6 +252,7 @@ async fn body_read_reconnects_after_eof_and_returns_only_complete_second_respons
         .await;
     });
     let r = MessageRef {
+        graph_id: None,
         account_id: p.account_id().into(),
         folder: "INBOX".into(),
         uidvalidity: 17,

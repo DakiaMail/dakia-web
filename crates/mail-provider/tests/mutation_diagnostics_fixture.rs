@@ -9,6 +9,7 @@ use std::{
 use tracing::instrument::WithSubscriber;
 fn reference() -> MessageRef {
     MessageRef {
+        graph_id: None,
         account_id: "fixture-account".into(),
         folder: "INBOX".into(),
         uidvalidity: 17,

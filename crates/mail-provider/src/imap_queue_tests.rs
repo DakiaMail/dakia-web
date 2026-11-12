@@ -27,7 +27,7 @@ async fn queue_wait_counts_toward_every_imap_operation_deadline() {
     )
     .unwrap();
     let reference = MessageRef {
-        account_id: "owned".into(),
+        graph_id: None, account_id: "owned".into(),
         folder: "INBOX".into(),
         uidvalidity: 1,
         uid: 1,
@@ -109,7 +109,7 @@ async fn queued_user_actions_that_never_acquire_a_connection_are_safe_to_retry()
     )
     .unwrap();
     let reference = MessageRef {
-        account_id: "owned".into(),
+        graph_id: None, account_id: "owned".into(),
         folder: "INBOX".into(),
         uidvalidity: 1,
         uid: 1,

@@ -14,6 +14,8 @@ Sessions use random tokens, stored as hashes, in Secure, HttpOnly, SameSite cook
 
 Mailbox credentials are encrypted using an operator-owned key stored separately from SQLite. This does not encrypt all message content at rest. Protect data volumes, host access, and backups; use disk encryption where appropriate. A compromised running host can access mail and decrypted credentials.
 
+Google and Microsoft mailbox authorization is separate from Dakia login. OAuth state is single-use, short-lived and bound to the signed-in Dakia session, with PKCE. Refresh tokens are stored only inside encrypted mailbox credentials; Microsoft refresh-token rotation uses compare-and-swap so an old request cannot overwrite a reconnection. Operators own the application registration and secrets.
+
 Account ownership is checked on the server. Received HTML is sanitized and isolated. Remote images follow user preferences and pass through the bounded image proxy. Mail-provider TLS verification must remain enabled.
 
 ## Containers and recovery

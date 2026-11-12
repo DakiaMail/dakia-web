@@ -17,7 +17,7 @@ macro_rules! values {
         pub enum $name { $($v),* }
     };
 }
-values!(ProviderKind { Gmail, Imap });
+values!(ProviderKind { Gmail, Imap, Microsoft });
 values!(AccountState {
     Connecting,
     Ready,
@@ -245,11 +245,22 @@ pub struct ConnectAccount {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(skip)]
     pub gmail_oauth: Option<GmailGrant>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(skip)]
+    pub microsoft_oauth: Option<MicrosoftGrant>,
 }
 // Stored only inside the encrypted account credential, never returned by the API.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct GmailGrant {
     pub client_id: String,
+    pub refresh_token: String,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct MicrosoftGrant {
+    pub client_id: String,
+    pub tenant: String,
+    pub subject: String,
     pub refresh_token: String,
 }
 

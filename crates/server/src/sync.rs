@@ -42,6 +42,8 @@ fn scan_order(folders: &[p::Folder], start: usize, backfill_turn: bool) -> Vec<u
 pub(crate) async fn tick(app: &App, a: &AuthorizedAccount) -> crate::Result<bool> {
     let lane = app.mail.sync_lane(a).await;
     let _guard = lane.lock().await;
+    let provider = app.mail.provider(&app.store, a).await?;
+    if let Some(graph) = provider.graph() { return crate::graph_sync::tick(app, a, graph).await; }
     let mut state: State = app
         .store
         .provider_document(a, "sync:folders")

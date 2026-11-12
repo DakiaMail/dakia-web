@@ -20,11 +20,11 @@ If the host uses a custom Compose project name, use that same name with every co
 
 1. Choose **Connect account** in the welcome screen or Workspace.
 2. Give the mailbox a name, such as Personal or Work, and enter its email address.
-3. Choose Gmail for Gmail settings, or Automatic for another provider. If automatic discovery cannot find settings, enter the provider's IMAP and SMTP hostnames, ports, username, and encryption settings manually.
-4. If the operator has [configured Gmail sign-in](gmail-oauth.md), choose **Continue with Google**, sign in to that same email account, and allow mail access. Otherwise, enter the mailbox password or app password and choose **Connect account**. This is separate from your Dakia password. To use an app password when Google sign-in is available, select **Use an app password**.
+3. Choose Gmail, **Microsoft (Outlook / Microsoft 365)**, or Automatic for another IMAP/SMTP provider. Microsoft mail uses Graph and requires the operator's [Microsoft application setup](microsoft-oauth.md); choose **Continue with Microsoft** and authorize the same mailbox. If automatic discovery cannot find settings, enter the provider's IMAP and SMTP hostnames, ports, username, and encryption settings manually.
+4. For Gmail, if the operator has [configured Gmail sign-in](gmail-oauth.md), choose **Continue with Google**, sign in to that same email account, and allow mail access. For password-based IMAP/SMTP connections, enter the mailbox password or app password and choose **Connect account**. This is separate from your Dakia password. To use an app password when Google sign-in is available, select **Use an app password**.
 5. Dakia saves the account and checks its connection. If the check fails, use the error and your provider's settings to correct the connection and retry.
 
-Use TLS or required STARTTLS as specified by your provider. Your host must be able to reach both the incoming IMAP server and outgoing SMTP server. Dakia uses your existing provider; you do not need to change MX records or run an incoming mail server.
+For IMAP/SMTP accounts, use TLS or required STARTTLS as specified by your provider. Your host must be able to reach both the incoming IMAP server and outgoing SMTP server. Microsoft accounts instead need outbound HTTPS access to Microsoft sign-in and Graph; no legacy protocol access is required. Dakia uses your existing provider; you do not need to change MX records or run an incoming mail server.
 
 Repeat this for additional mailboxes. **Unified inbox** shows your connected accounts together, and the account list lets you open one mailbox at a time. Workspace provides mailbox settings, reconnection, and removal controls.
 

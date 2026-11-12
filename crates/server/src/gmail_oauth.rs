@@ -225,6 +225,7 @@ async fn complete(
             client_id: config.client_id.clone(),
             refresh_token,
         }),
+        microsoft_oauth: None,
     };
     let account: Option<String> = row.get("account_id");
     let account = if let Some(account) = account {

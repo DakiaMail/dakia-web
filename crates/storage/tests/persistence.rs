@@ -15,6 +15,7 @@ fn account() -> ConnectAccount {
         username: "test".into(),
         password: "test-only-not-a-real-secret".into(),
         gmail_oauth: None,
+        microsoft_oauth: None,
     }
 }
 #[tokio::test]

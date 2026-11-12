@@ -876,6 +876,7 @@ async fn verified_gmail_archive_does_not_reuse_stale_inbox_uid_for_next_action()
         .rows
         .remove(0);
     let alternative = p::MessageRef {
+        graph_id: None,
         account_id: a.id().into(),
         folder: "All Mail".into(),
         uidvalidity: 7,

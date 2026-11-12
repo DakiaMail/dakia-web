@@ -114,7 +114,7 @@ pub(super) fn remembered_document(
     size: u32,
 ) -> Result<(String, String)> {
     let mut headers = parse(raw, gmail)?;
-    headers.size = Some(size);
+    headers.size = (size > 0).then_some(size);
     Ok((
         format!("thread-headers:{id}"),
         serde_json::to_string(&headers).map_err(Error::from)?,
@@ -261,9 +261,9 @@ impl Discovery {
         let rows = values
             .into_iter()
             .filter(|(m, h)| {
-                // Gmail has stable IDs. IMAP copies need matching RFC evidence,
-                // identical headers and size; a reused Message-ID alone is not enough.
-                seen.insert(if m.provider_id.starts_with("gmail:") {
+                // Native provider IDs distinguish messages even with identical headers.
+                // IMAP copies need matching RFC evidence, headers and a known size.
+                seen.insert(if m.provider_id.starts_with("gmail:") || m.provider_id.starts_with("graph:") {
                     m.provider_id.clone()
                 } else if h.ids.is_empty() || h.size.is_none() {
                     m.id.clone()

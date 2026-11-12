@@ -786,6 +786,9 @@ version = "0.1.0"
 dependencies = [
  "async-imap",
  "async-trait",
+ "axum",
+ "base64 0.22.1",
+ "chrono",
  "futures-util",
  "imap-proto",
  "lettre",
@@ -793,6 +796,7 @@ dependencies = [
  "native-tls",
  "openssl",
  "rcgen",
+ "reqwest",
  "serde",
  "serde_json",
  "sha2",

@@ -9,6 +9,9 @@ mod initial_sync_bench;
 #[cfg(test)]
 #[path = "mail_tests.rs"]
 mod integration_tests;
+#[cfg(test)]
+#[path = "graph_pipeline_tests.rs"]
+mod graph_pipeline_tests;
 mod reconcile;
 #[path = "mail_references.rs"]
 mod references;
@@ -38,6 +41,7 @@ impl Drop for SyncActivity {
 #[derive(Clone, Default)]
 pub struct MailRuntime {
     pub(crate) gmail: Option<crate::gmail_oauth::GmailConfig>,
+    pub(crate) microsoft: Option<crate::microsoft_oauth::MicrosoftConfig>,
     languages: Arc<crate::language::Detector>,
     providers: Arc<Mutex<HashMap<String, Arc<dyn p::MailProvider>>>>,
     conversations: Arc<Mutex<HashMap<String, ConversationSlot>>>,
@@ -245,7 +249,7 @@ pub(crate) fn configuration(a: &AuthorizedAccount, input: &ConnectAccount) -> p:
         primary_address: input.email.clone(),
         kind: match input.provider {
             ProviderKind::Gmail => p::ProviderKind::Gmail,
-            ProviderKind::Imap => p::ProviderKind::Imap,
+            ProviderKind::Imap | ProviderKind::Microsoft => p::ProviderKind::Imap,
         },
         imap: p::Endpoint {
             host: input.imap_host.clone(),
@@ -276,6 +280,13 @@ fn arrival_time(value: &str) -> Result<String> {
         .map_err(|_| ApiFailure(StatusCode::BAD_GATEWAY, "invalid_provider_arrival_time"))
 }
 impl MailRuntime {
+    pub(crate) async fn wake_graph(&self, account: &str) {
+        if let Some(graph) = self.providers.lock().await.get(account).and_then(|p| p.graph()) { graph.wake(); }
+    }
+    pub fn with_microsoft(mut self, config: Option<crate::microsoft_oauth::MicrosoftConfig>) -> Self {
+        self.microsoft = config;
+        self
+    }
     pub fn with_gmail(mut self, config: Option<crate::gmail_oauth::GmailConfig>) -> Self {
         self.gmail = config;
         self
@@ -311,10 +322,17 @@ impl MailRuntime {
         let lane = self.reconciliation_lane(a).await;
         let _guard = lane.lock().await;
         let mut providers = self.providers.lock().await;
+        let account = store.accounts(a.user_id()).await?.into_iter().find(|account| account.id==a.id()).ok_or(Error::NotFound)?;
+        if account.email != confirmation { return Err(Error::Invalid.into()); }
+        let unsubscribe = if let Some(graph) = providers.get(a.id()).and_then(|p| p.graph()) {
+            crate::graph_push::prepare_removal(store, a, graph).await
+        } else { None };
         store.remove_account(a, confirmation).await?;
         if let Some(provider) = providers.remove(a.id()) {
             provider.retire();
         }
+        drop(providers);
+        if let Some(request) = unsubscribe { let _ = request.send().await; }
         self.inbox_refreshes.lock().await.remove(a.id());
         self.sync_lanes.lock().await.remove(a.id());
         Ok(())
@@ -438,8 +456,29 @@ impl MailRuntime {
             return Ok(p.clone());
         }
         let input = store.credential(a).await?;
-        let mut config = configuration(a, &input);
         let settings = self.settings(store, a).await?;
+        if input.provider == ProviderKind::Microsoft {
+            let configuration = input.microsoft_oauth.zip(self.microsoft.clone())
+                .filter(|(grant, config)| config.client_id == grant.client_id && config.tenant == grant.tenant);
+            let Some((grant, config)) = configuration else {
+                store.account_state(a, AccountState::Reconnect).await?;
+                return Err(ApiFailure(StatusCode::UNAUTHORIZED, "account_reconnect_required"));
+            };
+            let source = Arc::new(crate::microsoft_oauth::MicrosoftToken::new(
+                config, grant, store.clone(), a.clone(),
+            ));
+            let graph = p::GraphProvider::new(
+                a.id().into(), source, p::FolderMapping {
+                    sent: settings.sent_folder,
+                    archive: settings.archive_folder,
+                    trash: settings.trash_folder,
+                },
+            );
+            let provider: Arc<dyn p::MailProvider> = Arc::new(graph);
+            providers.insert(a.id().into(), provider.clone());
+            return Ok(provider);
+        }
+        let mut config = configuration(a, &input);
         config.full_imap_exposure_confirmed = settings.full_imap_exposure_confirmed;
         config.folders = p::FolderMapping {
             sent: settings.sent_folder,
@@ -599,7 +638,7 @@ impl MailRuntime {
         })
     }
 
-    async fn ingest_metadata(
+    pub(crate) async fn ingest_metadata(
         &self,
         store: &Store,
         a: &AuthorizedAccount,
@@ -610,7 +649,7 @@ impl MailRuntime {
         self.ingest_metadata_at(store, a, folder, validity, metadata, 0)
             .await
     }
-    async fn ingest_metadata_at(
+    pub(crate) async fn ingest_metadata_at(
         &self,
         store: &Store,
         a: &AuthorizedAccount,
@@ -663,7 +702,7 @@ impl MailRuntime {
             .map(|metadata| {
                 if metadata.reference.account_id != a.id()
                     || match &metadata.identity {
-                        p::Identity::Gmail { account_id, .. } => account_id != a.id(),
+                        p::Identity::Gmail { account_id, .. } | p::Identity::Graph { account_id, .. } => account_id != a.id(),
                         p::Identity::Imap(r) => r.account_id != a.id(),
                     }
                 {
@@ -671,10 +710,34 @@ impl MailRuntime {
                 }
                 Ok(match &metadata.identity {
                     p::Identity::Gmail { message_id, .. } => format!("gmail:{message_id}"),
+                    p::Identity::Graph { message_id, .. } => format!("graph:{message_id}"),
                     p::Identity::Imap(r) => serde_json::to_string(r).map_err(Error::from)?,
                 })
             })
             .collect::<Result<_>>()?;
+        if metadata.iter().any(|m| matches!(m.identity, p::Identity::Graph { .. })) {
+            let provider = self.provider(store, a).await?;
+            if let Some(graph) = provider.graph() {
+                if !graph.immutable_ids().await.map_err(provider_error)? {
+                    for (row, provider_id) in metadata.iter().zip(&provider_ids) {
+                        if store.known_provider_message(a, provider_id).await?.is_some() { continue; }
+                        let parsed = mail_parser::MessageParser::default().parse(&row.headers)
+                            .ok_or(ApiFailure(StatusCode::BAD_GATEWAY, "invalid_message_headers"))?;
+                        let Some(rfc_id) = conversation::message_id(&parsed) else { continue };
+                        let (_, document) = conversation::remembered_document("", &row.headers, None, row.size)?;
+                        let document: serde_json::Value = serde_json::from_str(&document).map_err(Error::from)?;
+                        let Some(fingerprint) = document["fingerprint"].as_str() else { continue };
+                        let Some(new_id) = &row.reference.graph_id else { continue };
+                        if let Some((id, old_id)) = store.graph_identity_candidate(a, &rfc_id, fingerprint, new_id).await? {
+                            // Matching headers alone can be a copy. Prove the old locator is gone.
+                            if !graph.message_exists(&old_id).await.map_err(provider_error)? {
+                                store.link_identity(a, provider_id, &id).await?;
+                            }
+                        }
+                    }
+                }
+            }
+        }
         let ids = store.message_ids(a, &provider_ids).await?;
         let mut messages = vec![];
         let mut documents = vec![];

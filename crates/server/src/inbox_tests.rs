@@ -53,7 +53,7 @@ impl p::MailProvider for InboxProvider {
         }
         assert!(token.is_none());
         let rows = (0..self.count).map(|i| {
-            let reference = p::MessageRef { account_id: self.account.clone(), folder: folder.into(), uidvalidity: 1, uid: i as u32+1 };
+            let reference = p::MessageRef { graph_id: None, account_id: self.account.clone(), folder: folder.into(), uidvalidity: 1, uid: i as u32+1 };
             let headers = format!("From: Fixture <fixture@example.invalid>\r\nTo: Owner <owner@example.invalid>\r\nSubject: Synthetic {i}\r\nMessage-ID: <m{i}@example.invalid>\r\n\r\n").into_bytes();
             p::Metadata { identity: p::Identity::Imap(reference.clone()), reference, gmail_thread_id: None, labels: vec![], seen: true, starred: false, size: headers.len() as u32, internal_date: "29-Oct-2026 00:00:00 +0000".into(), headers }
         }).collect();

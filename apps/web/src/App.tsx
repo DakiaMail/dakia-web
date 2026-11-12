@@ -171,6 +171,17 @@ export function App() {
     forwardAttachments?: import("@dakia/api-types").Attachment[];
   } | null>(null);
   const [error, setError] = useState<unknown>(() => {
+    const microsoft = new URLSearchParams(window.location.search).get("microsoft_error");
+    if (microsoft) {
+      const messages: Record<string, string> = {
+        cancelled: "Microsoft sign-in was cancelled. You can try connecting again.",
+        expired: "Microsoft sign-in expired. Start connecting again.",
+        mismatch: "Choose the Microsoft account that matches the email you entered.",
+        permission: "Allow mail access when connecting your Microsoft account. Your organization may require admin approval.",
+        offline: "Microsoft didn’t grant ongoing access. Try connecting again.",
+      };
+      return new Error(messages[microsoft] || "Couldn’t finish connecting Microsoft. Ask your operator to check the client secret, tenant, and admin consent, then try again.");
+    }
     const reason = new URLSearchParams(window.location.search).get("gmail_error");
     if (!reason) return undefined;
     const messages: Record<string, string> = {

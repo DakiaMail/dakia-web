@@ -6,6 +6,8 @@ use dakia_storage::{AuthorizedAccount, Error};
 use tracing::Instrument;
 
 pub(crate) async fn drain(app: &App, a: &AuthorizedAccount) -> dakia_storage::Result<()> {
+    let provider = app.mail.provider(&app.store, a).await.map_err(|_| Error::Invalid)?;
+    if let Some(graph) = provider.graph() { return graph_drain(app, a, graph).await; }
     let started = std::time::Instant::now();
     // Avoid the scheduler's five-second sleep after every cleanup target while
     // retaining the account lane, per-operation leases and verified outcomes.
@@ -78,6 +80,65 @@ async fn tick_one(app: &App, a: &AuthorizedAccount) -> dakia_storage::Result<boo
     .instrument(span)
     .await?;
     Ok(automation)
+}
+async fn graph_drain(app: &App, a: &AuthorizedAccount, graph: &p::GraphProvider) -> dakia_storage::Result<()> {
+    let lane = app.mail.reconciliation_lane(a).await;
+    let _guard = lane.lock().await;
+    let mut operations = Vec::new();
+    let mut changes = Vec::new();
+    for _ in 0..20 {
+        let Some(mut operation) = app.store.claim_mutation(a).await? else { break };
+        let prepared = async {
+            let message = app.store.message(a,&operation.target_id).await?;
+            let reference: p::MessageRef = serde_json::from_str(&app.store.provider_document(a,&format!("reference:{}",message.id)).await?.ok_or(Error::NotFound)?)?;
+            if reference.account_id!=a.id() || reference.graph_id.is_none() { return Err(Error::Invalid); }
+            let change = match &operation.change {
+                Change::Read { value } => p::Mutation::Seen(*value),
+                Change::Star { value } => p::Mutation::Starred(*value),
+                Change::Archive => p::Mutation::Archive, Change::Trash => p::Mutation::Trash, Change::Spam => p::Mutation::Spam,
+                Change::Move { folder_id } => p::Mutation::Move(folder_id.clone()),
+                _ => return Err(Error::Invalid),
+            };
+            Ok((message,reference,change))
+        }.await;
+        match prepared {
+            Ok((message,reference,change)) => {
+                changes.push((reference.clone(),change));
+                operations.push((operation,message,reference));
+            }
+            Err(_) => { operation.status=OperationStatus::Failed; app.store.finish_mutation(a,operation,None).await?; }
+        }
+    }
+    if changes.is_empty() { return Ok(()); }
+    let results = match graph.mutate_batch(&changes).await {
+        Ok(results) if results.len()==changes.len() => results,
+        Ok(_) => vec![Err(p::error(p::ErrorKind::Uncertain,"Graph batch outcome unknown")); changes.len()],
+        Err(e) => vec![Err(e); changes.len()],
+    };
+    for ((mut operation,mut message,reference),result) in operations.into_iter().zip(results) {
+        match result {
+            Ok(result) => {
+                if let Some(destination) = result.destination {
+                    message.folder_ids.retain(|f| f!=&reference.folder);
+                    if !message.folder_ids.contains(&destination) { message.folder_ids.push(destination); }
+                }
+                if let Some(reference) = result.destination_reference {
+                    let id = reference.graph_id.as_ref().ok_or(Error::Invalid)?;
+                    app.store.link_identity(a,&format!("graph:{id}"),&message.id).await?;
+                    app.store.put_provider_document(a,&format!("reference:{}",message.id),&serde_json::to_string(&reference)?).await?;
+                }
+                operation.status=OperationStatus::Applied;
+                app.store.finish_mutation(a,operation,Some(message.folder_ids)).await?;
+            }
+            Err(e) => {
+                if e.kind==p::ErrorKind::Retryable && app.store.retry_mutation(a,&operation.id).await? { continue; }
+                crate::mail::provider_error(e);
+                operation.status=OperationStatus::Failed;
+                app.store.finish_mutation(a,operation,None).await?;
+            }
+        }
+    }
+    Ok(())
 }
 pub(crate) fn action_name(change: &Change) -> &'static str {
     match change {
@@ -271,7 +332,9 @@ async fn apply(
     if let Some(reference) = result.destination_reference {
         let raw = serde_json::to_string(&reference)?;
         // Generic IMAP identity changes on MOVE but Dakia-owned state does not.
-        if !message.provider_id.starts_with("gmail:") {
+        if let Some(id) = &reference.graph_id {
+            app.store.link_identity(a, &format!("graph:{id}"), &message.id).await?;
+        } else if !message.provider_id.starts_with("gmail:") {
             app.store.link_identity(a, &raw, &message.id).await?;
         }
         app.store

@@ -15,6 +15,7 @@ async function request(path, init = {}) {
   });
 }
 assert.equal((await request('/api/accounts/gmail')).status, 401);
+assert.equal((await request('/api/accounts/microsoft')).status, 401);
 assert.equal((await request('/api/releases')).status, 401);
 if (process.argv.includes('--resume')) {
   ({ cookie } = JSON.parse(await readFile(sessionPath, 'utf8')));
@@ -60,7 +61,27 @@ assert.equal(response.status, 303);
 assert.equal(response.headers.get('location'), '/?gmail_error=cancelled');
 assert.equal((await request(callback)).headers.get('location'), '/?gmail_error=expired');
 assert.deepEqual(await (await request('/api/accounts')).json(), []);
+assert.deepEqual(await (await request('/api/accounts/microsoft')).json(), { enabled: true });
+assert.equal((await request('/api/accounts/microsoft', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })).status, 403);
+response = await request('/api/accounts/microsoft', {
+  method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf }, body,
+});
+assert.equal(response.status, 200);
+const microsoft = new URL((await response.json()).url);
+assert.equal(microsoft.origin, 'https://login.microsoftonline.com');
+assert.equal(microsoft.pathname, '/common/oauth2/v2.0/authorize');
+assert.equal(microsoft.searchParams.get('client_id'), 'microsoft-image-fixture');
+assert.equal(microsoft.searchParams.get('redirect_uri'), `${origin}/api/accounts/microsoft/callback`);
+assert.equal(microsoft.searchParams.get('code_challenge_method'), 'S256');
+assert.ok(microsoft.searchParams.get('scope').includes('https://graph.microsoft.com/Mail.ReadWrite'));
+assert.ok(microsoft.searchParams.get('scope').includes('https://graph.microsoft.com/Mail.Send'));
+assert.ok(microsoft.searchParams.get('scope').includes('offline_access'));
+const microsoftCallback = `/api/accounts/microsoft/callback?${new URLSearchParams({ state: microsoft.searchParams.get('state'), error: 'access_denied' })}`;
+assert.equal((await request(microsoftCallback)).headers.get('location'), '/?microsoft_error=cancelled');
+assert.equal((await request(microsoftCallback)).headers.get('location'), '/?microsoft_error=expired');
+assert.deepEqual(await (await request('/api/accounts')).json(), []);
 const assets = (await readdir('/app/web/assets')).filter(name => name.endsWith('.js'));
 const sources = await Promise.all(assets.map(name => readFile(`/app/web/assets/${name}`, 'utf8')));
 assert.ok(sources.some(source => source.includes('Continue with Google')), 'Gmail sign-in UI must be packaged');
-console.log(`Packaged Gmail OAuth checks passed${process.argv.includes('--resume') ? ' after restart' : ''}.`);
+assert.ok(sources.some(source => source.includes('Continue with Microsoft')), 'Microsoft sign-in UI must be packaged');
+console.log(`Packaged Gmail and Microsoft OAuth checks passed${process.argv.includes('--resume') ? ' after restart' : ''}.`);

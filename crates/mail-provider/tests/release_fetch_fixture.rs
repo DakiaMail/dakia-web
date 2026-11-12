@@ -73,7 +73,7 @@ async fn fetch_section(
     let result = provider
         .fetch(
             &MessageRef {
-                account_id: "fixture-account".into(),
+                graph_id: None, account_id: "fixture-account".into(),
                 folder: "INBOX".into(),
                 uidvalidity: 17,
                 uid: 9,
@@ -176,6 +176,7 @@ async fn clean_size_rejection_reuses_the_same_authenticated_socket() {
         }
     });
     let reference = MessageRef {
+        graph_id: None,
         account_id: "fixture-account".into(),
         folder: "INBOX".into(),
         uidvalidity: 17,
@@ -236,7 +237,7 @@ async fn gmail_mismatched_size(size: u32, eof_response: &str) -> Result<Vec<u8>>
     let result = provider
         .fetch(
             &MessageRef {
-                account_id: "fixture-account".into(),
+                graph_id: None, account_id: "fixture-account".into(),
                 folder: "INBOX".into(),
                 uidvalidity: 17,
                 uid: 9,

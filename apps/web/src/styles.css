@@ -868,6 +868,9 @@ kbd {
   overflow: auto;
   animation: fade 0.18s;
 }
+.dialog.account-setup {
+  scroll-padding-block: 70px 22px;
+}
 /* Fixed nested pickers must use the viewport, not a transformed dialog, as their containing block. */
 .dialog:has([data-dakia-date-time]) {
   transform: none;

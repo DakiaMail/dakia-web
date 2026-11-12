@@ -271,6 +271,7 @@ async fn epoch_change_abandons_continuation_without_searching_or_fetching() {
     ])
     .await;
     let token = PageToken {
+        graph_next: None,
         account_id: "fixture-account".into(),
         folder: "INBOX".into(),
         uidvalidity: 17,

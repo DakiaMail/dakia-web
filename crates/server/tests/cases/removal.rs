@@ -15,6 +15,7 @@ async fn removal_is_confirmed_local_isolated_and_revokes_stale_capabilities() {
         username: "synthetic".into(),
         password: "fixture-only".into(),
         gmail_oauth: None,
+        microsoft_oauth: None,
     };
     let a = app.store.connect(&alice, &input).await.unwrap();
     let other = app.store.connect(&alice, &input).await.unwrap();

@@ -52,6 +52,7 @@ async fn cleanup_moves_reuse_one_tls_login_with_bounded_exact_uid_commands() {
             let result = provider
                 .mutate(
                     &MessageRef {
+                        graph_id: None,
                         account_id: "fixture-account".into(),
                         folder: "INBOX".into(),
                         uidvalidity: 17,

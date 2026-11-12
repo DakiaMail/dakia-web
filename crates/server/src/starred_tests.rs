@@ -41,6 +41,7 @@ impl p::MailProvider for Stars {
         let rows = (start..end)
             .map(|i| {
                 let reference = p::MessageRef {
+                    graph_id: None,
                     account_id: self.account.clone(),
                     folder: folder.into(),
                     uidvalidity: epoch,
@@ -72,6 +73,7 @@ impl p::MailProvider for Stars {
             uidvalidity: epoch,
             full_coverage: !self.gmail,
             next: (end < count).then(|| p::PageToken {
+                graph_next: None,
                 account_id: self.account.clone(),
                 folder: folder.into(),
                 uidvalidity: epoch,

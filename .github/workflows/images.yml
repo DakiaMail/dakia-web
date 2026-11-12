@@ -85,7 +85,9 @@ jobs:
             -e DAKIA_RELEASE_CHECKS=false \
             -e DAKIA_EXPECTED_RELEASE_VERSION="$VERSION" \
             -e DAKIA_GMAIL_CLIENT_ID=image-fixture.apps.googleusercontent.com \
-            -e DAKIA_GMAIL_CLIENT_SECRET=synthetic-image-smoke-only "$image"
+            -e DAKIA_GMAIL_CLIENT_SECRET=synthetic-image-smoke-only \
+            -e DAKIA_MICROSOFT_CLIENT_ID=microsoft-image-fixture \
+            -e DAKIA_MICROSOFT_CLIENT_SECRET=synthetic-image-smoke-only "$image"
           ready=false
           for attempt in $(seq 1 30); do
             if docker exec "$name" /app/dakia-healthcheck; then ready=true; break; fi

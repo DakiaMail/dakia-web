@@ -161,6 +161,7 @@ export class DemoMailbox {
     if (path === "/api/translation/settings" && get) return json({ mode: "host", can_manage: false });
     if (path === "/api/local-access" && get) return json({ can_invite: false });
     if (path === "/api/accounts/gmail" && get) return json({ enabled: true });
+    if (path === "/api/accounts/microsoft" && get) return json({ enabled: false });
     if (path === "/api/accounts" && get) return json(s.accounts);
     if (path === "/api/rules") {
       if (get) return json(s.rules);

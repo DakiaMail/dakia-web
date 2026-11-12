@@ -4,6 +4,7 @@ use dakia_mail_provider::{imap::ImapProvider, *};
 use tokio::io::BufReader;
 fn reference() -> MessageRef {
     MessageRef {
+        graph_id: None,
         account_id: "fixture-account".into(),
         folder: "INBOX".into(),
         uidvalidity: 17,

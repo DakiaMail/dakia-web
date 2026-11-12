@@ -29,6 +29,8 @@ pub trait MetadataLookup: Send + Sync {
 #[async_trait]
 pub trait MailProvider: Send + Sync {
     fn account_id(&self) -> &str;
+    /// Native Graph synchronization/subscriptions are not IMAP snapshots.
+    fn graph(&self) -> Option<&crate::GraphProvider> { None }
     fn retire(&self) {}
     fn supports_head(&self) -> bool {
         false

@@ -11,20 +11,26 @@ export function AccountSetup({
   account?: Account | null;
 }) {
   const client = useQueryClient();
-  const [provider, setProvider] = useState<"gmail" | "imap">(
+  const [provider, setProvider] = useState<Account["provider"]>(
     account?.provider || "imap",
   );
   const [gmailEnabled, setGmailEnabled] = useState<boolean | null>(null);
+  const [microsoftEnabled, setMicrosoftEnabled] = useState<boolean | null>(null);
   const [appPassword, setAppPassword] = useState(false);
   useEffect(() => {
     let active = true;
     void request<{ enabled: boolean }>("/accounts/gmail").then((result) => {
       if (active) setGmailEnabled(result.enabled);
     }).catch(() => { if (active) setGmailEnabled(false); });
+    void request<{ enabled: boolean }>("/accounts/microsoft").then((result) => {
+      if (active) setMicrosoftEnabled(result.enabled);
+    }).catch(() => { if (active) setMicrosoftEnabled(false); });
     return () => { active = false; };
   }, []);
   const googleSignIn = provider === "gmail" && gmailEnabled === true && !appPassword;
-  const checkingGoogle = provider === "gmail" && gmailEnabled === null;
+  const microsoftSignIn = provider === "microsoft" && microsoftEnabled === true;
+  const signIn = googleSignIn || microsoftSignIn;
+  const checkingSignIn = (provider === "gmail" && gmailEnabled === null) || (provider === "microsoft" && microsoftEnabled === null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>();
   const [saved, setSaved] = useState<string>();
@@ -69,8 +75,9 @@ export function AccountSetup({
     const data = new FormData(form);
     const str = (key: string) => String(data.get(key) || "");
     try {
-      if (googleSignIn) {
-        const result = await request<{ url: string }>("/accounts/gmail", {
+      if (signIn) {
+        const path = microsoftSignIn ? "/accounts/microsoft" : "/accounts/gmail";
+        const result = await request<{ url: string }>(path, {
           method: "POST",
           body: JSON.stringify({ email: str("email"), display_name: str("display_name"), account_id: existingId || null }),
         });
@@ -119,6 +126,7 @@ export function AccountSetup({
   return (
     <Modal
       title={account ? "Reconnect account" : "Connect an account"}
+      className="account-setup"
       onClose={() => {
         if (!busy) onClose();
       }}
@@ -139,6 +147,7 @@ export function AccountSetup({
             onChange={(e) => setProvider(e.target.value as typeof provider)}
           >
             <option value="gmail">Gmail</option>
+            <option value="microsoft">Microsoft (Outlook / Microsoft 365)</option>
             <option value="imap">Automatic</option>
           </select>
         </label>
@@ -174,8 +183,10 @@ export function AccountSetup({
           <input type="checkbox" checked={appPassword} disabled={busy || !!saved} onChange={(e) => setAppPassword(e.target.checked)} />
           Use an app password
         </label>}
-        {checkingGoogle && <p role="status">Checking sign-in options…</p>}
-        {!googleSignIn && !checkingGoogle && <label>
+        {checkingSignIn && <p role="status">Checking sign-in options…</p>}
+        {provider === "microsoft" && microsoftEnabled === false && <p role="status">Microsoft sign-in is not configured. Ask your Dakia operator to follow the Microsoft setup guide.</p>}
+        {provider === "microsoft" && microsoftEnabled && <p>Connect Outlook.com, Hotmail, or Microsoft 365 securely with Microsoft. No mail password is stored.</p>}
+        {provider !== "microsoft" && !googleSignIn && !checkingSignIn && <label>
           {provider === "gmail" ? "App password" : "Password"}
           <input
             name="password"
@@ -239,9 +250,11 @@ export function AccountSetup({
               Edit connection
             </button>
           )}
-          <button title="Connect account" className="primary" disabled={busy || checkingGoogle || discovering || (provider === "imap" && !settings && !manual)}>
+          <button title="Connect account" className="primary" disabled={busy || checkingSignIn || (provider === "microsoft" && !microsoftEnabled) || discovering || (provider === "imap" && !settings && !manual)}>
             {busy
-              ? googleSignIn ? "Opening Google…" : "Checking connection…"
+              ? signIn ? `Opening ${microsoftSignIn ? "Microsoft" : "Google"}…` : "Checking connection…"
+              : microsoftSignIn
+                ? "Continue with Microsoft"
               : googleSignIn
                 ? "Continue with Google"
               : saved

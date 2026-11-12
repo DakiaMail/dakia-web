@@ -75,6 +75,48 @@ impl Store {
         sqlx::query("INSERT OR IGNORE INTO submission_mime(submission_id,raw,recipients,message_id) VALUES(?,?,?,?)").bind(id).bind(mime.raw).bind(serde_json::to_string(&mime.recipients)?).bind(mime.message_id).execute(&db).await?;
         self.mime(a, id).await?.ok_or(Error::NotFound)
     }
+    /// Only a transport-proven refusal may schedule another attempt. Unknown deliveries never enter here.
+    pub async fn defer_submission(&self, a: &AuthorizedAccount, id: &str, from: SubmissionState, delay: u64) -> Result<Submission> {
+        if !matches!(from, SubmissionState::Claimed | SubmissionState::Submitting) { return Err(Error::Invalid); }
+        let _guard = self.gate.read().await;
+        let db = self.db(a).await?;
+        let mut tx = db.begin().await?;
+        sqlx::query("UPDATE submissions SET state=state WHERE id=?").bind(id).execute(&mut *tx).await?;
+        let raw: String = sqlx::query_scalar("SELECT document FROM submissions WHERE id=?").bind(id).fetch_one(&mut *tx).await?;
+        let mut submission: Submission = serde_json::from_str(&raw)?;
+        if submission.state!=from { return Err(Error::Conflict); }
+        let key = format!("send:attempts:{id}");
+        let attempts: Option<String> = sqlx::query_scalar("SELECT document FROM provider_documents WHERE key=?").bind(&key).fetch_optional(&mut *tx).await?;
+        let attempts = attempts.map(|s| s.parse::<u32>().map_err(|_| Error::Invalid)).transpose()?.unwrap_or(0);
+        submission.state = if attempts>=5 { SubmissionState::Failed } else { SubmissionState::Scheduled };
+        submission.due_at = (Utc::now()+Duration::seconds(delay.clamp(1,86400).max(5*(1u64 << attempts.min(10))) as i64)).to_rfc3339_opts(SecondsFormat::Millis,true);
+        submission.revision += 1;
+        let state = serde_json::to_value(&submission.state)?.as_str().ok_or(Error::Invalid)?.to_owned();
+        sqlx::query("UPDATE submissions SET state=?,due_at=?,lease_until=NULL,document=? WHERE id=?").bind(state).bind(&submission.due_at).bind(serde_json::to_string(&submission)?).bind(id).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO provider_documents(key,document) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET document=excluded.document").bind(key).bind((attempts+1).to_string()).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO events(revision,kind,target_id) VALUES(?,'submission_changed',?)").bind(submission.revision).bind(id).execute(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(submission)
+    }
+    pub async fn uncertain_submissions(&self, a: &AuthorizedAccount) -> Result<Vec<Submission>> {
+        let db = self.db(a).await?;
+        let rows: Vec<String> = sqlx::query_scalar("SELECT s.document FROM submissions s WHERE s.state='delivery_unknown' AND COALESCE((SELECT CAST(document AS INTEGER) FROM provider_documents WHERE key='send:lookup:'||s.id),0)<=? ORDER BY COALESCE((SELECT CAST(document AS INTEGER) FROM provider_documents WHERE key='send:lookup:'||s.id),0),due_at LIMIT 10").bind(Utc::now().timestamp()-60).fetch_all(&db).await?;
+        rows.into_iter().map(|raw| Ok(serde_json::from_str(&raw)?)).collect()
+    }
+    /// Positive provider-side Sent evidence is the only recovery; a negative lookup never reschedules.
+    pub async fn confirm_delivery(&self, a: &AuthorizedAccount, id: &str) -> Result<Submission> {
+        let _guard = self.gate.read().await;
+        let db = self.db(a).await?;
+        let mut tx = db.begin().await?;
+        sqlx::query("UPDATE submissions SET state=state WHERE id=?").bind(id).execute(&mut *tx).await?;
+        let raw: String = sqlx::query_scalar("SELECT document FROM submissions WHERE id=? AND state='delivery_unknown'").bind(id).fetch_optional(&mut *tx).await?.ok_or(Error::Conflict)?;
+        let mut submission: Submission = serde_json::from_str(&raw)?;
+        submission.state = SubmissionState::Accepted; submission.revision += 1;
+        sqlx::query("UPDATE submissions SET state='accepted',document=? WHERE id=?").bind(serde_json::to_string(&submission)?).bind(id).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO events(revision,kind,target_id) VALUES(?,'submission_changed',?)").bind(submission.revision).bind(id).execute(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(submission)
+    }
     pub async fn needs_filing(&self, a: &AuthorizedAccount) -> Result<Vec<Submission>> {
         let db = self.db(a).await?;
         let rows:Vec<String>=sqlx::query_scalar("SELECT document FROM submissions WHERE state='accepted' AND filing_status IN ('pending','failed') ORDER BY due_at LIMIT 10").fetch_all(&db).await?;

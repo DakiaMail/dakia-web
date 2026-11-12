@@ -166,6 +166,7 @@ impl ImapProvider {
                     return Err(error(ErrorKind::Retryable, "duplicate metadata FETCH"));
                 }
                 let reference = MessageRef {
+                    graph_id: None,
                     account_id: self.config.account_id.clone(),
                     folder: folder.into(),
                     uidvalidity: validity,

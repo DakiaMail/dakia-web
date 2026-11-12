@@ -418,6 +418,7 @@ impl ImapProvider {
             let (rows, consumed) = self.metadata(&mut s, folder, validity, &uids).await?;
             let next = if consumed < total {
                 uids.get(consumed.saturating_sub(1)).map(|uid| PageToken {
+                    graph_next: None,
                     account_id: self.config.account_id.clone(),
                     folder: folder.into(),
                     uidvalidity: validity,
@@ -1010,6 +1011,7 @@ async fn transfer(
     Ok(output.copyuid.and_then(|(validity, src, uid)| {
         if src == r.uid {
             Some(MessageRef {
+                graph_id: None,
                 account_id: r.account_id.clone(),
                 folder: dest.into(),
                 uidvalidity: validity,

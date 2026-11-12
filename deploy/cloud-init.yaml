@@ -9,6 +9,9 @@
 # The installer also runs by hand on any Debian/Ubuntu host:
 #   curl -fsSL -o dakia-install.sh https://raw.githubusercontent.com/DakiaMail/dakia-web/main/scripts/install.sh && sudo sh dakia-install.sh --domain mail.example.com
 #
+# The URL above and the installer's --ref must name the same revision. When
+# testing a branch, download from that branch and add --ref <branch>.
+#
 # The download and the install are chained with && so a failed download stops
 # visibly instead of feeding an empty script to sh. Check progress with:
 #   cloud-init status --long && tail -n 40 /var/log/cloud-init-output.log

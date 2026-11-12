@@ -105,7 +105,7 @@ A managed container platform can run the published image without a shell on the 
 | Two persistent volumes, mounted at `/data` and `/secrets` | Restarts and redeploys must keep mail, the credential key, and their file permissions |
 | One always-on instance with no scale-to-zero | Synchronization, scheduled sending, and an exclusive lock on the data directory |
 | Outbound IMAP, SMTP submission, and HTTPS | Port 25 is not needed; use the provider's submission port, 465 or 587 |
-| About 1 GB of memory | The bundled classifier and language workers are not small |
+| At least 1 GB of memory | The classifier loads at boot; an idle installation used about 450 MB in testing |
 
 Set `DAKIA_ORIGIN` to the exact HTTPS origin the platform gives you, without a trailing slash. It is a plain setting, not a password.
 
@@ -132,7 +132,7 @@ Dakia is not yet a PikaPods catalog app. The [PikaPods catalog handoff](../deplo
 
 ### DigitalOcean or Hetzner Cloud
 
-Create a Droplet or Cloud server from Ubuntu 24.04 with at least 1 GB of memory. Add your domain's A record first, then paste [`deploy/cloud-init.yaml`](../deploy/cloud-init.yaml) into the provider's user-data field with your domain in place of the example. The server installs Dakia and Caddy on first boot; open your address once DNS resolves and it answers.
+Create a Droplet or Cloud server from Ubuntu 24.04 with at least 1 GB of memory. If your region reports the 1 GB size as unavailable, choose its Intel or AMD variant; DigitalOcean capacity varies by region. Add your domain's A record first, then paste [`deploy/cloud-init.yaml`](../deploy/cloud-init.yaml) into the provider's user-data field with your domain in place of the example. The server installs Dakia and Caddy on first boot; open your address once DNS resolves and it answers. A tested run reached a working HTTPS login page about two and a half minutes after the Droplet was created.
 
 Both providers bill hourly, so a short test costs cents. Keep the server running: synchronization, scheduled sending, and the exclusive lock on the data directory need one always-on instance. Add the provider's backups or snapshots; they must include both Dakia volumes and the Docker volumes that hold them.
 

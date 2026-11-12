@@ -6,7 +6,7 @@
 
 The first person to set up a new installation becomes its owner. Open Dakia and choose **Sign in**, then choose a username and a password with at least 12 characters.
 
-No setup code or host command is needed. A new installation accepts its first login from whoever reaches it, so create your login immediately after starting Dakia and keep the address private until you have.
+No setup code or host command is needed. A new installation accepts its first login from whoever reaches it, so create your login immediately after starting Dakia and keep the address private until you have. If your sign-in page still asks for a setup code, the image predates this change: read it with `docker compose exec dakia cat /secrets/setup-token`.
 
 Your Dakia login is separate from your email provider's login. Once owner setup is complete, the sign-in page asks only for your username and password.
 

@@ -1,17 +1,18 @@
 import { test, expect, type Page } from "@playwright/test";
 import { accounts, content, messages, page as mail } from "./fixtures";
 import type { Message, Operation } from "@dakia/api-types";
-async function fixture(page: Page, incomplete = false, slow = false, preselect = true) {
+async function fixture(page: Page, incomplete = false, slow = false, preselect = true, hold = false) {
   const rows: Message[] = Array.from({ length: 53 }, (_, i) => ({ ...messages[0], id: `match-${i}`, thread_id: `match-${i}`, subject: `Match ${i}`, unread: false,
     classification: { kind: "automated", status: "ready", types: ["security_alert"], details: [], attention: [], attention_override: null, source: "automatic", policy_revision: "personal-first-1" } }));
   const operations: Operation[] = []; let pages = 0;
+  let release!: () => void; const gate = new Promise<void>(resolve => release = resolve);
   await page.route("**/api/**", async route => {
     const url = new URL(route.request().url()), p = url.pathname;
     const respond = (json: unknown) => route.fulfill({ json });
     if(p === "/api/session") return respond({ user_id: "matching-selection-fixture", csrf_token: "fixture" });
     if(p === "/api/accounts") return respond([accounts[0]]);
     if(p.endsWith("/events")) return route.fulfill({ contentType: "text/event-stream", body: ": ready\n\n" });
-    if(p.endsWith("/operations")) { const op = { ...route.request().postDataJSON(), status: "applied", revision: 2 }; operations.push(op); return respond(op); }
+    if(p.endsWith("/operations")) { const op = { ...route.request().postDataJSON(), status: "applied", revision: 2 }; operations.push(op); if(hold) await gate; return respond(op); }
     if(p === "/api/search" || p.endsWith("/messages")) {
       const empty = url.searchParams.has("attention") || url.searchParams.get("inbox_kind") === "personal";
       const tail = !!url.searchParams.get("continuation");
@@ -28,7 +29,7 @@ async function fixture(page: Page, incomplete = false, slow = false, preselect =
   await page.getByRole("button", { name: "Security alerts", exact: true }).click();
   await expect(page.locator('.message-row').first()).toBeVisible();
   if (preselect) await page.locator(".message-select input").first().check();
-  return { rows, operations, pages: () => pages };
+  return { rows, operations, release, pages: () => pages };
 }
 for (const width of [390,1480]) test(`visible selection expands beyond loaded pages and archives every match at ${width}`, async ({ page }, info) => {
   await page.setViewportSize({width,height:900}); const state = await fixture(page);
@@ -45,7 +46,7 @@ for (const width of [390,1480]) test(`visible selection expands beyond loaded pa
   await expect.poll(()=>state.operations.length).toBe(53);
   expect(new Set(state.operations.map(o=>o.target_id)).size).toBe(53);
   expect(state.operations.every(o=>o.account_id===accounts[0].id&&o.change.kind==="archive")).toBe(true);
-  await expect(page.getByRole("status").filter({hasText:"53 of 53 messages updated."})).toBeVisible();
+  await expect(page.getByRole("status").filter({hasText:"53 emails archived."})).toBeVisible();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
 });
 test("incomplete coverage leaves only the visible selection and never submits writes",async({page})=>{
@@ -92,4 +93,34 @@ test("toolbar appears only after selecting mail and type-only rows stay compact"
   await expect(bar.getByRole('checkbox',{name:'Select all',exact:true})).toBeVisible();
   await expect(bar.getByRole('button',{name:'Archive',exact:true})).toBeVisible();
   await page.screenshot({path:info.outputPath('combined-toolbar.png'),animations:'disabled'});
+});
+
+test("all matching rows disappear before acceptance and fresh actions stay available", async ({page}) => {
+  const state = await fixture(page,false,false,true,true);
+  await page.getByRole("checkbox",{name:"Select all",exact:true}).check();
+  await page.getByRole("button",{name:"Select all messages matching this filter",exact:true}).click();
+  await expect(page.getByRole("status").filter({hasText:"All 53 matching messages are selected."})).toBeVisible();
+  await page.getByRole("button",{name:"Archive",exact:true}).click();
+  await expect(page.locator(".message-open")).toHaveCount(0);
+  await expect(page.getByRole("status").filter({hasText:"53 emails archived."})).toBeVisible();
+  expect(state.operations.length).toBeLessThanOrEqual(6);
+  await page.getByRole("tab",{name:"All",exact:true}).click();
+  await expect(page.getByRole("tab",{name:"All",exact:true})).toHaveAttribute("aria-selected","true");
+  state.release();
+  await expect.poll(()=>state.operations.length).toBe(53);
+});
+
+test("another bulk action can be queued while the first is still awaiting acceptance", async ({page}) => {
+  const state = await fixture(page,false,false,true,true);
+  await page.getByRole("checkbox",{name:"Select all",exact:true}).check();
+  await page.getByRole("button",{name:"Select all messages matching this filter",exact:true}).click();
+  await expect(page.getByRole("status").filter({hasText:"All 53 matching messages are selected."})).toBeVisible();
+  await page.getByRole("button",{name:"Mark unread",exact:true}).click();
+  await expect(page.getByRole("button",{name:"Mark read",exact:true})).toBeEnabled();
+  await page.getByRole("button",{name:"Mark read",exact:true}).click();
+  await expect(page.getByRole("button",{name:"Mark unread",exact:true})).toBeEnabled();
+  expect(state.operations.length).toBeLessThanOrEqual(6);
+  state.release();
+  await expect.poll(()=>state.operations.length).toBe(106);
+  for(const row of state.rows) expect(state.operations.filter(o=>o.target_id===row.id).map(o=>o.change)).toEqual([{kind:"read",value:false},{kind:"read",value:true}]);
 });

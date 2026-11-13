@@ -1690,8 +1690,7 @@ body {
 .matching-selection .selection-count { font-size: 12px; color: var(--color-secondary); }
 .matching-selection .reader-toolbar { position: static; border: 0; padding: 0; min-height: 36px; gap: 4px; flex: 1; }
 .matching-selection-banner { flex-basis: 100%; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; font-size: 12px; }
-.matching-selection-banner button, .bulk-progress button { color: var(--color-accent); text-decoration: underline; text-underline-offset: 3px; background: transparent; border: 0; padding: 4px; }
-.bulk-progress { flex-shrink: 0; padding: 8px 14px; font-size: 12px; }
+.matching-selection-banner button { color: var(--color-accent); text-decoration: underline; text-underline-offset: 3px; background: transparent; border: 0; padding: 4px; }
 @media(max-width:600px) {
  .selection-actions.matching-selection { padding: 6px 12px; gap: 2px 10px; }
  .visible-selection-control, .matching-selection .selection-count { min-height: 44px; }

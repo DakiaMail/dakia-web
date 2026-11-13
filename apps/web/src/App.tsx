@@ -175,8 +175,6 @@ export function App() {
   const [matching, setMatching] = useState<{ scope: string; rows: Message[] }>();
   const [selectionReset, setSelectionReset] = useState(0);
   const [matchingBusy, setMatchingBusy] = useState(false);
-  const [bulkProgress, setBulkProgress] = useState<{ total: number; done: number; failed: number }>();
-  const bulkRun = useRef<symbol | null>(null);
   const [overrides, setOverrides] = useState<Record<string, Message>>({});
   const [removed, setRemoved] = useState<Record<string, symbol>>({});
   const [restoredRows, setRestoredRows] = useState<Record<string, { message: Message; scope: string; token: symbol }>>({});
@@ -225,7 +223,7 @@ export function App() {
   const attemptedReads = useRef(new Set<string>());
   const [pendingTargets, setPendingTargets] = useState<Record<string, number>>({});
   const [submission, setSubmission] = useState<Submission | null>(null);
-  const [toast, setToast] = useState<{ id: string; message: string } | null>(null);
+  const [toast, setToast] = useState<{ id: string; message: string; error?: boolean } | null>(null);
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(null), 7000); return () => clearTimeout(timer); }, [toast]);
   const [snooze, setSnooze] = useState<Message[] | null>(null);
   const [move, setMove] = useState<Message[] | null>(null);
@@ -583,8 +581,6 @@ export function App() {
     const cacheAccounts = ["archive", "trash", "spam", "move", "snooze", "inbox_kind", "detected_type", "attention", "category"].includes(change.kind) ? [...new Set(messages.map(m => m.account_id))] : [];
     const cacheStarted = Date.now();
     const cacheInvalidation = cacheAccounts.length ? localMailCache.invalidateFolders(cacheAccounts) : Promise.resolve();
-    const progressToken = messages.length > 1 && !background ? Symbol() : null;
-    if (progressToken) { bulkRun.current = progressToken; setBulkProgress({ total: messages.length, done: 0, failed: 0 }); }
     const failures: string[] = [];
     setError(undefined);
     const removing = ["archive", "trash", "spam", "move", "snooze"].includes(change.kind);
@@ -613,27 +609,32 @@ export function App() {
       if (!background && !localClassification) for (const message of messages) next[identity(message)] = (next[identity(message)] || 0) + 1;
       return next;
     });
+    const prepared = messages.map(m => {
+      const token = Symbol();
+      mutationTokens.current.set(identity(m), token);
+      const senderTargets = change.kind === "inbox_kind" && change.sender
+        ? mailRows(client.getQueriesData<InfiniteData<SearchPage>>({ queryKey: ["mail"] }).flatMap(([, data]) => data?.pages || []), overrides)
+          .filter(row => row.account_id === m.account_id && row.sender.email.trim().toLowerCase() === m.sender.email.trim().toLowerCase() && identity(row) !== identity(m) && classification(row).source !== "message") : [];
+      for (const row of senderTargets) mutationTokens.current.set(identity(row), token);
+      const effectiveChange: Change = destinations ? { kind: "move", folder_id: destinations[m.account_id] } : change;
+      return { m, token, senderTargets, effectiveChange, value: optimistic(m, effectiveChange) };
+    });
+    // One local transition for the complete selection, before any provider work.
+    setOverrides(old => ({ ...old, ...Object.fromEntries(prepared.flatMap(p => [[identity(p.m), p.value], ...p.senderTargets.map(row => [identity(row), optimistic(row, change)])])) }));
+    setSelected(old => old ? prepared.find(p => identity(p.m) === identity(old))?.value || old : old);
+    if (removing) setRemoved(old => ({ ...old, ...Object.fromEntries(prepared.map(p => [identity(p.m), p.token])) }));
+    if (messages.length > 1 && !background) {
+      const action = change.kind === "archive" ? "archived" : change.kind === "trash" ? "moved to Trash" : change.kind === "read" ? change.value ? "marked read" : "marked unread" : "updated";
+      setToast({ id: crypto.randomUUID(), message: `${messages.length} emails ${action}.` });
+      requestAnimationFrame(() => { if (document.activeElement === document.body) listRef.current?.focus(); });
+    }
     await Promise.all(
-      messages.map((m) => {
-        const token = Symbol();
-        mutationTokens.current.set(identity(m), token);
-        const senderTargets = change.kind === "inbox_kind" && change.sender
-          ? mailRows(client.getQueriesData<InfiniteData<SearchPage>>({ queryKey: ["mail"] }).flatMap(([, data]) => data?.pages || []), overrides)
-            .filter(row => row.account_id === m.account_id && row.sender.email.trim().toLowerCase() === m.sender.email.trim().toLowerCase() && identity(row) !== identity(m) && classification(row).source !== "message") : [];
-        for (const row of senderTargets) mutationTokens.current.set(identity(row), token);
-        if (senderTargets.length) setOverrides(old => ({ ...old, ...Object.fromEntries(senderTargets.map(row => [identity(row), optimistic(row, change)])) }));
-
-        if (removing) {
-          setRemoved(old => ({ ...old, [identity(m)]: token }));
-        }
+      prepared.map(({ m, token, senderTargets, effectiveChange }) => {
         return operations
           .enqueue(
             m,
-            destinations ? { kind: "move", folder_id: destinations[m.account_id] } : change,
-            (_id, value) => {
-              setOverrides(old => ({ ...old, [identity(value)]: value }));
-              setSelected(old => old && identity(old) === identity(value) ? value : old);
-            },
+            effectiveChange,
+            () => {},
             () => {
               settledTokens.current.set(identity(m), token);
               for (const row of senderTargets) settledTokens.current.set(identity(row), token);
@@ -651,7 +652,10 @@ export function App() {
             if (mutationTokens.current.get(identity(m)) === token) setSelected(old => old && identity(old) === identity(m) ? m : old);
 
             if (background) setReadFailures(old => ({ ...old, [identity(m)]: true }));
-            else setActionError(failureSummary(failures));
+            else {
+              setActionError(failureSummary(failures));
+              setToast({ id: crypto.randomUUID(), message: `${failures.length === 1 ? "An email couldn’t" : `${failures.length} emails couldn’t`} be updated. Check the error details.`, error: true });
+            }
             // Restore this item immediately, without overwriting newer intent.
             if (mutationTokens.current.get(identity(m)) === token) {
               setOverrides(old => ({ ...old, [identity(m)]: m }));
@@ -664,7 +668,7 @@ export function App() {
                 return next;
               });
             }
-          }).finally(() => { if (!background && !localClassification) releasePending(identity(m)); if (progressToken && bulkRun.current === progressToken) setBulkProgress(old => old && ({ ...old, done: old.done + 1, failed: failures.length })); });
+          }).finally(() => { if (!background && !localClassification) releasePending(identity(m)); });
       }),
     );
     await reconcileMail(background);
@@ -843,7 +847,7 @@ export function App() {
     sender={checked.size === 0 ? active || undefined : undefined}
     accounts={accounts.data || []}
     onCleanup={targets => { clearSelection(); if (active && targets.some(m => identity(m) === identity(active))) closeReader(); }}
-    pending={matchingBusy || !!(bulkProgress && bulkProgress.done < bulkProgress.total) || bulk.some(message => pendingTargets[identity(message)] > 0 || !!cleanupRows[identity(message)])}
+    pending={matchingBusy || bulk.some(message => !!cleanupRows[identity(message)])}
     archive={() => removeFromReader("archive")}
     unread={() => void act(bulk, { kind: "read", value: false })}
     read={() => void act(bulk, { kind: "read", value: true })}
@@ -858,7 +862,7 @@ export function App() {
   /> : null;
   const selectionControls = <MatchingSelection key={`${matchingScope}/${selectionReset}`}
           visible={virtual.getVirtualItems().filter(v => v.end > (listRef.current?.scrollTop || 0) && v.start < (listRef.current?.scrollTop || 0) + (listRef.current?.clientHeight || 0)).map(v => items[v.index].message)}
-          actions={checked.size ? messageActions : null} clear={clearSelection} checked={checked} expanded={allMatching} accounts={ids} busy={matchingBusy || !!(bulkProgress && bulkProgress.done < bulkProgress.total)} setBusy={setMatchingBusy}
+          actions={checked.size ? messageActions : null} clear={clearSelection} checked={checked} expanded={allMatching} accounts={ids} busy={matchingBusy} setBusy={setMatchingBusy}
           fetchPage={(token, signal) => api.search(q || (nav === "Starred" ? "is:starred" : nav === "Snoozed" ? "is:snoozed" : `folder:${nav}`), ids, token, undefined, signal, false, false, false, inboxFilter)}
           select={(messages, expanded) => { setMatching(expanded ? { scope: matchingScope, rows: messages } : undefined); setSelection({ scope: selectionScope, view, checked: new Set(messages.map(identity)), anchor: null }); }} />;
   const coverage = mail.data?.pages.at(-1);
@@ -1085,7 +1089,6 @@ export function App() {
           {Object.entries(emailTypes).map(([type, label]) => <button key={type} aria-pressed={typeFilter === type} onClick={() => setTypeFilter(type as DetectedType)}>{label}</button>)}
         </div>}
         {!active && !workspace && selectionControls}
-        {bulkProgress && <div className="bulk-progress" role="status">{bulkProgress.done < bulkProgress.total ? `${bulkProgress.done} of ${bulkProgress.total} messages processed…` : `${bulkProgress.total - bulkProgress.failed} of ${bulkProgress.total} messages updated${bulkProgress.failed ? `; ${bulkProgress.failed} could not be verified` : ""}.`}{bulkProgress.done === bulkProgress.total && <button onClick={() => setBulkProgress(undefined)}>Dismiss</button>}</div>}
         <div className="pull-status" role="status" style={{ height: pull.refreshing ? 44 : pull.distance }}>
           {(pull.distance > 0 || pull.refreshing) && <span><RefreshCw size={15} />{pull.refreshing ? "Refreshing…" : pull.distance >= 64 ? "Release to refresh" : "Pull to refresh"}</span>}
         </div>
@@ -1439,7 +1442,7 @@ export function App() {
           }}
         />
       )}
-      <Toast announcementKey={toast?.id}>{toast?.message}</Toast>
+      <Toast announcementKey={toast?.id} error={toast?.error}>{toast?.message}</Toast>
       {snooze && <DateTimeDialog title="Snooze until" confirmLabel="Snooze"
         onChoose={until => { void snoozeMessages([...snooze], until); }}
         onClose={() => setSnooze(null)} />}

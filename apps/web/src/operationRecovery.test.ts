@@ -80,3 +80,22 @@ it("journals all bulk intents while limiting concurrent mutation submissions", a
   expect(maximum).toBe(6);
   expect(new OperationQueue().restore("bulk-user")).toEqual([]);
 });
+
+it("persists a whole bulk journal once before starting bounded network submissions", async () => {
+  const queue = new OperationQueue(); queue.restore("bulk");
+  const write = vi.spyOn(Storage.prototype,"setItem");
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => release = resolve);
+  const post = vi.spyOn(api,"operate").mockImplementation(async value => {
+    expect(JSON.parse(sessionStorage.getItem("dakia-pending-operations:bulk")!)).toHaveLength(100);
+    await gate;
+    return {...value,status:"applied",revision:5};
+  });
+  const pending = Array.from({length:100},(_,i)=>queue.enqueue({...message,id:`bulk-${i}`},{kind:"archive"},()=>{},()=>{}));
+  await vi.waitFor(()=>expect(post).toHaveBeenCalledTimes(6));
+  expect(write).toHaveBeenCalledTimes(1);
+  // Later requests see a smaller journal as successful operations settle.
+  post.mockImplementation(async value => {await gate;return {...value,status:"applied",revision:5};});
+  release();await Promise.all(pending);
+  expect(new OperationQueue().restore("bulk")).toEqual([]);
+});

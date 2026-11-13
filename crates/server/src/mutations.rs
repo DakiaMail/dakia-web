@@ -9,7 +9,7 @@ pub(crate) async fn drain(app: &App, a: &AuthorizedAccount) -> dakia_storage::Re
     let provider = app.mail.provider(&app.store, a).await.map_err(|_| Error::Invalid)?;
     if let Some(graph) = provider.graph() { return graph_drain(app, a, graph).await; }
     let started = std::time::Instant::now();
-    // Avoid the scheduler's five-second sleep after every cleanup target while
+    // Avoid the scheduler's five-second sleep between queued mutations while
     // retaining the account lane, per-operation leases and verified outcomes.
     // Never monopolize an account: at most 20 writes or two seconds per turn
     // (an already-started provider call retains its existing deadline).
@@ -32,7 +32,6 @@ async fn tick_one(app: &App, a: &AuthorizedAccount) -> dakia_storage::Result<boo
     let Some(mut op) = app.store.claim_mutation(a).await? else {
         return Ok(false);
     };
-    let automation = op.id.starts_with("sender-cleanup:") || op.id.starts_with("rule:");
     // Opaque correlation keys only, never client IDs or message content.
     let span = tracing::info_span!(
         "mail_mutation",
@@ -79,7 +78,7 @@ async fn tick_one(app: &App, a: &AuthorizedAccount) -> dakia_storage::Result<boo
     }
     .instrument(span)
     .await?;
-    Ok(automation)
+    Ok(true)
 }
 async fn graph_drain(app: &App, a: &AuthorizedAccount, graph: &p::GraphProvider) -> dakia_storage::Result<()> {
     let lane = app.mail.reconciliation_lane(a).await;

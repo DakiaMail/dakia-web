@@ -234,10 +234,14 @@ export class OperationQueue {
   }
   private release() { const next = this.waiting.shift(); if (next) next(); else this.permits++; }
   private journal = new Map<string, Operation>();
+  private journalScheduled = false;
+  private journalEpoch = 0;
   private chains = new Map<string, Promise<void>>();
   private revisions = new Map<string, number>();
   private latest = new Map<string, string>();
   restore(user: string): Operation[] {
+    if (this.journalScheduled) this.flushJournal();
+    this.journalEpoch++;
     this.journalKey = `dakia-pending-operations:${user}`;
     try {
       const saved: Operation[] = JSON.parse(sessionStorage.getItem(this.journalKey) || "[]");
@@ -248,10 +252,18 @@ export class OperationQueue {
   private remember(op: Operation, remove = false) {
     if (remove) this.journal.delete(op.id);
     else this.journal.set(op.id, op);
-    // Only operation identifiers/intents, never message bodies or credentials.
-    // Storage denial must not prevent mail operations from completing.
-    try { if (this.journalKey) sessionStorage.setItem(this.journalKey, JSON.stringify([...this.journal.values()])); } catch { /* private browsing/quota */ }
+    // Coalesce a bulk intent before its first network request, without storing mail content.
+    if (!this.journalScheduled) {
+      this.journalScheduled = true;
+      const epoch = this.journalEpoch;
+      queueMicrotask(() => { if (epoch === this.journalEpoch) this.flushJournal(); });
+    }
   }
+  private flushJournal() {
+    this.journalScheduled = false;
+    try { if (this.journalKey) sessionStorage.setItem(this.journalKey, JSON.stringify([...this.journal.values()])); } catch { /* Storage denial must not prevent mail actions. */ }
+  }
+
   async resume(op: Operation): Promise<void> {
     // Read-only recovery. Never POST/replay after a lost acknowledgement.
     let result: Operation;

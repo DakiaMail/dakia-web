@@ -48,6 +48,8 @@ struct Cursor {
     local_inbox: bool,
     #[serde(default)]
     local_starred: bool,
+    #[serde(default)]
+    local_snoozed: bool,
     q: String,
     category: Option<String>,
     #[serde(default)]
@@ -234,6 +236,13 @@ pub(super) async fn search(
         && (r.continuation.is_none() || cursor.local_starred)
     {
         cursor.local_starred = true;
+        return inbox(app, user, r, scopes, cursor).await;
+    }
+    if r.q.trim().eq_ignore_ascii_case("is:snoozed")
+        && !r.exclude_trash
+        && (r.continuation.is_none() || cursor.local_snoozed)
+    {
+        cursor.local_snoozed = true;
         return inbox(app, user, r, scopes, cursor).await;
     }
     if r.cache_first && r.continuation.is_none() {
@@ -460,6 +469,10 @@ async fn inbox(
                 app.store
                     .starred_rows_filtered(&a, before, r.category.as_deref(), &r.classification())
                     .await?
+            } else if cursor.local_snoozed {
+                app.store
+                    .snoozed_rows_filtered(&a, before, r.category.as_deref(), &r.classification())
+                    .await?
             } else {
                 app.store
                     .inbox_rows_filtered(&a, before, r.category.as_deref(), &r.classification())
@@ -482,6 +495,14 @@ async fn inbox(
         }
         if cursor.local_starred {
             coverage.push(crate::sync::starred::coverage(&app, &a).await?);
+        } else if cursor.local_snoozed {
+            coverage.push(AccountCoverage {
+                account_id: a.id().into(),
+                folder_ids: vec![],
+                state: CoverageState::Complete,
+                error: None,
+                inbox: None,
+            });
         } else {
             coverage.push(app.store.inbox_coverage(&a).await?);
             app.mail

@@ -434,3 +434,77 @@ async fn policy_changes_requeue_read_and_manual_mail_once_without_losing_correct
         .unwrap();
     assert_eq!(s.message(&a, "old").await.unwrap().revision, revision);
 }
+
+#[tokio::test]
+async fn snoozed_view_pages_local_threads_and_excludes_expired_and_obsolete_rows() {
+    let (_d, s, _u, a, _) = fixture().await;
+    let db = s.db(&a).await.unwrap();
+    for i in 0..63 {
+        let mut m = message(&a, &format!("s{i:03}"));
+        m.folder_ids = vec!["Archive".into()];
+        if i == 0 {
+            m.provider_id =
+                serde_json::json!({"folder":"Archive","uidvalidity":1,"uid":1}).to_string();
+        }
+        s.upsert_message(&a, m.clone()).await.unwrap();
+        sqlx::query("INSERT INTO snoozes(thread_id,until,arrival_boundary) VALUES(?,?,?)")
+            .bind(&m.thread_id)
+            .bind(if i == 1 {
+                "2000-01-01T00:00:00.000Z"
+            } else {
+                "2999-01-01T00:00:00.000Z"
+            })
+            .bind("")
+            .execute(&db)
+            .await
+            .unwrap();
+    }
+    s.put_provider_document(&a, "thread:epoch:Archive", "2")
+        .await
+        .unwrap();
+    s.upsert_message(&a, message(&a, "unsnoozed"))
+        .await
+        .unwrap();
+    let filter = ClassificationFilter::default();
+    let mut page = s
+        .snoozed_rows_filtered(&a, None, None, &filter)
+        .await
+        .unwrap();
+    assert_eq!(page.len(), 51);
+    page.truncate(50);
+    let last = page.last().unwrap();
+    let next = s
+        .snoozed_rows_filtered(&a, Some((&last.received_at, &last.id)), None, &filter)
+        .await
+        .unwrap();
+    assert_eq!(next.len(), 11);
+    page.extend(next);
+    let ids: std::collections::BTreeSet<_> = page.iter().map(|m| m.id.as_str()).collect();
+    assert_eq!(ids.len(), 61);
+    assert!(!ids.contains("s000") && !ids.contains("s001") && !ids.contains("unsnoozed"));
+    sqlx::query("DELETE FROM snoozes")
+        .execute(&db)
+        .await
+        .unwrap();
+    assert!(s
+        .snoozed_rows_filtered(&a, None, None, &filter)
+        .await
+        .unwrap()
+        .is_empty());
+}
+
+#[tokio::test]
+async fn sparse_views_use_indexes_instead_of_scanning_mailbox_json() {
+    let (_d, s, _u, a, _) = fixture().await;
+    let db = s.db(&a).await.unwrap();
+    for (query, index) in [
+        ("SELECT document FROM messages WHERE json_extract(document,'$.starred')=1 AND json_array_length(document,'$.folder_ids')>0 ORDER BY json_extract(document,'$.received_at') DESC,id DESC LIMIT 51", "messages_starred_received_order"),
+        ("SELECT document FROM messages WHERE json_extract(document,'$.classification.attention_override')=1 OR json_array_length(document,'$.classification.attention')>0 ORDER BY json_extract(document,'$.received_at') DESC,id DESC LIMIT 51", "messages_attention_received_order"),
+        ("SELECT m.document FROM snoozes s CROSS JOIN messages m WHERE s.until>'2026' AND CAST(json_extract(m.document,'$.thread_id') AS TEXT)=s.thread_id", "messages_thread_received_order"),
+    ] {
+        let plan = sqlx::query(&format!("EXPLAIN QUERY PLAN {query}")).fetch_all(&db).await.unwrap();
+        let details: Vec<String> = plan.iter().map(|row| row.get("detail")).collect();
+        assert!(details.iter().any(|detail| detail.contains(index)), "{details:?}");
+        assert!(!details.iter().any(|detail| detail == "SCAN m"), "{details:?}");
+    }
+}

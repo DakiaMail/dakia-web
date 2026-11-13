@@ -1,7 +1,7 @@
 // Real Rust HTTP, durable corrections, MIME detection, and SQLite; only mail transport is synthetic.
 import { test, expect, type Page } from "@playwright/test";
 const row = (page: Page, n: number) => page.locator(".message-row").filter({ has: page.locator(".subject", { hasText: new RegExp(`^Synthetic ${n}$`) }) });
-async function open(page: Page, n: number) { await row(page,n).locator(".message-open").focus(); await page.keyboard.press("Enter"); await expect(page.locator(".conversation-title h2")).toHaveText(`Synthetic ${n}`); }
+async function open(page: Page, n: number) { const target = row(page,n).locator(".message-open"); await target.focus(); await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve()))); await expect(target).toBeFocused(); await page.keyboard.press("Enter"); await expect(page.locator(".conversation-title h2")).toHaveText(`Synthetic ${n}`); }
 async function menu(page: Page, submenu: string, item: string, checked = false) {
   const trigger = page.getByRole("button",{name:"More actions",exact:true}); await trigger.focus(); await page.keyboard.press("Enter");
   await page.getByRole("menuitem",{name:submenu,exact:true}).focus(); await page.keyboard.press("ArrowRight");

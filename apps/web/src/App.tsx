@@ -749,7 +749,9 @@ export function App() {
   }
   function closeReader() {
     navigation.backTo(previous => !previous.selected && !previous.workspace);
-    requestAnimationFrame(() => listRef.current?.focus());
+    requestAnimationFrame(() => {
+      if (document.activeElement === document.body || document.activeElement?.closest(".reader")) listRef.current?.focus();
+    });
   }
   function removeFromReader(kind: "archive" | "trash" | "spam") {
     // Snapshot the existing toolbar targets before closing. Checkbox/bulk

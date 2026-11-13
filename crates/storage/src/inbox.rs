@@ -20,6 +20,13 @@ impl Store {
         filter: &ClassificationFilter,
     ) -> Result<Vec<Message>> {
         let db = self.db(a).await?;
+        // The static candidate predicate lets SQLite use the sparse attention index.
+        // Expiry and manual dismissal are still checked by CLASSIFICATION_SQL.
+        let attention = if filter.attention {
+            "AND (json_extract(m.document,'$.classification.attention_override')=1 OR json_array_length(m.document,'$.classification.attention')>0)"
+        } else {
+            ""
+        };
         let rows: Vec<String> = sqlx::query_scalar(&format!(
             r#"SELECT m.document FROM messages m CROSS JOIN (SELECT ? AS filter) cf
              WHERE instr(upper(json_extract(m.document,'$.folder_ids')),'"INBOX"')>0
@@ -27,6 +34,7 @@ impl Store {
              AND CASE WHEN json_valid(json_extract(m.document,'$.provider_id')) THEN NOT EXISTS(SELECT 1 FROM provider_documents v WHERE v.key='thread:epoch:'||json_extract(json_extract(m.document,'$.provider_id'),'$.folder') AND CAST(v.document AS INTEGER)<>json_extract(json_extract(m.document,'$.provider_id'),'$.uidvalidity')) ELSE 1 END
              AND NOT EXISTS(SELECT 1 FROM operations o WHERE json_extract(o.document,'$.target_id')=m.id AND json_extract(o.document,'$.status')='pending' AND json_extract(o.document,'$.change.kind') IN ('archive','spam','trash'))
              AND NOT EXISTS(SELECT 1 FROM snoozes s WHERE s.thread_id=json_extract(m.document,'$.thread_id') AND s.until>?)
+             {attention}
              {CLASSIFICATION_SQL}
              AND (? IS NULL OR json_extract(m.document,'$.category') IS NULL OR json_extract(m.document,'$.category')=?)
              AND (? IS NULL OR (json_extract(m.document,'$.received_at'),m.id)<(?,?))

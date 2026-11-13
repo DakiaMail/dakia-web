@@ -435,3 +435,55 @@ async fn verified_complete_snapshots_suppress_starred_work_across_restart_and_re
         .await
         .unwrap());
 }
+
+#[tokio::test]
+async fn snoozed_navigation_is_local_even_when_empty_and_provider_is_offline() {
+    let (_dir, app, user, a, _) = setup(0, 0).await;
+    let provider = install(&app, &a, false, 0).await;
+    provider.offline.store(true, Ordering::SeqCst);
+    let mut request = serde_json::json!({"q":"is:snoozed", "accounts":a.id(), "cache_first":true});
+    let page = search(&app, &user, request.clone()).await.unwrap();
+    assert!(page.rows.is_empty());
+    assert!(page.continuation.is_none());
+    assert!(!page.pending);
+    for i in 0..55 {
+        let m: Message = serde_json::from_value(serde_json::json!({"id":format!("s{i:03}"),"account_id":a.id(),"thread_id":format!("t{i:03}"),"provider_id":"opaque","folder_ids":["Archive"],"sender":{"email":"fixture@example.invalid","name":null},"to":[],"subject":"Synthetic","preview":"","received_at":"2026-10-29T00:00:00.000Z","unread":true,"starred":false,"category":null,"category_status":"pending","revision":0})).unwrap();
+        app.store.upsert_message(&a, m.clone()).await.unwrap();
+        let revision = app.store.message(&a, &m.id).await.unwrap().revision;
+        let result = app
+            .store
+            .operation(
+                &a,
+                Operation {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    account_id: a.id().into(),
+                    target_id: m.id,
+                    expected_revision: revision,
+                    change: Change::Snooze {
+                        until: "2999-01-01T00:00:00.000Z".into(),
+                    },
+                    status: OperationStatus::Pending,
+                    revision: 0,
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(result.status, OperationStatus::Applied);
+    }
+    let first = search(&app, &user, request.clone()).await.unwrap();
+    assert_eq!(first.rows.len(), 50);
+    assert!(first
+        .coverage
+        .iter()
+        .all(|c| c.state == CoverageState::Complete));
+    request["continuation"] = first.continuation.unwrap().into();
+    let next = search(&app, &user, request).await.unwrap();
+    assert_eq!(next.rows.len(), 5);
+    assert!(next.continuation.is_none());
+    assert!(next
+        .rows
+        .iter()
+        .all(|m| !first.rows.iter().any(|old| old.id == m.id)));
+    assert!(provider.visits.lock().await.is_empty());
+    assert_eq!(provider.fetches.load(Ordering::SeqCst), 0);
+}

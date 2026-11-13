@@ -1,13 +1,15 @@
-import { afterEach, expect, it, vi } from "vitest";
+import { DakiaProvider } from "@dakia/ui";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Invitations } from "./Invitations";
 import { api } from "./api";
 vi.mock("./api", () => ({ api: { localAccess: vi.fn(), invitations: vi.fn(), createInvitation: vi.fn(), revokeInvitation: vi.fn() } }));
-afterEach(() => { cleanup(); vi.resetAllMocks(); });
+beforeEach(()=>vi.stubGlobal("matchMedia",vi.fn(()=>({matches:false,addEventListener:vi.fn(),removeEventListener:vi.fn()}))));
+afterEach(() => { cleanup(); vi.resetAllMocks(); vi.unstubAllGlobals(); });
 function mount() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-  return render(<QueryClientProvider client={client}><Invitations userId="current-user" /></QueryClientProvider>);
+  return render(<QueryClientProvider client={client}><DakiaProvider><Invitations userId="current-user" /></DakiaProvider></QueryClientProvider>);
 }
 it("does not expose invitation controls or request the list for a regular user", async () => {
   vi.mocked(api.localAccess).mockResolvedValue({ can_invite: false });

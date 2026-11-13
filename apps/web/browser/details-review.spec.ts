@@ -57,3 +57,19 @@ test('attention ages out after 30 days without hiding ordinary mail or its code'
  await page.getByRole('tab',{name:'Automated',exact:true}).click();await page.getByRole('button',{name:'Codes',exact:true}).click();
  await expect(page.getByRole('button',{name:'Code: 937449',exact:true})).toBeVisible();
 });
+
+for(const [width,dark,reduced] of [[390,true,true],[1480,true,false],[1480,false,true]] as const)test(`shared copy button keyboard and motion ${width} ${dark} ${reduced}`,async({page},info)=>{
+ await page.setViewportSize({width,height:980});await page.emulateMedia({reducedMotion:reduced?'reduce':'no-preference'});
+ if(dark)await page.addInitScript(()=>localStorage.setItem('dakia-theme','dark'));
+ await fixture(page);await page.getByRole('tab',{name:'Automated',exact:true}).click();await page.getByRole('button',{name:'Codes',exact:true}).click();
+ await page.evaluate(()=>document.fonts.ready);
+ const button=page.getByRole('button',{name:'Code: 937449',exact:true});const before=await button.boundingBox();await button.focus();await page.keyboard.press('Enter');
+ await expect(button).toHaveAttribute('data-copy-state','copied');await expect(button).toBeFocused();await expect(button).toHaveAttribute('title','Copied');
+ expect(await page.evaluate(()=>(window as any).copied)).toBe('937449');await expect(page.locator('.conversation-title')).toHaveCount(0);
+ const after=await button.boundingBox();expect(after!.width).toBe(before!.width);expect(after!.height).toBe(before!.height);
+ const duration=await button.locator('[data-icon="copied"]').evaluate(el=>getComputedStyle(el).transitionDuration);
+ expect(duration.split(',').every(value=>parseFloat(value)===0)).toBe(reduced);
+ const row=button.locator('xpath=ancestor::*[contains(@class,"message-row")]');const rowBox=await row.boundingBox();expect(after!.y+after!.height).toBeLessThanOrEqual(rowBox!.y+rowBox!.height+1);
+ await page.screenshot({path:info.outputPath(`copied-${width}-${dark}-${reduced}.png`),animations:'disabled'});
+ await expect(button).toHaveAttribute('data-copy-state','idle');await expect(button).toBeFocused();
+});

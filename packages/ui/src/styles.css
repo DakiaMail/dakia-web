@@ -132,3 +132,13 @@
 }
 
 .dakia-icon-button-loader { background: transparent; }
+
+.dakia-copy-button .dakia-button-label { gap: 7px; }
+.dakia-copy-icons { display: grid; width: 16px; height: 16px; flex-shrink: 0; }
+.dakia-copy-icons svg { grid-area: 1 / 1; width: 16px; height: 16px; opacity: 0; transform: scale(.6) rotate(-12deg); transition: opacity var(--ui-motion-duration) ease-out, transform var(--ui-motion-duration) ease-out; }
+.dakia-copy-button:is([data-copy-state="idle"], [data-copy-state="pending"]) [data-icon="copy"],
+.dakia-copy-button[data-copy-state="copied"] [data-icon="copied"],
+.dakia-copy-button[data-copy-state="error"] [data-icon="error"] { opacity: 1; transform: scale(1) rotate(0); }
+.dakia-copy-button[data-copy-state="copied"] .dakia-copy-icons { color: var(--color-accent); }
+.dakia-copy-button[data-copy-state="error"] .dakia-copy-icons { color: var(--color-danger); }
+@media (prefers-reduced-motion: reduce) { .dakia-copy-icons svg { transition: none; transform: none; } }

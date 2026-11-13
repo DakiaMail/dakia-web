@@ -42,9 +42,9 @@ for (const [width, dark] of [[320, false], [390, false], [390, true], [600, fals
     await page.setViewportSize({ width, height: 980 });
     if (dark) await page.addInitScript(() => localStorage.setItem("dakia-theme", "dark"));
     await fixture(page);
-    // Continuous-row density is a List-mode invariant. Smart View inserts
-    // section headers and reveal controls between its capped groups.
+    // Measure after the independent All query has rendered.
     await page.getByRole("tab", { name: "All", exact: true }).click();
+    await expect(page.locator(".message-row").first()).toBeVisible();
     await page.evaluate(() => document.fonts.ready);
     const measurements = await page.locator(".message-row").evaluateAll(elements => elements.map(el => {
       const box = el.getBoundingClientRect();
@@ -99,6 +99,7 @@ test("resizing actual list pane switches layout and remeasures virtual offsets",
   await page.setViewportSize({ width: 1480, height: 980 });
   await fixture(page);
   await page.getByRole("tab", { name: "All", exact: true }).click();
+    await expect(page.locator(".message-row").first()).toBeVisible();
   await expect(page.locator(".message-row").first()).toHaveCSS("height", "64px");
   await expect(page.getByRole("slider", { name: "Message list width" })).toHaveCount(0);
   await expect(page.getByLabel("Loaded messages")).toHaveCount(0);

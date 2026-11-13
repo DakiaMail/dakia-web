@@ -1,7 +1,7 @@
 import { test, expect, type Page } from "@playwright/test";
 import { accounts, content, messages, page as mail } from "./fixtures";
 import type { Message, Operation } from "@dakia/api-types";
-async function fixture(page: Page, incomplete = false, slow = false) {
+async function fixture(page: Page, incomplete = false, slow = false, preselect = true) {
   const rows: Message[] = Array.from({ length: 53 }, (_, i) => ({ ...messages[0], id: `match-${i}`, thread_id: `match-${i}`, subject: `Match ${i}`, unread: false,
     classification: { kind: "automated", status: "ready", types: ["security_alert"], details: [], attention: [], attention_override: null, source: "automatic", policy_revision: "personal-first-1" } }));
   const operations: Operation[] = []; let pages = 0;
@@ -27,12 +27,13 @@ async function fixture(page: Page, incomplete = false, slow = false) {
   await page.goto("/"); await page.getByRole("tab", { name: "Automated", exact: true }).click();
   await page.getByRole("button", { name: "Security alerts", exact: true }).click();
   await expect(page.locator('.message-row').first()).toBeVisible();
+  if (preselect) await page.locator(".message-select input").first().check();
   return { rows, operations, pages: () => pages };
 }
 for (const width of [390,1480]) test(`visible selection expands beyond loaded pages and archives every match at ${width}`, async ({ page }, info) => {
   await page.setViewportSize({width,height:900}); const state = await fixture(page);
   await expect(page.getByRole("checkbox",{name:"Select Match 52",exact:true})).toHaveCount(0);
-  const header = page.getByRole("checkbox",{name:"Select all visible messages",exact:true});
+  const header = page.getByRole("checkbox",{name:"Select all",exact:true});
   await expect(header).toBeEnabled();
   await header.focus();await page.keyboard.press("Space");
   await expect.poll(() => page.locator(".message-select input:checked").count()).toBeGreaterThan(0);
@@ -48,14 +49,14 @@ for (const width of [390,1480]) test(`visible selection expands beyond loaded pa
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
 });
 test("incomplete coverage leaves only the visible selection and never submits writes",async({page})=>{
-  const state=await fixture(page,true);await page.getByRole("checkbox",{name:"Select all visible messages",exact:true}).check();
+  const state=await fixture(page,true);await page.getByRole("checkbox",{name:"Select all",exact:true}).check();
   const count=await page.locator('.message-select input:checked').count();
   await page.getByRole("button",{name:"Select all messages matching this filter",exact:true}).click();
   await expect(page.getByRole("alert")).toContainText("Couldn’t check every match");
   expect(await page.locator('.message-select input:checked').count()).toBe(count);expect(state.operations).toEqual([]);
 });
 test("changing filters cancels an in-flight all-selection",async({page})=>{
-  const state=await fixture(page,false,true);await page.getByRole("checkbox",{name:"Select all visible messages",exact:true}).check();
+  const state=await fixture(page,false,true);await page.getByRole("checkbox",{name:"Select all",exact:true}).check();
   await page.getByRole("button",{name:"Select all messages matching this filter",exact:true}).click();
   await expect(page.getByRole("button",{name:"Cancel",exact:true})).toBeVisible();
   await page.getByRole("button",{name:"Flights",exact:true}).click();
@@ -63,7 +64,7 @@ test("changing filters cancels an in-flight all-selection",async({page})=>{
   await page.waitForTimeout(600);await expect(page.locator('.message-select input:checked')).toHaveCount(0);expect(state.operations).toEqual([]);
 });
 test("deselecting one match retains off-page targets for other bulk actions",async({page})=>{
-  const state=await fixture(page);await page.getByRole("checkbox",{name:"Select all visible messages",exact:true}).check();
+  const state=await fixture(page);await page.getByRole("checkbox",{name:"Select all",exact:true}).check();
   await page.getByRole("button",{name:"Select all messages matching this filter",exact:true}).click();
   await expect(page.getByRole("button",{name:"Select visible only",exact:true})).toBeFocused();
   await page.getByRole("checkbox",{name:"Select Match 0",exact:true}).uncheck();
@@ -73,9 +74,22 @@ test("deselecting one match retains off-page targets for other bulk actions",asy
   for(const id of ['match-50','match-51','match-52'])expect(state.operations.some(o=>o.target_id===id)).toBe(true);
 });
 test("clear selection cancels expansion without restoring a late all-selection",async({page})=>{
-  const state=await fixture(page,false,true);await page.getByRole("checkbox",{name:"Select all visible messages",exact:true}).check();
+  const state=await fixture(page,false,true);await page.getByRole("checkbox",{name:"Select all",exact:true}).check();
   await page.getByRole("button",{name:"Select all messages matching this filter",exact:true}).click();
   await page.getByRole('button',{name:/selected · Clear/}).click();
   await page.waitForTimeout(600);await expect(page.locator('.message-select input:checked')).toHaveCount(0);
   await expect(page.getByRole('button',{name:'Select visible only',exact:true})).toHaveCount(0);expect(state.operations).toEqual([]);
+});
+
+test("toolbar appears only after selecting mail and type-only rows stay compact",async({page},info)=>{
+  await page.setViewportSize({width:2200,height:1000});await fixture(page,false,false,false);
+  await expect(page.getByRole('group',{name:'Selected message actions',exact:true})).toBeHidden();
+  const heights=await page.locator('.message-row').evaluateAll(rows=>rows.map(r=>r.getBoundingClientRect().height));
+  expect(Math.max(...heights)).toBeLessThanOrEqual(56);
+  await page.screenshot({path:info.outputPath('compact-inbox.png'),animations:'disabled'});
+  await page.locator('.message-select input').first().check();
+  const bar=page.getByRole('group',{name:'Selected message actions',exact:true});
+  await expect(bar.getByRole('checkbox',{name:'Select all',exact:true})).toBeVisible();
+  await expect(bar.getByRole('button',{name:'Archive',exact:true})).toBeVisible();
+  await page.screenshot({path:info.outputPath('combined-toolbar.png'),animations:'disabled'});
 });

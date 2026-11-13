@@ -1,12 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Message, SearchPage } from "@dakia/api-types";
 import { identity } from "./mailRows";
 import { collectMatchingMail } from "./collectMatchingMail";
 
-export function MatchingSelection({ visible, checked, expanded, accounts, fetchPage, select, busy, setBusy }: {
+export function MatchingSelection({ visible, checked, expanded, accounts, fetchPage, select, busy, setBusy, actions, clear }: {
   visible: Message[]; checked: Set<string>; expanded: Message[] | undefined; accounts: string[];
   fetchPage: (token: string | null, signal: AbortSignal) => Promise<SearchPage>;
   select: (rows: Message[], expanded: boolean) => void;
+  actions: ReactNode; clear: () => void;
   busy: boolean; setBusy: (value: boolean) => void;
 }) {
   const [batch, setBatch] = useState<string[]>([]);
@@ -30,12 +31,14 @@ export function MatchingSelection({ visible, checked, expanded, accounts, fetchP
       if (request.current === controller) { request.current = null; setFinding(null); setBusy(false); requestAnimationFrame(() => { if (root.current?.isConnected) (root.current.querySelector<HTMLButtonElement>(".matching-selection-banner button") || root.current.querySelector<HTMLInputElement>("input"))?.focus(); }); }
     }
   }
-  return <div className="matching-selection" ref={root}>
-    <label className="visible-selection-control"><input type="checkbox" aria-label="Select all visible messages" checked={allVisible}
+  return <div className="selection-actions matching-selection" role="group" aria-label="Selected message actions" ref={root} hidden={!checked.size}>
+    <label className="visible-selection-control"><input type="checkbox" aria-label="Select all" checked={allVisible}
       ref={input => { if (input) input.indeterminate = someVisible && !allVisible; }} disabled={!visible.length || busy}
       onChange={event => { const rows = event.target.checked ? visible : []; setBatch(rows.map(identity)); setError(""); select(rows, false); }} />
-      <span>Select visible</span>
+      <span>Select all</span>
     </label>
+    <button className="selection-count" onClick={clear}>{checked.size} selected · Clear</button>
+    {actions}
     {finding !== null ? <span role="status">Finding all matches… {finding} found <button onClick={() => request.current?.abort()}>Cancel</button></span>
       : expanded ? <span className="matching-selection-banner" role="status">{checked.size === expanded.length ? `All ${checked.size} matching messages are selected.` : `${checked.size} matching messages selected, including messages beyond this page.`} <button disabled={busy} onClick={() => { setBatch(visible.map(identity)); select(visible, false); }}>Select visible only</button></span>
       : offer && <span className="matching-selection-banner">{batch.length} visible messages selected. <button disabled={busy} onClick={() => void expand()}>Select all messages matching this filter</button></span>}

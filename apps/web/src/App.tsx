@@ -445,7 +445,7 @@ export function App() {
   const virtual = useVirtualizer({
     count: items.length,
     getScrollElement: () => listRef.current,
-    estimateSize: () => 88,
+    estimateSize: () => 64,
     // display:none on mobile must not collapse every measured row to zero.
     measureElement: (element, entry, instance) => measureElement(element, entry, instance)
       || instance.measurementsCache[instance.indexFromElement(element)]?.size || 64,
@@ -856,6 +856,11 @@ export function App() {
     messages={bulk}
     classify={change => void act(bulk, change)}
   /> : null;
+  const selectionControls = <MatchingSelection key={`${matchingScope}/${selectionReset}`}
+          visible={virtual.getVirtualItems().filter(v => v.end > (listRef.current?.scrollTop || 0) && v.start < (listRef.current?.scrollTop || 0) + (listRef.current?.clientHeight || 0)).map(v => items[v.index].message)}
+          actions={checked.size ? messageActions : null} clear={clearSelection} checked={checked} expanded={allMatching} accounts={ids} busy={matchingBusy || !!(bulkProgress && bulkProgress.done < bulkProgress.total)} setBusy={setMatchingBusy}
+          fetchPage={(token, signal) => api.search(q || (nav === "Starred" ? "is:starred" : nav === "Snoozed" ? "is:snoozed" : `folder:${nav}`), ids, token, undefined, signal, false, false, false, inboxFilter)}
+          select={(messages, expanded) => { setMatching(expanded ? { scope: matchingScope, rows: messages } : undefined); setSelection({ scope: selectionScope, view, checked: new Set(messages.map(identity)), anchor: null }); }} />;
   const coverage = mail.data?.pages.at(-1);
   const inboxCoverage = !q && nav === "INBOX" ? coverage : undefined;
   const refreshFailed = !!mail.error || !!inboxCoverage?.coverage.some(c => c.state === "error");
@@ -1072,22 +1077,14 @@ export function App() {
           }}>
             {(["personal", "automated", "all"] as const).map(tab => <button key={tab} role="tab" aria-selected={view === tab} tabIndex={view === tab ? 0 : -1} className={view === tab ? "active" : ""} onClick={() => changeTab(tab)}>{tab[0].toUpperCase() + tab.slice(1)}</button>)}
           </div>}
-          {checked.size > 0 && (
-            <button title="Clear selection" className="selection-clear-desktop" onClick={clearSelection}>
-              {checked.size} selected · Clear
-            </button>
-          )}
+
 
         </div>
         {nav === "INBOX" && !q && view === "automated" && <div className="email-type-filters" role="group" aria-label="Filter automated email">
           <button aria-pressed={!typeFilter} onClick={() => setTypeFilter("")}>All automated</button>
           {Object.entries(emailTypes).map(([type, label]) => <button key={type} aria-pressed={typeFilter === type} onClick={() => setTypeFilter(type as DetectedType)}>{label}</button>)}
         </div>}
-        {!["Drafts", "Scheduled"].includes(nav) && !workspace && <MatchingSelection key={`${matchingScope}/${selectionReset}`}
-          visible={virtual.getVirtualItems().filter(v => v.end > (listRef.current?.scrollTop || 0) && v.start < (listRef.current?.scrollTop || 0) + (listRef.current?.clientHeight || 0)).map(v => items[v.index].message)}
-          checked={checked} expanded={allMatching} accounts={ids} busy={matchingBusy || !!(bulkProgress && bulkProgress.done < bulkProgress.total)} setBusy={setMatchingBusy}
-          fetchPage={(token, signal) => api.search(q || (nav === "Starred" ? "is:starred" : nav === "Snoozed" ? "is:snoozed" : `folder:${nav}`), ids, token, undefined, signal, false, false, false, inboxFilter)}
-          select={(messages, expanded) => { setMatching(expanded ? { scope: matchingScope, rows: messages } : undefined); setSelection({ scope: selectionScope, view, checked: new Set(messages.map(identity)), anchor: null }); }} />}
+        {!active && !workspace && selectionControls}
         {bulkProgress && <div className="bulk-progress" role="status">{bulkProgress.done < bulkProgress.total ? `${bulkProgress.done} of ${bulkProgress.total} messages processed…` : `${bulkProgress.total - bulkProgress.failed} of ${bulkProgress.total} messages updated${bulkProgress.failed ? `; ${bulkProgress.failed} could not be verified` : ""}.`}{bulkProgress.done === bulkProgress.total && <button onClick={() => setBulkProgress(undefined)}>Dismiss</button>}</div>}
         <div className="pull-status" role="status" style={{ height: pull.refreshing ? 44 : pull.distance }}>
           {(pull.distance > 0 || pull.refreshing) && <span><RefreshCw size={15} />{pull.refreshing ? "Refreshing…" : pull.distance >= 64 ? "Release to refresh" : "Pull to refresh"}</span>}
@@ -1095,10 +1092,7 @@ export function App() {
         <ErrorNotice error={accounts.error || mail.error || error || deepLinkError} />
 
         {!active && actionFailure()}
-        {!active && messageActions && <div className="selection-actions" role="group" aria-label="Selected message actions">
-          <button title={`Clear selection (${checked.size} selected)`} className="selection-clear-mobile" aria-label={`Clear selection (${checked.size} selected)`} onClick={clearSelection}><span>{checked.size} selected</span><span>Clear</span></button>
-          {messageActions}
-        </div>}
+
 
         {ready
           .filter((a) => a.state !== "ready")
@@ -1261,6 +1255,7 @@ export function App() {
                           }}
                         />
                         </label>
+                        <div className="message-main">
                         <button title={`Open ${item.message.subject || "message"}`}
                           className="message-open"
                           onFocus={() => prefetch.request(item.message)}
@@ -1300,6 +1295,7 @@ export function App() {
                           </span>
                         </button>
                         <MailDetails message={item.message} />
+                        </div>
                         <div className="row-quick-actions" role="group" aria-label="Quick message actions">
                           {snoozedThreads[`${item.message.account_id}/${item.message.thread_id}`] && <IconButton label="Move back to Inbox" disabled={pendingTargets[identity(item.message)] > 0} onClick={() => void restoreInbox([item.message])}><FolderInput size={16} /></IconButton>}
                           {([
@@ -1400,9 +1396,9 @@ export function App() {
         </header>
         {connectionNotice}
         {active && actionFailure()}
-        {active && checked.size > 0 && <button title="Clear selection" onClick={clearSelection}>{checked.size} selected messages · Clear</button>}
+        {active && checked.size > 0 && selectionControls}
 
-        {active && messageActions}
+        {active && !checked.size && messageActions}
         {active && snoozedThreads[`${active.account_id}/${active.thread_id}`] && <p className="snooze-notice">Snoozed until {snoozeTime(snoozedThreads[`${active.account_id}/${active.thread_id}`].until)}</p>}
         {active ? (
           <Conversation key={identity(active)} selected={active} accounts={accounts.data || []} cleanupRows={cleanupRows}

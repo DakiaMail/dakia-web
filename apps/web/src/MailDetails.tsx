@@ -13,7 +13,7 @@ export function MailDetails({ message }: { message: Message }) {
   }, [message.classification, now]);
   const details = c.details.filter(d => c.types.includes(d.email_type) && (d.email_type !== "verification_code" || c.attention.some(a => a.label === "Verification code" && (!a.expires_at || Date.parse(a.expires_at) > now))));
   if (!c.types.length && !details.length) return null;
-  return <div className="mail-details" aria-label="Detected email information">
+  return <div className={`mail-details${details.some(d => d.action) ? " has-actions" : ""}`} aria-label="Detected email information">
     <span className="detected-types">{c.types.map(t => emailTypes[t]).join(" · ")}</span>
     {details.map((detail, i) => detail.action === "copy" ? <button key={i} title={`Copy ${detail.label.toLowerCase()}`} onClick={() => void navigator.clipboard.writeText(detail.value).then(() => setStatus(`${detail.label} copied`)).catch(() => setStatus("Couldn’t copy. Try selecting the value."))}>{detail.label}: {detail.value}</button>
       : detail.action === "open" ? (() => { const url = safeDetailLink(detail.value); return url ? <a key={i} href={url.href} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer">{detail.label} <span>{url.hostname}</span></a> : null; })()

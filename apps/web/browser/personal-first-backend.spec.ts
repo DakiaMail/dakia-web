@@ -31,6 +31,10 @@ test("personal-first inbox, independent attention, and durable keyboard correcti
   await page.getByRole("button",{name:"Flights",exact:true}).click(); await expect(row(page,3)).toBeVisible();
   await expect(row(page,3).getByText("Reference: ABC123",{exact:true})).toBeVisible();
   await page.getByRole("button",{name:"All automated",exact:true}).click(); await expect(row(page,7)).toBeVisible();
+  const typeLabel = await row(page,2).locator('.detected-types').boundingBox();
+  await page.mouse.click(typeLabel!.x + typeLabel!.width / 2, typeLabel!.y + typeLabel!.height / 2);
+  await expect(page.locator('.conversation-title h2')).toHaveText('Synthetic 2');
+  await page.keyboard.press('Escape');
   await open(page,4);await page.keyboard.press("Escape");await expect(row(page,4)).toBeVisible();await expect(attention.getByText("Synthetic 4",{exact:true})).toBeVisible();
 
   for (const [width,height] of [[1480,980],[390,740],[390,480]]) for (const theme of ["light","dark"]) {

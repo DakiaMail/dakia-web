@@ -42,9 +42,10 @@ async fn lost_archive_ack_can_be_proven_on_fresh_connection_without_replaying_wr
             "* CAPABILITY IMAP4rev1 MOVE X-GM-EXT-1\r\n$TAG OK caps\r\n",
         )
         .await;
+        gmail_archive_reference(&mut w).await;
         assert!(line(&mut w)
             .await
-            .ends_with("UID STORE 42 -X-GM-LABELS (\"\\\\Inbox\")\r\n"));
+            .ends_with("UID STORE 55 -X-GM-LABELS (\"\\\\Inbox\")\r\n"));
         drop(w); // Provider removed the Inbox label, but the acknowledgment never arrives.
         let (socket, _) = f.listener.accept().await.unwrap();
         let mut w = BufReader::new(f.acceptor.accept(socket).await.unwrap());

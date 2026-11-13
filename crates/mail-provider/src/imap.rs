@@ -560,23 +560,40 @@ impl ImapProvider {
                     timing.acknowledged();None
                 }
                 Mutation::Archive if self.config.kind==ProviderKind::Gmail=>{
-                    // Gmail can acknowledge MOVE to All Mail without removing
-                    // Inbox. Change that label explicitly, preserving other labels.
+                    // Gmail omits the selected mailbox's label from X-GM-LABELS.
+                    // Resolve the same message in All Mail before removing Inbox.
+                    let source=fetches(&mut s,&r.uid.to_string(),"UID X-GM-MSGID").await?;
+                    let id=if source.len()==1 && source[0].uid==Some(r.uid) {source[0].gmail_id} else {None}
+                        .ok_or_else(|| error(ErrorKind::StaleReference,"Gmail identity unavailable"))?;
+                    timing.stage("folder_discovery");
+                    let dest=self.special_folder(&mut s,"Archive").await?;
+                    if dest.eq_ignore_ascii_case("INBOX") {return Err(error(ErrorKind::InvalidInput,"source and destination identical"));}
+                    let selected=checked(&mut s,&format!("SELECT {}",quote(&dest)?)).await?;
+                    let validity=selected.uidvalidity.ok_or_else(|| error(ErrorKind::Unsupported,"missing UIDVALIDITY"))?;
+                    let uids=search_uids(&mut s,&format!("X-GM-MSGID {id}")).await?;
+                    if uids.len()!=1 || uids[0]==0 {return Err(error(ErrorKind::StaleReference,"Gmail identity unavailable"));}
+                    let uid=uids[0];
+                    let target=fetches(&mut s,&uid.to_string(),"UID X-GM-MSGID").await?;
+                    if target.len()!=1 || target[0].uid!=Some(uid) || target[0].gmail_id!=Some(id) {
+                        return Err(error(ErrorKind::StaleReference,"Gmail identity unavailable"));
+                    }
                     write_started = true;
                     timing.write();
-                    checked(&mut s,&format!("UID STORE {} -X-GM-LABELS ({})",r.uid,quote("\\Inbox")?)).await?;
+                    checked(&mut s,&format!("UID STORE {} -X-GM-LABELS ({})",uid,quote("\\Inbox")?)).await?;
                     timing.acknowledged();
-                    let remaining=fetches(&mut s,&r.uid.to_string(),"UID X-GM-LABELS").await?;
-                    let verified = if remaining.is_empty() && r.folder.eq_ignore_ascii_case("INBOX") {
-                        // Removing Inbox can make its UID disappear before FETCH.
-                        !search_uids(&mut s,&format!("UID {}",r.uid)).await?.contains(&r.uid)
-                    } else {
-                        remaining.len()==1 && remaining[0].uid==Some(r.uid) && remaining[0].has_labels
-                            && !remaining[0].labels.iter().any(|label|label.trim_start_matches('\\').eq_ignore_ascii_case("Inbox"))
-                    };
-                    if !verified {
+                    let remaining=fetches(&mut s,&uid.to_string(),"UID X-GM-MSGID X-GM-LABELS").await?;
+                    if remaining.len()!=1 || remaining[0].uid!=Some(uid) || remaining[0].gmail_id!=Some(id) || !remaining[0].has_labels
+                        || remaining[0].labels.iter().any(|label|label.trim_start_matches('\\').eq_ignore_ascii_case("Inbox")) {
                         return Err(error(ErrorKind::Uncertain,"archive did not remove Inbox; reconcile before retry"));
                     }
+                    let inbox=checked(&mut s,"EXAMINE \"INBOX\"").await?;
+                    if r.folder.eq_ignore_ascii_case("INBOX") && inbox.uidvalidity!=Some(r.uidvalidity) {
+                        return Err(error(ErrorKind::Uncertain,"UIDVALIDITY changed during mutation verification"));
+                    }
+                    if !search_uids(&mut s,&format!("X-GM-MSGID {id}")).await?.is_empty() {
+                        return Err(error(ErrorKind::Uncertain,"archive did not remove Inbox; reconcile before retry"));
+                    }
+                    destination_reference=Some(MessageRef {account_id:r.account_id.clone(),folder:dest,uidvalidity:validity,uid});
                     None
                 }
                 other=>{

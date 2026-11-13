@@ -62,18 +62,19 @@ async fn stalled_archive(stage: &'static str) {
                 "* CAPABILITY IMAP4rev1 MOVE X-GM-EXT-1\r\n$TAG OK caps\r\n",
             )
             .await;
+            gmail_archive_reference(&mut w).await;
             if stage == "write" {
-                assert!(line(&mut w).await.contains("UID STORE 42 -X-GM-LABELS"));
+                assert!(line(&mut w).await.contains("UID STORE 55 -X-GM-LABELS"));
             } else {
                 command(
                     &mut w,
-                    "UID STORE 42 -X-GM-LABELS (\"\\\\Inbox\")",
+                    "UID STORE 55 -X-GM-LABELS (\"\\\\Inbox\")",
                     "$TAG OK [COPYUID 18 42 101] moved\r\n",
                 )
                 .await;
                 assert!(line(&mut w)
                     .await
-                    .contains("UID FETCH 42 (UID X-GM-LABELS)"));
+                    .contains("UID FETCH 55 (UID X-GM-MSGID X-GM-LABELS)"));
             }
         }
         tokio::time::sleep(Duration::from_millis(900)).await;

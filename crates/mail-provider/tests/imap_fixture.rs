@@ -247,98 +247,49 @@ async fn gmail_ids_labels_thread_headers_and_limited_coverage() {
     assert!(row.starred);
 }
 #[tokio::test]
-async fn gmail_archive_removes_inbox_only() {
-    let f = Fixture::new().await;
-    let p = provider(&f, ProviderKind::Gmail, Security::Tls);
-    let server = tokio::spawn(async move {
-        let mut w = f.accept(false, false).await;
-        imap_login(&mut w, false).await;
-        select(&mut w).await;
-        command(
-            &mut w,
-            "CAPABILITY",
-            "* CAPABILITY IMAP4rev1 X-GM-EXT-1\r\n$TAG OK caps\r\n",
-        )
-        .await;
-        command(
-            &mut w,
-            "UID STORE 42 -X-GM-LABELS (\"\\\\Inbox\")",
-            "$TAG OK stored\r\n",
-        )
-        .await;
-        command(
-            &mut w,
-            "UID FETCH 42 (UID X-GM-LABELS)",
-            "* 1 FETCH (UID 42 X-GM-LABELS (\\Important Project))\r\n$TAG OK fetch\r\n",
-        )
-        .await;
-        assert_eq!(line(&mut w).await, "");
-    });
-    p.mutate(&reference(), Mutation::Archive).await.unwrap();
-    drop(p); // A successful operation now keeps its clean command socket.
-    server.await.unwrap();
-}
-#[tokio::test]
-async fn gmail_archive_with_move_support_removes_inbox_label_and_verifies_it() {
-    for (labels, remains) in [
-        (Some("\\Important Project"), false),
-        (Some("\\Inbox"), true),
-        (None, false),
-        (None, true),
-    ] {
-        let f = Fixture::new().await;
-        let p = provider(&f, ProviderKind::Gmail, Security::Tls);
-        let server = tokio::spawn(async move {
-            let mut w = f.accept(false, false).await;
-            imap_login(&mut w, false).await;
-            select(&mut w).await;
-            command(
-                &mut w,
-                "CAPABILITY",
-                "* CAPABILITY IMAP4rev1 X-GM-EXT-1 MOVE UIDPLUS\r\n$TAG OK caps\r\n",
-            )
-            .await;
-            // All Mail already contains Inbox messages. Archive changes only
-            // the Inbox label, even when MOVE is advertised.
-            command(
-                &mut w,
-                "UID STORE 42 -X-GM-LABELS (\"\\\\Inbox\")",
-                "$TAG OK stored\r\n",
-            )
-            .await;
-            let response = match labels {
-                Some(labels) => {
-                    format!("* 1 FETCH (UID 42 X-GM-LABELS ({labels}))\r\n$TAG OK fetch\r\n")
+async fn gmail_archive_uses_all_mail_identity_and_checks_inbox_membership() {
+    for move_capability in ["", " MOVE UIDPLUS"] {
+        for (readback, inbox_present, succeeds) in [
+            ("* 1 FETCH (UID 55 X-GM-MSGID 999 X-GM-LABELS (\\Important Project))\r\n$TAG OK fetch\r\n", false, true),
+            ("* 1 FETCH (UID 55 X-GM-MSGID 999 X-GM-LABELS (\\Inbox))\r\n$TAG OK fetch\r\n", false, false),
+            ("* 1 FETCH (UID 55 X-GM-MSGID 999 X-GM-LABELS ())\r\n$TAG OK fetch\r\n", true, false),
+            ("* 1 FETCH (UID 55 X-GM-MSGID 999 FLAGS ())\r\n$TAG OK fetch\r\n", false, false),
+            ("* 1 FETCH (UID 56 X-GM-MSGID 999 X-GM-LABELS ())\r\n$TAG OK fetch\r\n", false, false),
+            ("* 1 FETCH (UID 55 X-GM-MSGID 998 X-GM-LABELS ())\r\n$TAG OK fetch\r\n", false, false),
+            ("$TAG OK fetch\r\n", false, false),
+        ] {
+            let f = Fixture::new().await;
+            let p = provider(&f, ProviderKind::Gmail, Security::Tls);
+            let server = tokio::spawn(async move {
+                let mut w = f.accept(false, false).await;
+                imap_login(&mut w, false).await;
+                select(&mut w).await;
+                command(&mut w, "CAPABILITY", &format!("* CAPABILITY IMAP4rev1 X-GM-EXT-1{move_capability}\r\n$TAG OK caps\r\n")).await;
+                gmail_archive_reference(&mut w).await;
+                command(&mut w, "UID STORE 55 -X-GM-LABELS (\"\\\\Inbox\")", "$TAG OK stored\r\n").await;
+                command(&mut w, "UID FETCH 55 (UID X-GM-MSGID X-GM-LABELS)", readback).await;
+                if succeeds || inbox_present {
+                    command(&mut w, "EXAMINE \"INBOX\"", "* OK [UIDVALIDITY 17] epoch\r\n$TAG OK examined\r\n").await;
+                    command(&mut w, "UID SEARCH X-GM-MSGID 999", if inbox_present {"* SEARCH 42\r\n$TAG OK found\r\n"} else {"* SEARCH\r\n$TAG OK gone\r\n"}).await;
                 }
-                None => "$TAG OK fetch\r\n".into(),
-            };
-            command(&mut w, "UID FETCH 42 (UID X-GM-LABELS)", &response).await;
-            if labels.is_none() {
-                command(
-                    &mut w,
-                    "UID SEARCH UID 42",
-                    if remains {
-                        "* SEARCH 42\r\n$TAG OK found\r\n"
-                    } else {
-                        "* SEARCH\r\n$TAG OK gone\r\n"
-                    },
-                )
-                .await;
+                assert_eq!(line(&mut w).await, "");
+            });
+            let result = p.mutate(&reference(), Mutation::Archive).await;
+            if succeeds {
+                let result = result.unwrap();
+                assert!(result.destination.is_none(), "archive must preserve other labels");
+                let dest=result.destination_reference.unwrap();
+                assert_eq!((dest.folder.as_str(),dest.uidvalidity,dest.uid),("Archive",18,55));
+            } else {
+                assert_eq!(result.unwrap_err().kind, ErrorKind::Uncertain);
             }
-            assert_eq!(line(&mut w).await, "");
-        });
-        let result = p.mutate(&reference(), Mutation::Archive).await;
-        if remains {
-            assert_eq!(result.unwrap_err().kind, ErrorKind::Uncertain);
-        } else {
-            assert!(result.unwrap().destination.is_none());
+            drop(p);
+            server.await.unwrap();
         }
-        drop(p);
-        server.await.unwrap();
     }
 }
 #[tokio::test]
-async fn gmail_archive_tagged_ok_with_inbox_remaining_is_not_success() {
+async fn gmail_archive_rejects_wrong_all_mail_identity_before_writing() {
     let f = Fixture::new().await;
     let p = provider(&f, ProviderKind::Gmail, Security::Tls);
     let server = tokio::spawn(async move {
@@ -348,19 +299,31 @@ async fn gmail_archive_tagged_ok_with_inbox_remaining_is_not_success() {
         command(
             &mut w,
             "CAPABILITY",
-            "* CAPABILITY IMAP4rev1 X-GM-EXT-1\r\n$TAG OK caps\r\n",
+            "* CAPABILITY IMAP4rev1 X-GM-EXT-1 MOVE\r\n$TAG OK caps\r\n",
         )
         .await;
         command(
             &mut w,
-            "UID STORE 42 -X-GM-LABELS (\"\\\\Inbox\")",
-            "$TAG OK stored\r\n",
+            "UID FETCH 42 (UID X-GM-MSGID)",
+            "* 1 FETCH (UID 42 X-GM-MSGID 999)\r\n$TAG OK fetch\r\n",
         )
         .await;
         command(
             &mut w,
-            "UID FETCH 42 (UID X-GM-LABELS)",
-            "* 1 FETCH (UID 42 X-GM-LABELS (\\Inbox))\r\n$TAG OK fetch\r\n",
+            "SELECT \"Archive\"",
+            "* OK [UIDVALIDITY 18] epoch\r\n$TAG OK selected\r\n",
+        )
+        .await;
+        command(
+            &mut w,
+            "UID SEARCH X-GM-MSGID 999",
+            "* SEARCH 55\r\n$TAG OK found\r\n",
+        )
+        .await;
+        command(
+            &mut w,
+            "UID FETCH 55 (UID X-GM-MSGID)",
+            "* 1 FETCH (UID 55 X-GM-MSGID 998)\r\n$TAG OK fetch\r\n",
         )
         .await;
         assert_eq!(line(&mut w).await, "");
@@ -370,47 +333,10 @@ async fn gmail_archive_tagged_ok_with_inbox_remaining_is_not_success() {
             .await
             .unwrap_err()
             .kind,
-        ErrorKind::Uncertain
+        ErrorKind::StaleReference
     );
+    drop(p);
     server.await.unwrap();
-}
-#[tokio::test]
-async fn gmail_archive_requires_an_exact_label_readback() {
-    for response in [
-        "* 1 FETCH (UID 42 FLAGS ())\r\n$TAG OK fetch\r\n",
-        "* 1 FETCH (UID 43 X-GM-LABELS ())\r\n$TAG OK fetch\r\n",
-    ] {
-        let f = Fixture::new().await;
-        let p = provider(&f, ProviderKind::Gmail, Security::Tls);
-        let server = tokio::spawn(async move {
-            let mut w = f.accept(false, false).await;
-            imap_login(&mut w, false).await;
-            select(&mut w).await;
-            command(
-                &mut w,
-                "CAPABILITY",
-                "* CAPABILITY IMAP4rev1 X-GM-EXT-1 MOVE\r\n$TAG OK caps\r\n",
-            )
-            .await;
-            command(
-                &mut w,
-                "UID STORE 42 -X-GM-LABELS (\"\\\\Inbox\")",
-                "$TAG OK stored\r\n",
-            )
-            .await;
-            command(&mut w, "UID FETCH 42 (UID X-GM-LABELS)", response).await;
-            assert_eq!(line(&mut w).await, "");
-        });
-        assert_eq!(
-            p.mutate(&reference(), Mutation::Archive)
-                .await
-                .unwrap_err()
-                .kind,
-            ErrorKind::Uncertain
-        );
-        drop(p);
-        server.await.unwrap();
-    }
 }
 #[tokio::test]
 async fn safe_uidplus_move_does_not_expunge_unrelated_deleted_messages() {

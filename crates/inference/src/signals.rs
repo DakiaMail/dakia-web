@@ -1,6 +1,6 @@
 //! Structural policy inputs extracted only from parsed RFC headers and
 //! provider labels. Header values/URLs and arbitrary user labels are discarded.
-use mail_parser::Message;
+use mail_parser::{Message, MimeHeaders};
 
 pub fn classification_signals(mail: &Message<'_>, gmail_labels: &[String]) -> String {
     let mut signals = Vec::new();
@@ -49,6 +49,21 @@ pub fn classification_signals(mail: &Message<'_>, gmail_labels: &[String]) -> St
     .any(|name| mail.header_raw(*name).is_some())
     {
         signals.push("Bulk delivery service header present");
+    }
+    if mail.header_raw("X-Mailer").is_some_and(|v| {
+        let value = v.trim().to_ascii_lowercase();
+        value.starts_with("sap netweaver")
+            || value.contains("quadient inspire")
+            || value.contains("opentext exstream")
+    }) {
+        signals.push("Document generation application header present");
+    }
+    // Read attachment MIME metadata only, never PDF contents.
+    if mail
+        .attachments()
+        .any(|part| part.is_content_type("application", "pdf"))
+    {
+        signals.push("PDF document attachment present");
     }
     if mail
         .header_raw("In-Reply-To")

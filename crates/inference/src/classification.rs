@@ -7,7 +7,7 @@ use serde_json::Value;
 use std::sync::LazyLock;
 use url::Url;
 
-pub const POLICY_REVISION: &str = "personal-first-3";
+pub const POLICY_REVISION: &str = "personal-first-4";
 const MAX_TEXT: usize = 16_000;
 #[derive(Debug, Clone)]
 pub struct EmailClassificationInput {
@@ -492,6 +492,12 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
         .any(|s| s == "bulk delivery service header present");
     let role_sender = Regex::new(r"(?i)^(?:no[-_.]?reply|do[-_.]?not[-_.]?reply|notifications?|billing|invoices?|receipts?)(?:[+._-].*)?$").unwrap().is_match(input.from_address.split('@').next().unwrap_or(""));
     let delivered_notice = role_sender && delivery_service;
+    let generated_document = signals
+        .iter()
+        .any(|s| s == "document generation application header present")
+        && signals
+            .iter()
+            .any(|s| s == "pdf document attachment present");
     if list || (unsubscribe && !(input.known_correspondence && reply_context)) {
         add(&mut out, DetectedType::Newsletter);
     }
@@ -530,7 +536,7 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
         )
     }) || payment_failure;
     // Ambiguous replies remain visible; sender history alone never protects a notice.
-    let direct_reply = reply_context && !generated && !list && !unsubscribe && !delivered_notice;
+    let direct_reply = reply_context && !generated && !list && !delivered_notice;
     let personal_invitation = input.known_correspondence
         && out.types.contains(&DetectedType::EventInvitation)
         && !machine_transaction
@@ -550,6 +556,7 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
             || receipt_subject
             || service_notice
             || delivered_notice
+            || generated_document
             || (out.types.contains(&DetectedType::Invoice)
                 && has(
                     &subject,
@@ -992,6 +999,39 @@ mod tests {
         assert_eq!(detect(&m).kind, InboxKind::Automated);
         m.classification_signals.clear();
         m.body_text = "Gmail category: Promotions Bulk delivery service header present".into();
+        assert_eq!(detect(&m).kind, InboxKind::Personal);
+    }
+    #[test]
+    fn document_generators_need_attachment_metadata_and_replies_remain_visible() {
+        for agent in [
+            "SAP NetWeaver 758",
+            "Quadient Inspire Designer MIME",
+            "OpenText Exstream",
+        ] {
+            let raw = format!("From: billing@example.test\r\nX-Mailer: {agent}\r\nContent-Type: multipart/mixed; boundary=doc\r\n\r\n--doc\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nTeade\r\n--doc\r\nContent-Type: application/pdf\r\nContent-Disposition: attachment; filename=document.pdf\r\n\r\nsynthetic-not-a-pdf\r\n--doc--\r\n");
+            let parsed = mail_parser::MessageParser::default()
+                .parse(raw.as_bytes())
+                .unwrap();
+            let mut m = mail("Teade", "Teie dokument");
+            m.classification_signals = crate::signals::classification_signals(&parsed, &[]);
+            assert_eq!(detect(&m).kind, InboxKind::Automated, "{agent}");
+            assert!(detect(&m).types.is_empty());
+            let ordinary = raw.replace(agent, "Microsoft Outlook 16");
+            let parsed = mail_parser::MessageParser::default()
+                .parse(ordinary.as_bytes())
+                .unwrap();
+            m.classification_signals = crate::signals::classification_signals(&parsed, &[]);
+            assert_eq!(detect(&m).kind, InboxKind::Personal);
+            m.classification_signals = "Document generation application header present".into();
+            assert_eq!(detect(&m).kind, InboxKind::Personal);
+        }
+        let mut reply = mail("Re: Your invoice", "Hi, I can help.").with_known_correspondence(true);
+        reply.html = "<a href=\"https://example.test/unsubscribe/token\">Leave</a>".into();
+        assert_eq!(detect(&reply).kind, InboxKind::Personal);
+        let m = mail(
+            "Teade",
+            "X-Mailer: SAP NetWeaver 758 PDF document attachment present",
+        );
         assert_eq!(detect(&m).kind, InboxKind::Personal);
     }
     #[test]

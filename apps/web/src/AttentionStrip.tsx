@@ -11,7 +11,7 @@ export function AttentionStrip({ account, ids, overrides, removed, snoozed, open
 }) {
   const [now, setNow] = useState(Date.now);
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 15000); return () => clearInterval(timer); }, []);
-  const attention = useInfiniteQuery({ queryKey: ["mail", account, "INBOX", "", "attention:personal-first-3-30d", ids], initialPageParam: null as string | null,
+  const attention = useInfiniteQuery({ queryKey: ["mail", account, "INBOX", "", "attention:personal-first-4-30d", ids], initialPageParam: null as string | null,
     queryFn: ({ pageParam, signal }) => api.search("folder:INBOX", ids, pageParam, undefined, signal, false, false, false, { attention: true }),
     getNextPageParam: (page, _pages, _param, params) => page.continuation && !params.includes(page.continuation) ? page.continuation : undefined,
     enabled: ids.length > 0, refetchInterval: 30000, retry: false,

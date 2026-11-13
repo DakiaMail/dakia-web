@@ -8,6 +8,8 @@ mod full_text_tests;
 mod rules_pipeline_tests;
 #[path = "search_preview_tests.rs"]
 mod search_preview_tests;
+#[path = "classification_pipeline_tests.rs"]
+mod classification_pipeline_tests;
 #[path = "sender_cleanup_pipeline_tests.rs"]
 mod sender_cleanup_pipeline_tests;
 #[path = "unsubscribe_pipeline_tests.rs"]

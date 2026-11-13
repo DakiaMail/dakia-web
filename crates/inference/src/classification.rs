@@ -7,7 +7,7 @@ use serde_json::Value;
 use std::sync::LazyLock;
 use url::Url;
 
-pub const POLICY_REVISION: &str = "personal-first-2";
+pub const POLICY_REVISION: &str = "personal-first-3";
 const MAX_TEXT: usize = 16_000;
 #[derive(Debug, Clone)]
 pub struct EmailClassificationInput {
@@ -299,11 +299,38 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
             "mailing-list identifier header present"
                 | "mailing-list precedence header"
                 | "bulk-mail precedence header"
-        )
+        ) || s == "gmail category: promotions"
     });
+    let footer_unsubscribe = doc
+        .select(&Selector::parse("a[href]").unwrap())
+        .take(200)
+        .filter(|a| {
+            a.value().attr("hidden").is_none()
+                && !a.ancestors().any(|node| {
+                    node.value().as_element().is_some_and(|e| {
+                        matches!(e.name(), "blockquote" | "head" | "template")
+                            || e.attr("hidden").is_some()
+                            || e.attr("class")
+                                .is_some_and(|c| has(c, &["gmail_quote", "yahoo_quoted"]))
+                            || e.attr("id").is_some_and(|id| id == "divRplyFwdMsg")
+                    })
+                })
+        })
+        .any(|a| {
+            a.value().attr("rel").is_some_and(|rel| {
+                rel.split_whitespace()
+                    .any(|v| v.eq_ignore_ascii_case("unsubscribe"))
+            }) || a.value().attr("href").is_some_and(|href| {
+                Url::parse(href).is_ok_and(|url| {
+                    matches!(url.scheme(), "http" | "https")
+                        && url.path().to_ascii_lowercase().contains("unsubscribe")
+                })
+            })
+        });
     let unsubscribe = signals
         .iter()
-        .any(|s| s == "mailing-list unsubscribe header present");
+        .any(|s| s == "mailing-list unsubscribe header present")
+        || footer_unsubscribe;
     let generated = signals.iter().any(|s| {
         matches!(
             s.as_str(),
@@ -325,6 +352,7 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
             DetectedType::Invoice,
             &[
                 "your invoice",
+                "customer invoice",
                 "invoice attached",
                 "invoice number",
                 "invoice #",
@@ -415,6 +443,8 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
         (
             DetectedType::SecurityAlert,
             &[
+                "new login to",
+                "new login from",
                 "new sign-in",
                 "new sign in",
                 "suspicious activity",
@@ -428,7 +458,41 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
             add(&mut out, kind);
         }
     }
-    if list || (unsubscribe && !input.known_correspondence) {
+    let subject = input.subject.to_lowercase();
+    let reply_context =
+        signals.iter().any(|s| s == "reply thread header present") || subject.starts_with("re:");
+    let receipt_subject =
+        Regex::new(r"(?i)\byour(?: [\p{L}\p{N}'’-]+){0,4} receipt\b|\byour recent purchase\b")
+            .unwrap()
+            .is_match(&input.subject);
+    if receipt_subject {
+        add(&mut out, DetectedType::Receipt);
+    }
+    let service_notice = has(
+        &subject,
+        &[
+            "your pre-payment has been used",
+            "restore nameservers for",
+            "data has been exported",
+            "submission approved",
+            "submission rejected",
+            "is now available to test",
+            "important security update (action required)",
+        ],
+    ) || (subject.contains("archive of")
+        && subject.contains("data requested"));
+    if has(
+        &subject,
+        &["new opportunities for you", "recommended jobs for you"],
+    ) {
+        add(&mut out, DetectedType::Offer);
+    }
+    let delivery_service = signals
+        .iter()
+        .any(|s| s == "bulk delivery service header present");
+    let role_sender = Regex::new(r"(?i)^(?:no[-_.]?reply|do[-_.]?not[-_.]?reply|notifications?|billing|invoices?|receipts?)(?:[+._-].*)?$").unwrap().is_match(input.from_address.split('@').next().unwrap_or(""));
+    let delivered_notice = role_sender && delivery_service;
+    if list || (unsubscribe && !(input.known_correspondence && reply_context)) {
         add(&mut out, DetectedType::Newsletter);
     }
     static SCRIPT: LazyLock<Selector> =
@@ -465,10 +529,8 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
                 | DetectedType::FlightBooking
         )
     }) || payment_failure;
-    let direct_reply = input.known_correspondence
-        && !generated
-        && !list
-        && (!machine_transaction || input.subject.to_lowercase().starts_with("re:"));
+    // Ambiguous replies remain visible; sender history alone never protects a notice.
+    let direct_reply = reply_context && !generated && !list && !unsubscribe && !delivered_notice;
     let personal_invitation = input.known_correspondence
         && out.types.contains(&DetectedType::EventInvitation)
         && !machine_transaction
@@ -484,7 +546,15 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
                 .types
                 .iter()
                 .any(|t| !matches!(t, DetectedType::EventInvitation | DetectedType::Invoice))
-            || payment_failure)
+            || payment_failure
+            || receipt_subject
+            || service_notice
+            || delivered_notice
+            || (out.types.contains(&DetectedType::Invoice)
+                && has(
+                    &subject,
+                    &["customer invoice", "invoice number", "invoice #"],
+                )))
     {
         out.kind = InboxKind::Automated;
     }
@@ -848,6 +918,81 @@ mod tests {
         assert!(c.types.contains(&DetectedType::EventInvitation));
         assert!(c.attention.iter().any(|a| a.label == "Event changed"));
         assert_eq!(c.kind, InboxKind::Personal);
+    }
+    #[test]
+    fn generated_notices_branded_receipts_and_real_replies() {
+        for subject in [
+            "[Action required] Restore nameservers for example.test",
+            "[Cloud] Payment required: Your pre-payment has been used",
+            "Your service data has been exported",
+            "Archive of service data requested",
+            "New login to Example",
+            "ChatGPT Plugin Submission Approved[opaque]",
+            "Product 1.2 for iOS is now available to test.",
+            "3 new opportunities for you!",
+            "Your OpenCode receipt [#1647-5380]",
+            "Your recent purchase at a shop",
+            "Customer Invoice",
+        ] {
+            let m = mail(subject, "Your account notification").with_known_correspondence(true);
+            assert_eq!(detect(&m).kind, InboxKind::Automated, "{subject}");
+        }
+        let mut reply = mail(
+            "Re: Billing: Refund Request",
+            "Hi, I can help with the refund.",
+        )
+        .with_known_correspondence(true);
+        reply.classification_signals = "Reply thread header present".into();
+        assert_eq!(detect(&reply).kind, InboxKind::Personal);
+        assert_eq!(
+            detect(&mail("Can you send the data requested?", "Thanks, Alex")).kind,
+            InboxKind::Personal
+        );
+        let mut invoice = mail("Your invoice", "Here is the invoice we discussed.");
+        invoice.subject = "Re: Your invoice".into();
+        invoice.known_correspondence = true;
+        assert_eq!(detect(&invoice).kind, InboxKind::Personal);
+        invoice.known_correspondence = false;
+        assert_eq!(detect(&invoice).kind, InboxKind::Personal);
+        assert_eq!(
+            detect(&mail(
+                "Your invoice",
+                "Hi, here is the invoice we discussed."
+            ))
+            .kind,
+            InboxKind::Personal
+        );
+        assert_eq!(
+            detect(&mail("Sk sent you a message", "Can we discuss the work?")).kind,
+            InboxKind::Personal
+        );
+        assert!(detect(&mail(
+            "[Action required] Restore nameservers for example.test",
+            "Please review this notice"
+        ))
+        .attention
+        .is_empty());
+    }
+    #[test]
+    fn language_independent_delivery_and_footer_evidence_stay_message_specific() {
+        let mut m = mail("Teade", "Teie konto");
+        m.from_address = "no-reply@example.test".into();
+        assert_eq!(detect(&m).kind, InboxKind::Personal);
+        m.classification_signals = "Bulk delivery service header present".into();
+        assert_eq!(detect(&m).kind, InboxKind::Automated);
+        m.from_address = "alex@example.test".into();
+        assert_eq!(detect(&m).kind, InboxKind::Personal);
+        m.classification_signals.clear();
+        m.html = "<p>News</p><a href=\"https://example.test/unsubscribe/token\">Leave</a>".into();
+        assert_eq!(detect(&m).kind, InboxKind::Automated);
+        m.html = "<p>Let's discuss</p><blockquote><a href=\"https://example.test/unsubscribe/token\">Leave</a></blockquote>".into();
+        assert_eq!(detect(&m).kind, InboxKind::Personal);
+        m.html.clear();
+        m.classification_signals = "Gmail category: Promotions".into();
+        assert_eq!(detect(&m).kind, InboxKind::Automated);
+        m.classification_signals.clear();
+        m.body_text = "Gmail category: Promotions Bulk delivery service header present".into();
+        assert_eq!(detect(&m).kind, InboxKind::Personal);
     }
     #[test]
     fn html_quotes_and_untrusted_signals_do_not_create_attention() {

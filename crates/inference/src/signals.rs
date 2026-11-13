@@ -23,11 +23,32 @@ pub fn classification_signals(mail: &Message<'_>, gmail_labels: &[String]) -> St
         });
     }
     if let Some(value) = mail.header_raw("Auto-Submitted") {
-        signals.push(match value.trim().to_ascii_lowercase().as_str() {
-            "auto-generated" => "Automatically generated message header",
-            "auto-replied" => "Automatically replied message header",
-            _ => "Auto-Submitted header present",
-        });
+        signals.push(
+            match value
+                .split(';')
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_ascii_lowercase()
+                .as_str()
+            {
+                "auto-generated" => "Automatically generated message header",
+                "auto-replied" => "Automatically replied message header",
+                _ => "Auto-Submitted header present",
+            },
+        );
+    }
+    if [
+        "X-SES-Outgoing",
+        "X-SG-EID",
+        "X-Mailgun-Sid",
+        "X-MC-User",
+        "Feedback-ID",
+    ]
+    .iter()
+    .any(|name| mail.header_raw(*name).is_some())
+    {
+        signals.push("Bulk delivery service header present");
     }
     if mail
         .header_raw("In-Reply-To")
@@ -48,7 +69,10 @@ pub fn classification_signals(mail: &Message<'_>, gmail_labels: &[String]) -> St
         ("\\Category_Updates", "Gmail category: Updates"),
         ("\\Category_Forums", "Gmail category: Forums"),
     ] {
-        if gmail_labels.iter().any(|l| l.eq_ignore_ascii_case(label)) {
+        if gmail_labels.iter().any(|l| {
+            l.eq_ignore_ascii_case(label)
+                || l.eq_ignore_ascii_case(&label.replace("\\Category_", "CATEGORY_"))
+        }) {
             signals.push(signal);
             break;
         }
@@ -82,4 +106,15 @@ mod tests {
             assert!(!signals.contains(secret));
         }
     }
+}
+
+#[cfg(test)]
+#[test]
+fn generated_parameters_delivery_headers_and_provider_labels_are_normalized() {
+    let parsed = mail_parser::MessageParser::default().parse(b"Auto-Submitted: auto-generated; owner-email=private@example.test\r\nX-SES-Outgoing: opaque\r\n\r\nHello").unwrap();
+    let signals = classification_signals(&parsed, &["CATEGORY_PROMOTIONS".into()]);
+    assert!(signals.contains("Automatically generated message header"));
+    assert!(signals.contains("Bulk delivery service header present"));
+    assert!(signals.contains("Gmail category: Promotions"));
+    assert!(!signals.contains("private@example"));
 }

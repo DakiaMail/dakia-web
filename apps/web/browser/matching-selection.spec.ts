@@ -116,8 +116,9 @@ test("another bulk action can be queued while the first is still awaiting accept
   await page.getByRole("button",{name:"Select all messages matching this filter",exact:true}).click();
   await expect(page.getByRole("status").filter({hasText:"All 53 matching messages are selected."})).toBeVisible();
   await page.getByRole("button",{name:"Mark unread",exact:true}).click();
-  await expect(page.getByRole("button",{name:"Mark read",exact:true})).toBeEnabled();
-  await page.getByRole("button",{name:"Mark read",exact:true}).click();
+  await page.getByRole("button",{name:"More actions",exact:true}).click();
+  await expect(page.getByRole("menuitem",{name:/Mark read/})).toBeEnabled();
+  await page.getByRole("menuitem",{name:/Mark read/}).click();
   await expect(page.getByRole("button",{name:"Mark unread",exact:true})).toBeEnabled();
   expect(state.operations.length).toBeLessThanOrEqual(6);
   state.release();

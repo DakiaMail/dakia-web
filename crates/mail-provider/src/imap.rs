@@ -593,7 +593,7 @@ impl ImapProvider {
                     if !search_uids(&mut s,&format!("X-GM-MSGID {id}")).await?.is_empty() {
                         return Err(error(ErrorKind::Uncertain,"archive did not remove Inbox; reconcile before retry"));
                     }
-                    destination_reference=Some(MessageRef {account_id:r.account_id.clone(),folder:dest,uidvalidity:validity,uid});
+                    destination_reference=Some(MessageRef {graph_id:None,account_id:r.account_id.clone(),folder:dest,uidvalidity:validity,uid});
                     None
                 }
                 other=>{

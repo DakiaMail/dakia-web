@@ -5,7 +5,7 @@ use super::*;
 pub(crate) const CLASSIFICATION_SQL: &str = "
  AND (json_extract(cf.filter,'$.inbox_kind') IS NULL OR COALESCE(json_extract(m.document,'$.classification.kind'),'personal')=json_extract(cf.filter,'$.inbox_kind'))
  AND (json_extract(cf.filter,'$.email_type') IS NULL OR EXISTS(SELECT 1 FROM json_each(m.document,'$.classification.types') t WHERE t.value=json_extract(cf.filter,'$.email_type')))
- AND (COALESCE(json_extract(cf.filter,'$.attention'),0)=0 OR json_extract(m.document,'$.classification.attention_override')=1 OR (json_extract(m.document,'$.classification.attention_override') IS NULL AND EXISTS(SELECT 1 FROM json_each(m.document,'$.classification.attention') a WHERE json_extract(a.value,'$.expires_at') IS NULL OR json_extract(a.value,'$.expires_at')>strftime('%Y-%m-%dT%H:%M:%fZ','now'))))";
+ AND (COALESCE(json_extract(cf.filter,'$.attention'),0)=0 OR (julianday(json_extract(m.document,'$.received_at')) BETWEEN julianday('now','-30 days') AND julianday('now') AND (json_extract(m.document,'$.classification.attention_override')=1 OR (json_extract(m.document,'$.classification.attention_override') IS NULL AND EXISTS(SELECT 1 FROM json_each(m.document,'$.classification.attention') a WHERE json_extract(a.value,'$.expires_at') IS NULL OR json_extract(a.value,'$.expires_at')>strftime('%Y-%m-%dT%H:%M:%fZ','now'))))))";
 fn wire<T: serde::Serialize>(v: &T) -> Result<String> {
     Ok(serde_json::to_value(v)?
         .as_str()

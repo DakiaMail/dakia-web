@@ -169,7 +169,7 @@ export function App() {
   const [searchFocused, setSearchFocused] = useState(false);
   const [q, setQ] = useState("");
   const inboxFilter: MailFilter = !q && nav === "INBOX" ? { ...(view !== "all" ? { inbox_kind: view } : {}), ...(view === "automated" && typeFilter ? { email_type: typeFilter } : {}) } : !q && nav === "Needs attention" ? { attention: true } : {};
-  const categoryFilter = JSON.stringify({ revision: "personal-first-2", ...inboxFilter });
+  const categoryFilter = JSON.stringify({ revision: "personal-first-2-attention-30d", ...inboxFilter });
 
   const [selected, setSelected] = useState<Message | null>(null);
   const savedSelections = useRef<Record<string, ReturnType<typeof emptySelection>>>({});

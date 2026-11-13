@@ -45,3 +45,15 @@ for(const width of [390,1480])test(`attention page and row shortcuts ${width}`,a
  await page.screenshot({path:info.outputPath(`newsletter-row-${width}.png`),animations:'disabled'});
  await page.getByRole('button',{name:'Unsubscribe',exact:true}).click();await expect(page.getByRole('heading',{name:'Unsubscribe request sent',exact:true})).toBeVisible();expect(state.unsubscribePosts()).toBe(1);
 });
+
+test('attention ages out after 30 days without hiding ordinary mail or its code',async({page})=>{
+ await page.clock.install({time:new Date('2026-11-13T12:00:00Z')});await fixture(page);
+ await page.getByRole('region',{name:'Needs attention',exact:true}).getByRole('button',{name:'Show more',exact:true}).click();
+ await expect(page.locator('.message-row').first()).toBeVisible();
+ await page.clock.setSystemTime(new Date('2026-12-14T12:00:00Z'));await page.clock.runFor(15001);
+ await expect(page.locator('.message-row')).toHaveCount(0);
+ await page.getByRole('navigation',{name:'Mailboxes',exact:true}).getByRole('button',{name:/Unified inbox/}).click();
+ await expect(page.locator('.attention-strip')).toHaveCount(0);
+ await page.getByRole('tab',{name:'Automated',exact:true}).click();await page.getByRole('button',{name:'Codes',exact:true}).click();
+ await expect(page.getByRole('button',{name:'Code: 937449',exact:true})).toBeVisible();
+});

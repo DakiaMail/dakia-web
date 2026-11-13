@@ -25,3 +25,13 @@ it("only exposes explicit public HTTP links",()=>{
  for(const url of ["javascript:alert(1)","http://127.0.0.1/","https://user:pass@host.example","http://[::1]/","http://localhost/","file:///tmp/secret"])expect(safeDetailLink(url)).toBe(null);
  expect(safeDetailLink("https://airline.example/manage")?.hostname).toBe("airline.example");
 });
+
+it("attention is limited to the last 30 days even for manual marks",()=>{
+ const now=Date.parse("2026-11-13T12:00:00Z");
+ const base=optimisticClassification(message,{kind:"attention",value:true});
+ for(const offset of [0,30*86400000])expect(needsAttention({...base,received_at:new Date(now-offset).toISOString()},now)).toBe(true);
+ for(const offset of [30*86400000+1,-1]){
+  const m={...base,received_at:new Date(now-offset).toISOString()};expect(needsAttention(m,now)).toBe(false);expect(matchesClassification(m,{attention:true},now)).toBe(false);
+ }
+ expect(needsAttention({...base,received_at:"bad"},now)).toBe(false);
+});

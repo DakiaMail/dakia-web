@@ -339,7 +339,13 @@ async fn migration_preserves_legacy_choices_and_restorable_snapshot() {
         .run(&db)
         .await
         .unwrap();
-    assert_eq!(sqlx::query_scalar::<_,String>("SELECT state FROM push_jobs WHERE message_id='personal'").fetch_one(&db).await.unwrap(),"skipped");
+    assert_eq!(
+        sqlx::query_scalar::<_, String>("SELECT state FROM push_jobs WHERE message_id='personal'")
+            .fetch_one(&db)
+            .await
+            .unwrap(),
+        "skipped"
+    );
     let choices:Vec<(String,String,String)>=sqlx::query_as("SELECT id,json_extract(document,'$.classification.kind'),COALESCE(category_override,'') FROM messages ORDER BY id").fetch_all(&db).await.unwrap();
     assert_eq!(
         choices,
@@ -433,4 +439,93 @@ async fn policy_changes_requeue_read_and_manual_mail_once_without_losing_correct
         .await
         .unwrap();
     assert_eq!(s.message(&a, "old").await.unwrap().revision, revision);
+}
+
+#[tokio::test]
+async fn attention_age_limit_precedes_pagination_and_manual_marks() {
+    let (_d, s, _u, a, _) = fixture().await;
+    let now = Utc::now();
+    for (id, age) in [("recent", 29), ("old", 31), ("future", -1)] {
+        let mut m = message(&a, id);
+        m.received_at = (now - Duration::days(age)).to_rfc3339();
+        s.upsert_message(&a, m).await.unwrap();
+        let mut c = automated(vec![DetectedType::EventInvitation]);
+        c.attention.push(AttentionReason {
+            label: "Event cancelled".into(),
+            expires_at: None,
+        });
+        detect(&s, &a, id, c).await;
+        change(&s, &a, id, Change::Attention { value: Some(true) }).await;
+    }
+    let filter = ClassificationFilter {
+        attention: true,
+        ..Default::default()
+    };
+    let rows = s
+        .inbox_rows_filtered(&a, None, None, &filter)
+        .await
+        .unwrap();
+    assert_eq!(
+        rows.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+        vec!["recent"]
+    );
+    let search = CachedSearchFilter {
+        classification: filter.clone(),
+        ..Default::default()
+    };
+    assert_eq!(s.cached_search_rows(&a, &search).await.unwrap().len(), 1);
+    s.index_search_headers(&a).await.unwrap();
+    assert_eq!(s.full_text_rows(&a, &search, None).await.unwrap().len(), 1);
+    let mut m = rows[0].clone();
+    let now = "2026-11-13T12:00:00.000Z";
+    for (received, expected) in [
+        ("2026-10-14T12:00:00.000Z", true),
+        ("2026-10-14T11:59:59.999Z", false),
+        ("2026-11-13T12:00:00.001Z", false),
+        ("2026-10-14T14:00:00+02:00", true),
+        ("invalid", false),
+    ] {
+        m.received_at = received.into();
+        assert_eq!(filter.matches(&m, now), expected, "{received}");
+    }
+}
+
+#[tokio::test]
+async fn attention_push_rechecks_age_at_delivery() {
+    let (_d, s, user, a, _) = fixture().await;
+    s.subscribe(&user, "one", "{\"id\":\"one\"}").await.unwrap();
+    s.record_incremental(&a, "INBOX", &[], "bootstrap")
+        .await
+        .unwrap();
+    let mut m = message(&a, "attention-arrival");
+    m.received_at = (Utc::now() + Duration::hours(1)).to_rfc3339();
+    let m = s.upsert_message(&a, m).await.unwrap();
+    s.record_incremental(&a, "INBOX", &[m], "arrival")
+        .await
+        .unwrap();
+    let mut c = automated(vec![DetectedType::SecurityAlert]);
+    c.attention.push(AttentionReason {
+        label: "Account security".into(),
+        expires_at: None,
+    });
+    detect(&s, &a, "attention-arrival", c).await;
+    change(
+        &s,
+        &a,
+        "attention-arrival",
+        Change::Attention { value: Some(true) },
+    )
+    .await;
+    let mut current = s.message(&a, "attention-arrival").await.unwrap();
+    current.received_at = (Utc::now() - Duration::seconds(1)).to_rfc3339();
+    s.upsert_message(&a, current).await.unwrap();
+    assert!(s.next_push(&a).await.unwrap().is_some());
+    let mut m = s.message(&a, "attention-arrival").await.unwrap();
+    m.received_at = (Utc::now() - Duration::days(31)).to_rfc3339();
+    s.upsert_message(&a, m).await.unwrap();
+    assert!(!s
+        .push_send_allowed(&a, "attention-arrival", "one")
+        .await
+        .unwrap());
+    assert!(s.next_push(&a).await.unwrap().is_none());
 }

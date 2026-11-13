@@ -77,6 +77,19 @@ impl Classification {
     }
 }
 impl Message {
+    pub fn needs_attention(&self, now: &str) -> bool {
+        let Ok(received) = chrono::DateTime::parse_from_rfc3339(&self.received_at) else {
+            return false;
+        };
+        let Ok(now) = chrono::DateTime::parse_from_rfc3339(now) else {
+            return false;
+        };
+        received <= now
+            && received >= now - chrono::Duration::days(30)
+            && self.classification.as_ref().is_some_and(|c| {
+                c.needs_attention(&now.to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
+            })
+    }
     pub fn inbox_kind(&self) -> InboxKind {
         self.classification
             .as_ref()
@@ -102,10 +115,6 @@ impl ClassificationFilter {
                     .as_ref()
                     .is_some_and(|c| c.types.contains(t))
             })
-            && (!self.attention
-                || message
-                    .classification
-                    .as_ref()
-                    .is_some_and(|c| c.needs_attention(now)))
+            && (!self.attention || message.needs_attention(now))
     }
 }

@@ -123,7 +123,7 @@ export const api = {
     classification: MailFilter = {},
   ) =>
     request<SearchPage>(
-      `/search?${new URLSearchParams({ q, accounts: ids.join(","), ...(continuation ? { continuation } : {}), ...(category ? { category } : {}), ...(excludeTrash ? { exclude_trash: "true" } : {}), ...(refresh ? { refresh: "true" } : {}), ...(cacheFirst ? { cache_first: "true" } : {}), ...(classification.inbox_kind ? { inbox_kind: classification.inbox_kind } : {}), ...(classification.email_type ? { email_type: classification.email_type } : {}), ...(classification.attention ? { attention: "true" } : {}) })}`,
+      `/search?${new URLSearchParams({ q, accounts: ids.join(","), ...(continuation ? { continuation } : {}), ...(category ? { category } : {}), ...(excludeTrash ? { exclude_trash: "true" } : {}), ...(refresh ? { refresh: "true" } : {}), ...(cacheFirst ? { cache_first: "true" } : {}), ...(classification.inbox_kind ? { inbox_kind: classification.inbox_kind } : {}), ...(classification.email_type ? { email_type: classification.email_type } : {}), ...(classification.transactions ? { transactions: "true" } : {}), ...(classification.attention ? { attention: "true" } : {}) })}`,
       { signal },
     ),
   content: (m: Message) =>

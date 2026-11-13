@@ -17,7 +17,7 @@ async function fixture(page:Page){
   if(p.endsWith('/operations')){const op={...route.request().postDataJSON(),status:'applied',revision:2};operations.push(op);if(op.change.kind==='attention')all.find(m=>m.id===op.target_id)!.classification!.attention_override=op.change.value;return respond(op);}
   if(p==='/api/search'||p.endsWith('/messages')){
    const attention=url.searchParams.has('attention');if(attention){expect(url.searchParams.get('q')).toBe('folder:INBOX');expect(url.searchParams.has('inbox_kind')).toBe(false);}
-   let found=all.filter(m=>(!attention||(m.id.startsWith('attention-')&&m.classification!.attention_override!==false))&&(!url.searchParams.has('inbox_kind')||m.classification!.kind===url.searchParams.get('inbox_kind'))&&(!url.searchParams.has('email_type')||m.classification!.types.includes(url.searchParams.get('email_type') as any)));
+   let found=all.filter(m=>(!attention||(m.id.startsWith('attention-')&&m.classification!.attention_override!==false))&&(!url.searchParams.has('inbox_kind')||m.classification!.kind===url.searchParams.get('inbox_kind'))&&(!url.searchParams.has('transactions')||m.classification!.types.some(t=>t==='receipt'||t==='invoice'))&&(!url.searchParams.has('email_type')||m.classification!.types.includes(url.searchParams.get('email_type') as any)));
    const tail=url.searchParams.has('continuation');return respond({...mail,rows:tail?found.slice(50):found.slice(0,50),continuation:!tail&&found.length>50?'tail':null,pending:!tail&&found.length>50});
   }
   if(p.endsWith('/conversation'))return respond({rows:[code],continuation:null,complete:true});
@@ -40,7 +40,7 @@ for(const width of [390,1480])test(`attention page and row shortcuts ${width}`,a
  await page.getByRole('tab',{name:'Automated',exact:true}).click();await page.getByRole('button',{name:'Codes',exact:true}).click();
  await expect(page.locator('.detected-types')).toHaveCount(0);await page.getByRole('button',{name:'Code: 937449',exact:true}).click();
  expect(await page.evaluate(()=>(window as any).copied)).toBe('937449');await expect(page.locator('.conversation-title')).toHaveCount(0);
- await page.getByRole('button',{name:'Receipts',exact:true}).click();await expect(page.getByText('Total: 12,50 €',{exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Transactions',exact:true}).click();await expect(page.getByText('Total: 12,50 €',{exact:true})).toBeVisible();
  await page.getByRole('button',{name:'Newsletters',exact:true}).click();await expect(page.getByRole('button',{name:'Unsubscribe',exact:true})).toBeVisible();expect(state.unsubscribeReads()).toBe(0);
  await page.screenshot({path:info.outputPath(`newsletter-row-${width}.png`),animations:'disabled'});
  await page.getByRole('button',{name:'Unsubscribe',exact:true}).click();await expect(page.getByRole('heading',{name:'Unsubscribe request sent',exact:true})).toBeVisible();expect(state.unsubscribePosts()).toBe(1);

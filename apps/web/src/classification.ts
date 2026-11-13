@@ -4,7 +4,7 @@ export const emailTypes: Record<DetectedType, string> = {
   verification_code: "Codes", flight_booking: "Flights", newsletter: "Newsletters", offer: "Offers", security_alert: "Security alerts",
 };
 export type InboxTab = InboxKind | "all";
-export type MailFilter = { inbox_kind?: InboxKind; email_type?: DetectedType; attention?: boolean };
+export type MailFilter = { inbox_kind?: InboxKind; email_type?: DetectedType; transactions?: boolean; attention?: boolean };
 export function classification(message: Message): Classification {
   return message.classification || { kind: "personal", status: "pending", types: [], details: [], attention: [], attention_override: null, source: "automatic", policy_revision: "" };
 }
@@ -16,7 +16,7 @@ export function needsAttention(message: Message, now = Date.now()): boolean {
 }
 export function matchesClassification(message: Message, filter: MailFilter, now = Date.now()): boolean {
   const c = classification(message);
-  return (!filter.inbox_kind || filter.inbox_kind === c.kind) && (!filter.email_type || c.types.includes(filter.email_type)) && (!filter.attention || needsAttention(message, now));
+  return (!filter.inbox_kind || filter.inbox_kind === c.kind) && (!filter.email_type || c.types.includes(filter.email_type)) && (!filter.transactions || c.types.some(t => t === "receipt" || t === "invoice")) && (!filter.attention || needsAttention(message, now));
 }
 export function optimisticClassification(message: Message, change: Change): Message {
   const c = structuredClone(classification(message));

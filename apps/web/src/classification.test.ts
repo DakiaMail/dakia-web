@@ -35,3 +35,8 @@ it("attention is limited to the last 30 days even for manual marks",()=>{
  }
  expect(needsAttention({...base,received_at:"bad"},now)).toBe(false);
 });
+
+it("Transactions includes receipts or invoices once, without including order-only mail",()=>{
+ for(const types of [["receipt"],["invoice"],["receipt","invoice"]] as const)expect(matchesClassification({...message,classification:{...classification(message),types:[...types]}},{transactions:true})).toBe(true);
+ expect(matchesClassification({...message,classification:{...classification(message),types:["order"]}},{transactions:true})).toBe(false);
+});

@@ -65,6 +65,7 @@ async fn read_mail_is_classified_and_overlapping_filters_run_before_paging() {
         inbox_kind: Some(InboxKind::Automated),
         email_type: Some(DetectedType::Receipt),
         attention: false,
+        transactions: false,
     };
     let rows = s
         .inbox_rows_filtered(&a, None, None, &filter)
@@ -528,4 +529,63 @@ async fn attention_push_rechecks_age_at_delivery() {
         .await
         .unwrap());
     assert!(s.next_push(&a).await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn transactions_combine_receipts_and_invoices_before_paging_without_duplicates() {
+    let (_d, s, _u, a, _) = fixture().await;
+    for i in 0..64 {
+        let id = format!("transaction-{i:03}");
+        s.upsert_message(&a, message(&a, &id)).await.unwrap();
+        let types = if i == 0 {
+            vec![DetectedType::Receipt, DetectedType::Invoice]
+        } else if i == 63 {
+            vec![DetectedType::Order]
+        } else if i % 2 == 0 {
+            vec![DetectedType::Receipt]
+        } else {
+            vec![DetectedType::Invoice]
+        };
+        detect(&s, &a, &id, automated(types)).await;
+    }
+    let filter = ClassificationFilter {
+        transactions: true,
+        ..Default::default()
+    };
+    let first = s
+        .inbox_rows_filtered(&a, None, None, &filter)
+        .await
+        .unwrap();
+    assert_eq!(first.len(), 51);
+    let last = &first[49];
+    let second = s
+        .inbox_rows_filtered(&a, Some((&last.received_at, &last.id)), None, &filter)
+        .await
+        .unwrap();
+    let ids = first
+        .iter()
+        .take(50)
+        .chain(second.iter())
+        .map(|m| m.id.clone())
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(ids.len(), 63);
+    assert!(!ids.contains("transaction-063"));
+    assert_eq!(
+        ids.iter()
+            .filter(|id| id.as_str() == "transaction-000")
+            .count(),
+        1
+    );
+    for row in first.iter().chain(second.iter()) {
+        assert!(filter.matches(row, &Utc::now().to_rfc3339()));
+    }
+    let search = CachedSearchFilter {
+        classification: filter,
+        ..Default::default()
+    };
+    assert_eq!(s.cached_search_rows(&a, &search).await.unwrap().len(), 50);
+    s.index_search_headers(&a).await.unwrap();
+    let indexed = s.full_text_rows(&a, &search, None).await.unwrap();
+    assert_eq!(indexed.len(), 51);
+    assert!(indexed.iter().all(|m| m.id != "transaction-063"));
 }

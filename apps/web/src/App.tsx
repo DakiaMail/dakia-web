@@ -17,6 +17,16 @@ import {
 import { measureElement, useVirtualizer } from "@tanstack/react-virtual";
 import {
   Archive,
+  Layers,
+  ReceiptText,
+  ShoppingBag,
+  Truck,
+  CalendarDays,
+  KeyRound,
+  Plane,
+  Newspaper,
+  Tag,
+  ShieldCheck,
   FolderInput,
   ArrowUp,
   ArrowDown,
@@ -80,8 +90,7 @@ import { Conversation } from "./Conversation";
 import { useCleanupProjection } from "./cleanupJobs";
 import { replyDraft } from "./reply";
 import { emptySelection, reconcileSelection, selectMail } from "./selection";
-import { classification, matchesClassification, emailTypes, type InboxTab, type MailFilter } from "./classification";
-import type { DetectedType } from "@dakia/api-types";
+import { classification, matchesClassification, type InboxTab, type MailFilter } from "./classification";
 import { MailDetails } from "./MailDetails";
 import { AttentionStrip } from "./AttentionStrip";
 import { mailRows } from "./mailRows";
@@ -98,6 +107,17 @@ type Nav =
   | "Drafts"
   | "Trash"
   | "Scheduled";
+const automatedFilters = [
+  { value: "transactions", label: "Transactions", icon: ReceiptText },
+  { value: "order", label: "Orders", icon: ShoppingBag },
+  { value: "shipping", label: "Shipping", icon: Truck },
+  { value: "event_invitation", label: "Invitations", icon: CalendarDays },
+  { value: "verification_code", label: "Codes", icon: KeyRound },
+  { value: "flight_booking", label: "Flights", icon: Plane },
+  { value: "newsletter", label: "Newsletters", icon: Newspaper },
+  { value: "offer", label: "Offers", icon: Tag },
+  { value: "security_alert", label: "Security alerts", icon: ShieldCheck },
+] as const;
 const navs = [
   { id: "INBOX", label: "Unified inbox", icon: Inbox },
   { id: "Needs attention", label: "Needs attention", icon: ShieldAlert },
@@ -149,7 +169,7 @@ export function App() {
   const [account, setAccount] = useState("all");
   const [nav, setNav] = useState<Nav>("INBOX");
   const [view, setView] = useState<InboxTab>("personal");
-  const [typeFilter, setTypeFilter] = useState<DetectedType | "">("");
+  const [typeFilter, setTypeFilter] = useState<(typeof automatedFilters)[number]["value"] | "">("");
   const tabOwner = useRef("");
   useEffect(() => {
     const owner = session.data?.user_id;
@@ -168,8 +188,8 @@ export function App() {
   const [search, setSearch] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
   const [q, setQ] = useState("");
-  const inboxFilter: MailFilter = !q && nav === "INBOX" ? { ...(view !== "all" ? { inbox_kind: view } : {}), ...(view === "automated" && typeFilter ? { email_type: typeFilter } : {}) } : !q && nav === "Needs attention" ? { attention: true } : {};
-  const categoryFilter = JSON.stringify({ revision: "personal-first-2-attention-30d", ...inboxFilter });
+  const inboxFilter: MailFilter = !q && nav === "INBOX" ? { ...(view !== "all" ? { inbox_kind: view } : {}), ...(view === "automated" && typeFilter ? typeFilter === "transactions" ? { transactions: true } : { email_type: typeFilter } : {}) } : !q && nav === "Needs attention" ? { attention: true } : {};
+  const categoryFilter = JSON.stringify({ revision: "personal-first-2-attention-30d-transactions", ...inboxFilter });
 
   const [selected, setSelected] = useState<Message | null>(null);
   const savedSelections = useRef<Record<string, ReturnType<typeof emptySelection>>>({});
@@ -1089,8 +1109,8 @@ export function App() {
 
         </div>
         {nav === "INBOX" && !q && view === "automated" && <div className="email-type-filters" role="group" aria-label="Filter automated email">
-          <button aria-pressed={!typeFilter} onClick={() => setTypeFilter("")}>All automated</button>
-          {Object.entries(emailTypes).map(([type, label]) => <button key={type} aria-pressed={typeFilter === type} onClick={() => setTypeFilter(type as DetectedType)}>{label}</button>)}
+          <button aria-pressed={!typeFilter} onClick={() => setTypeFilter("")}><Layers size={14} aria-hidden="true" />All automated</button>
+          {automatedFilters.map(({ value, label, icon: Icon }) => <button key={value} aria-pressed={typeFilter === value} onClick={() => setTypeFilter(value)}><Icon size={14} aria-hidden="true" />{label}</button>)}
         </div>}
         {!active && !workspace && selectionControls}
         <div className="pull-status" role="status" style={{ height: pull.refreshing ? 44 : pull.distance }}>

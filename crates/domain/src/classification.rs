@@ -103,6 +103,7 @@ pub struct ClassificationFilter {
     pub inbox_kind: Option<InboxKind>,
     pub email_type: Option<DetectedType>,
     pub attention: bool,
+    pub transactions: bool,
 }
 impl ClassificationFilter {
     pub fn matches(&self, message: &Message, now: &str) -> bool {
@@ -115,6 +116,12 @@ impl ClassificationFilter {
                     .as_ref()
                     .is_some_and(|c| c.types.contains(t))
             })
+            && (!self.transactions
+                || message.classification.as_ref().is_some_and(|c| {
+                    c.types
+                        .iter()
+                        .any(|t| matches!(t, DetectedType::Receipt | DetectedType::Invoice))
+                }))
             && (!self.attention || message.needs_attention(now))
     }
 }

@@ -25,7 +25,7 @@ test("personal-first inbox, independent attention, and durable keyboard correcti
 
   await page.getByRole("tab",{name:"Personal",exact:true}).focus(); await page.keyboard.press("ArrowRight");
   await expect(page.getByRole("tab",{name:"Automated",exact:true})).toHaveAttribute("aria-selected","true");
-  await page.getByRole("button",{name:"Receipts",exact:true}).focus(); await page.keyboard.press("Enter");
+  await page.getByRole("button",{name:"Transactions",exact:true}).focus(); await page.keyboard.press("Enter");
   await expect(row(page,2)).toBeVisible(); await expect(page.locator(".message-row")).toHaveCount(1);
   await page.getByRole("button",{name:"Orders",exact:true}).click(); await expect(row(page,2)).toBeVisible();
   await page.getByRole("button",{name:"Flights",exact:true}).click(); await expect(row(page,3)).toBeVisible();

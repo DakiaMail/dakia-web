@@ -559,29 +559,22 @@ impl ImapProvider {
                     checked(&mut s,&format!("UID STORE {} {}FLAGS.SILENT ({flag})",r.uid,if v{"+"}else{"-"})).await?;
                     timing.acknowledged();None
                 }
-                Mutation::Archive if self.config.kind==ProviderKind::Gmail && r.folder.eq_ignore_ascii_case("INBOX") && has(&caps,"MOVE")=>{
-                    // Gmail's discovered All Mail mailbox is its archive. MOVE
-                    // from INBOX removes that membership only, without a global
-                    // EXPUNGE or replaying a possibly applied label command.
-                    timing.stage("folder_discovery");
-                    let dest=self.special_folder(&mut s,"Archive").await?;
-                    if dest.eq_ignore_ascii_case(&r.folder) {return Err(error(ErrorKind::InvalidInput,"source and destination identical"));}
-                    write_started = true;
-                    timing.write();
-                    destination_reference=transfer(&mut s,r,&dest,"MOVE").await?;
-                    timing.acknowledged();
-                    if search_uids(&mut s,&format!("UID {}",r.uid)).await?.contains(&r.uid) {
-                        return Err(error(ErrorKind::Uncertain,"archive did not remove Inbox; reconcile before retry"));
-                    }
-                    Some(dest)
-                }
                 Mutation::Archive if self.config.kind==ProviderKind::Gmail=>{
+                    // Gmail can acknowledge MOVE to All Mail without removing
+                    // Inbox. Change that label explicitly, preserving other labels.
                     write_started = true;
                     timing.write();
                     checked(&mut s,&format!("UID STORE {} -X-GM-LABELS ({})",r.uid,quote("\\Inbox")?)).await?;
                     timing.acknowledged();
                     let remaining=fetches(&mut s,&r.uid.to_string(),"UID X-GM-LABELS").await?;
-                    if remaining.iter().any(|f| f.uid==Some(r.uid) && f.labels.iter().any(|label|label.trim_start_matches('\\').eq_ignore_ascii_case("Inbox"))) {
+                    let verified = if remaining.is_empty() && r.folder.eq_ignore_ascii_case("INBOX") {
+                        // Removing Inbox can make its UID disappear before FETCH.
+                        !search_uids(&mut s,&format!("UID {}",r.uid)).await?.contains(&r.uid)
+                    } else {
+                        remaining.len()==1 && remaining[0].uid==Some(r.uid) && remaining[0].has_labels
+                            && !remaining[0].labels.iter().any(|label|label.trim_start_matches('\\').eq_ignore_ascii_case("Inbox"))
+                    };
+                    if !verified {
                         return Err(error(ErrorKind::Uncertain,"archive did not remove Inbox; reconcile before retry"));
                     }
                     None

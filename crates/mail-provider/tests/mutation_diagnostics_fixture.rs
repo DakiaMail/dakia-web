@@ -63,15 +63,17 @@ async fn stalled_archive(stage: &'static str) {
             )
             .await;
             if stage == "write" {
-                assert!(line(&mut w).await.contains("UID MOVE 42"));
+                assert!(line(&mut w).await.contains("UID STORE 42 -X-GM-LABELS"));
             } else {
                 command(
                     &mut w,
-                    "UID MOVE 42 \"Archive\"",
+                    "UID STORE 42 -X-GM-LABELS (\"\\\\Inbox\")",
                     "$TAG OK [COPYUID 18 42 101] moved\r\n",
                 )
                 .await;
-                assert!(line(&mut w).await.contains("UID SEARCH UID 42"));
+                assert!(line(&mut w)
+                    .await
+                    .contains("UID FETCH 42 (UID X-GM-LABELS)"));
             }
         }
         tokio::time::sleep(Duration::from_millis(900)).await;

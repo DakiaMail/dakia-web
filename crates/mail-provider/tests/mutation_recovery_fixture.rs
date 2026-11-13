@@ -12,7 +12,7 @@ fn reference() -> MessageRef {
     }
 }
 #[tokio::test]
-async fn lost_archive_ack_can_be_proven_on_fresh_connection_without_replaying_move() {
+async fn lost_archive_ack_can_be_proven_on_fresh_connection_without_replaying_write() {
     let f = Fixture::new().await;
     let mut config = f.config(Security::Tls);
     config.kind = ProviderKind::Gmail;
@@ -42,8 +42,10 @@ async fn lost_archive_ack_can_be_proven_on_fresh_connection_without_replaying_mo
             "* CAPABILITY IMAP4rev1 MOVE X-GM-EXT-1\r\n$TAG OK caps\r\n",
         )
         .await;
-        assert!(line(&mut w).await.ends_with("UID MOVE 42 \"Archive\"\r\n"));
-        drop(w); // Provider applied MOVE, but the acknowledgment never arrives.
+        assert!(line(&mut w)
+            .await
+            .ends_with("UID STORE 42 -X-GM-LABELS (\"\\\\Inbox\")\r\n"));
+        drop(w); // Provider removed the Inbox label, but the acknowledgment never arrives.
         let (socket, _) = f.listener.accept().await.unwrap();
         let mut w = BufReader::new(f.acceptor.accept(socket).await.unwrap());
         imap_login(&mut w, false).await;

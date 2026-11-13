@@ -269,7 +269,7 @@ async fn gmail_archive_removes_inbox_only() {
         command(
             &mut w,
             "UID FETCH 42 (UID X-GM-LABELS)",
-            "$TAG OK fetch\r\n",
+            "* 1 FETCH (UID 42 X-GM-LABELS (\\Important Project))\r\n$TAG OK fetch\r\n",
         )
         .await;
         assert_eq!(line(&mut w).await, "");
@@ -279,16 +279,15 @@ async fn gmail_archive_removes_inbox_only() {
     server.await.unwrap();
 }
 #[tokio::test]
-async fn gmail_archive_moves_to_discovered_all_mail_and_checks_source_absence() {
-    for remains in [false, true] {
+async fn gmail_archive_with_move_support_removes_inbox_label_and_verifies_it() {
+    for (labels, remains) in [
+        (Some("\\Important Project"), false),
+        (Some("\\Inbox"), true),
+        (None, false),
+        (None, true),
+    ] {
         let f = Fixture::new().await;
-        let mut config = f.config(Security::Tls);
-        config.kind = ProviderKind::Gmail;
-        config.folders.archive = None;
-        let p = ImapProvider::new(config, credentials())
-            .unwrap()
-            .with_root(native_tls::Certificate::from_der(&f.cert).unwrap())
-            .unwrap();
+        let p = provider(&f, ProviderKind::Gmail, Security::Tls);
         let server = tokio::spawn(async move {
             let mut w = f.accept(false, false).await;
             imap_login(&mut w, false).await;
@@ -299,38 +298,40 @@ async fn gmail_archive_moves_to_discovered_all_mail_and_checks_source_absence() 
                 "* CAPABILITY IMAP4rev1 X-GM-EXT-1 MOVE UIDPLUS\r\n$TAG OK caps\r\n",
             )
             .await;
+            // All Mail already contains Inbox messages. Archive changes only
+            // the Inbox label, even when MOVE is advertised.
             command(
                 &mut w,
-                "LIST \"\" *",
-                "* LIST (\\All) \"/\" \"[Gmail]/All Mail\"\r\n$TAG OK list\r\n",
+                "UID STORE 42 -X-GM-LABELS (\"\\\\Inbox\")",
+                "$TAG OK stored\r\n",
             )
             .await;
-            command(
-                &mut w,
-                "UID MOVE 42 \"[Gmail]/All Mail\"",
-                "$TAG OK [COPYUID 18 42 55] moved\r\n",
-            )
-            .await;
-            command(
-                &mut w,
-                "UID SEARCH UID 42",
-                if remains {
-                    "* SEARCH 42\r\n$TAG OK search\r\n"
-                } else {
-                    "* SEARCH\r\n$TAG OK search\r\n"
-                },
-            )
-            .await;
+            let response = match labels {
+                Some(labels) => {
+                    format!("* 1 FETCH (UID 42 X-GM-LABELS ({labels}))\r\n$TAG OK fetch\r\n")
+                }
+                None => "$TAG OK fetch\r\n".into(),
+            };
+            command(&mut w, "UID FETCH 42 (UID X-GM-LABELS)", &response).await;
+            if labels.is_none() {
+                command(
+                    &mut w,
+                    "UID SEARCH UID 42",
+                    if remains {
+                        "* SEARCH 42\r\n$TAG OK found\r\n"
+                    } else {
+                        "* SEARCH\r\n$TAG OK gone\r\n"
+                    },
+                )
+                .await;
+            }
             assert_eq!(line(&mut w).await, "");
         });
         let result = p.mutate(&reference(), Mutation::Archive).await;
         if remains {
             assert_eq!(result.unwrap_err().kind, ErrorKind::Uncertain);
         } else {
-            let result = result.unwrap();
-            assert_eq!(result.destination.as_deref(), Some("[Gmail]/All Mail"));
-            assert_eq!(result.destination_reference.unwrap().uid, 55);
-            assert!(result.requires_rescan);
+            assert!(result.unwrap().destination.is_none());
         }
         drop(p);
         server.await.unwrap();
@@ -372,6 +373,44 @@ async fn gmail_archive_tagged_ok_with_inbox_remaining_is_not_success() {
         ErrorKind::Uncertain
     );
     server.await.unwrap();
+}
+#[tokio::test]
+async fn gmail_archive_requires_an_exact_label_readback() {
+    for response in [
+        "* 1 FETCH (UID 42 FLAGS ())\r\n$TAG OK fetch\r\n",
+        "* 1 FETCH (UID 43 X-GM-LABELS ())\r\n$TAG OK fetch\r\n",
+    ] {
+        let f = Fixture::new().await;
+        let p = provider(&f, ProviderKind::Gmail, Security::Tls);
+        let server = tokio::spawn(async move {
+            let mut w = f.accept(false, false).await;
+            imap_login(&mut w, false).await;
+            select(&mut w).await;
+            command(
+                &mut w,
+                "CAPABILITY",
+                "* CAPABILITY IMAP4rev1 X-GM-EXT-1 MOVE\r\n$TAG OK caps\r\n",
+            )
+            .await;
+            command(
+                &mut w,
+                "UID STORE 42 -X-GM-LABELS (\"\\\\Inbox\")",
+                "$TAG OK stored\r\n",
+            )
+            .await;
+            command(&mut w, "UID FETCH 42 (UID X-GM-LABELS)", response).await;
+            assert_eq!(line(&mut w).await, "");
+        });
+        assert_eq!(
+            p.mutate(&reference(), Mutation::Archive)
+                .await
+                .unwrap_err()
+                .kind,
+            ErrorKind::Uncertain
+        );
+        drop(p);
+        server.await.unwrap();
+    }
 }
 #[tokio::test]
 async fn safe_uidplus_move_does_not_expunge_unrelated_deleted_messages() {

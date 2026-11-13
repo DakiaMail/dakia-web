@@ -32,9 +32,9 @@ function outcomeError(status: string) {
   if (status === "request_rejected") return "The sender did not accept the unsubscribe request.";
   return "Unsubscribe status is unavailable. No further request will be sent.";
 }
-export function Unsubscribe({ message, account, onCleanup }: { message: Message; account?: Account; onDraft: (draft: Draft) => void; onCleanup?: (rows: Message[]) => void }) {
+export function Unsubscribe({ message, account, onCleanup, lazy = false }: { message: Message; account?: Account; onDraft?: (draft: Draft) => void; lazy?: boolean; onCleanup?: (rows: Message[]) => void }) {
   const path = `${accountPath(message.account_id)}/messages/${key(message.id)}/unsubscribe`;
-  const info = useQuery({ queryKey: ["unsubscribe", message.account_id, message.id], queryFn: ({ signal }) => request<Info | null>(path, { signal }), staleTime: 0, retry: false });
+  const info = useQuery({ queryKey: ["unsubscribe", message.account_id, message.id], queryFn: ({ signal }) => request<Info | null>(path, { signal }), staleTime: 0, retry: false, enabled: !lazy });
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -48,17 +48,21 @@ export function Unsubscribe({ message, account, onCleanup }: { message: Message;
   const status = info.data?.attempt_status;
   const success = done || status === "request_accepted";
   const failure = busy ? "" : error || (status && status !== "request_accepted" ? outcomeError(status) : "");
-  if (!action) return null;
+  if (!action && !lazy) return null;
   const close = () => { if (busy) return false; setOpen(false); requestAnimationFrame(() => trigger.current?.focus()); };
   const confirm = async () => {
     if (sending.current) return;
-    if (success) { setOpen(true); return; }
-    if (attempted || (status && status !== "attempted")) { setOpen(true); return; }
-    if (action.kind === "web") { setError("This sender doesn’t support direct unsubscribe requests."); return; }
     sending.current = true;
-    setAttempted(true);
     setBusy(true);
     try {
+      const current = validAction(info.data) ? info.data : (await info.refetch()).data;
+      const action = validAction(current) ? current : null;
+      const status = current?.attempt_status;
+      if (!action) { setError("Unsubscribe isn’t available for this email."); return; }
+      if (done || status === "request_accepted" || attempted || (status && status !== "attempted")) { setOpen(true); return; }
+      // Web unsubscribe pages remain explicit links, opened only by a click.
+      if (action.kind === "web") return;
+      setAttempted(true);
       const expected = action.kind === "mailto" ? { kind: action.kind, to: action.to, subject: action.subject, body: action.body } : { kind: action.kind, url: action.url };
       const response = !status ? await request<{ queued: boolean } | undefined>(path, { method: "POST", body: JSON.stringify({ expected_action: expected }) }) : { queued: true };
       if (!response?.queued) { setDone(true); setOpen(true); return; }
@@ -83,7 +87,7 @@ export function Unsubscribe({ message, account, onCleanup }: { message: Message;
     } finally { sending.current = false; setBusy(false); }
   };
   return <div className="unsubscribe">
-    <button title="Unsubscribe" ref={trigger} className="unsubscribe-trigger" disabled={busy} onClick={() => void confirm()}><MailMinus size={15} />Unsubscribe</button>
+    {action?.kind === "web" ? <a href={action.url} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer">Unsubscribe <span>{new URL(action.url).hostname}</span></a> : <button title="Unsubscribe" ref={trigger} className="unsubscribe-trigger" disabled={busy} onClick={() => void confirm()}><MailMinus size={15} />Unsubscribe</button>}
     {failure && !open && <p role="alert" className="error">{failure}</p>}
     {open && <Modal title={success ? "Unsubscribe request sent" : "Unsubscribe request"} onClose={close}>
       <div className="unsubscribe-content">

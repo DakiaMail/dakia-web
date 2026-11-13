@@ -15,7 +15,7 @@ async function fixture(page:Page) {
   if(path.endsWith("/events"))return route.fulfill({contentType:"text/event-stream",body:": ready\n\n"});
   if(path.endsWith("/operations")){const op:Operation=route.request().postDataJSON();rows=rows.map(m=>m.account_id===op.account_id&&m.id===op.target_id?{...optimistic(m,op.change),revision:m.revision+1}:m);return reply({...op,status:"applied",revision:2});}
   if(path==="/api/search"){
-   const f={inbox_kind:url.searchParams.get("inbox_kind")||undefined,email_type:url.searchParams.get("email_type")||undefined,attention:url.searchParams.get("attention")==="true"};filters.push(url.search);
+   const f={inbox_kind:url.searchParams.get("inbox_kind")||undefined,email_type:url.searchParams.get("email_type")||undefined,attention:url.searchParams.get("attention")==="true",transactions:url.searchParams.get("transactions")==="true"};filters.push(url.search);
    let matches=rows.filter(m=>matchesClassification(m,f as Parameters<typeof matchesClassification>[1]));
    const offset=Number(url.searchParams.get("continuation")||0);return reply({...mail,rows:matches.slice(offset,offset+50),continuation:matches.length>offset+50?String(offset+50):null});
   }
@@ -34,7 +34,7 @@ for(const width of [390,1480])test(`Personal includes read mail and Automated fi
  await page.getByRole("tab",{name:"Automated",exact:true}).click();
  await page.getByRole("button",{name:"Flights",exact:true}).click();await expect(page.locator(".message-row")).toHaveCount(1);
  expect(filters.some(f=>f.includes("inbox_kind=automated")&&f.includes("email_type=flight_booking"))).toBe(true);
- await page.getByRole("button",{name:"Receipts",exact:true}).click();await expect(page.getByRole("checkbox",{name:"Select Flight",exact:true})).toBeVisible();
+ await page.getByRole("button",{name:"Transactions",exact:true}).click();await expect(page.getByRole("checkbox",{name:"Select Flight",exact:true})).toBeVisible();
  await page.reload();await expect(page.getByRole("tab",{name:"Automated",exact:true})).toHaveAttribute("aria-selected","true");
  await expect(page.locator(".group-heading")).toHaveCount(0);
 });

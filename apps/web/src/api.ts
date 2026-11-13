@@ -123,7 +123,7 @@ export const api = {
     classification: MailFilter = {},
   ) =>
     request<SearchPage>(
-      `/search?${new URLSearchParams({ q, accounts: ids.join(","), ...(continuation ? { continuation } : {}), ...(category ? { category } : {}), ...(excludeTrash ? { exclude_trash: "true" } : {}), ...(refresh ? { refresh: "true" } : {}), ...(cacheFirst ? { cache_first: "true" } : {}), ...(classification.inbox_kind ? { inbox_kind: classification.inbox_kind } : {}), ...(classification.email_type ? { email_type: classification.email_type } : {}), ...(classification.attention ? { attention: "true" } : {}) })}`,
+      `/search?${new URLSearchParams({ q, accounts: ids.join(","), ...(continuation ? { continuation } : {}), ...(category ? { category } : {}), ...(excludeTrash ? { exclude_trash: "true" } : {}), ...(refresh ? { refresh: "true" } : {}), ...(cacheFirst ? { cache_first: "true" } : {}), ...(classification.inbox_kind ? { inbox_kind: classification.inbox_kind } : {}), ...(classification.email_type ? { email_type: classification.email_type } : {}), ...(classification.transactions ? { transactions: "true" } : {}), ...(classification.attention ? { attention: "true" } : {}) })}`,
       { signal },
     ),
   content: (m: Message) =>
@@ -226,11 +226,22 @@ export function actionLabel(change: Change): string {
 // Serialize each target's mutations. An older failure never restores stale state over a newer intent.
 export class OperationQueue {
   private journalKey = "";
+  private permits = 6;
+  private waiting: (() => void)[] = [];
+  private async acquire() {
+    if (this.permits) { this.permits--; return; }
+    await new Promise<void>(resolve => this.waiting.push(resolve));
+  }
+  private release() { const next = this.waiting.shift(); if (next) next(); else this.permits++; }
   private journal = new Map<string, Operation>();
+  private journalScheduled = false;
+  private journalEpoch = 0;
   private chains = new Map<string, Promise<void>>();
   private revisions = new Map<string, number>();
   private latest = new Map<string, string>();
   restore(user: string): Operation[] {
+    if (this.journalScheduled) this.flushJournal();
+    this.journalEpoch++;
     this.journalKey = `dakia-pending-operations:${user}`;
     try {
       const saved: Operation[] = JSON.parse(sessionStorage.getItem(this.journalKey) || "[]");
@@ -241,10 +252,18 @@ export class OperationQueue {
   private remember(op: Operation, remove = false) {
     if (remove) this.journal.delete(op.id);
     else this.journal.set(op.id, op);
-    // Only operation identifiers/intents, never message bodies or credentials.
-    // Storage denial must not prevent mail operations from completing.
-    try { if (this.journalKey) sessionStorage.setItem(this.journalKey, JSON.stringify([...this.journal.values()])); } catch { /* private browsing/quota */ }
+    // Coalesce a bulk intent before its first network request, without storing mail content.
+    if (!this.journalScheduled) {
+      this.journalScheduled = true;
+      const epoch = this.journalEpoch;
+      queueMicrotask(() => { if (epoch === this.journalEpoch) this.flushJournal(); });
+    }
   }
+  private flushJournal() {
+    this.journalScheduled = false;
+    try { if (this.journalKey) sessionStorage.setItem(this.journalKey, JSON.stringify([...this.journal.values()])); } catch { /* Storage denial must not prevent mail actions. */ }
+  }
+
   async resume(op: Operation): Promise<void> {
     // Read-only recovery. Never POST/replay after a lost acknowledgement.
     let result: Operation;
@@ -301,6 +320,7 @@ export class OperationQueue {
         };
         this.remember(op);
         let result: Operation;
+        await this.acquire();
         try { result = await api.operate(op); }
         catch (error) {
           // A known 4xx rejection was not queued. Network/5xx outcomes may
@@ -311,6 +331,7 @@ export class OperationQueue {
           }
           throw new Error(`${actionLabel(change)} could not be verified for “${message.subject?.slice(0, 120) || "(no subject)"}”. ${error instanceof ApiFailure ? `${error.message} ` : ""}Refresh mail and check its current state before trying again.`);
         }
+        finally { this.release(); }
         // Acceptance only queues provider work. Keep the optimistic state and
         // serialize subsequent target actions until the durable outcome is known.
         await this.outcome(op, result, message.subject?.slice(0, 120) || "(no subject)");

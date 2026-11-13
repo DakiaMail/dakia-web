@@ -109,6 +109,9 @@ async fn newsletter_delivery_gate_reaches_real_worker_only_for_eligible_mail() {
                 .await
                 .unwrap();
         }
+        // Give admitted fixture mail a current receipt time before delivery.
+        m.received_at = (chrono::Utc::now() - chrono::Duration::seconds(1)).to_rfc3339();
+        app.store.upsert_message(&a, m.clone()).await.unwrap();
         if id == "pending" {
             assert!(app.store.next_push(&a).await.unwrap().is_none());
             let mut model = app

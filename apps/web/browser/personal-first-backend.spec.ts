@@ -31,8 +31,8 @@ test("personal-first inbox, independent attention, and durable keyboard correcti
   await page.getByRole("button",{name:"Flights",exact:true}).click(); await expect(row(page,3)).toBeVisible();
   await expect(row(page,3).getByText("Reference: ABC123",{exact:true})).toBeVisible();
   await page.getByRole("button",{name:"All automated",exact:true}).click(); await expect(row(page,7)).toBeVisible();
-  const typeLabel = await row(page,2).locator('.detected-types').boundingBox();
-  await page.mouse.click(typeLabel!.x + typeLabel!.width / 2, typeLabel!.y + typeLabel!.height / 2);
+  await expect(page.locator('.detected-types')).toHaveCount(0);
+  await row(page,2).locator('.message-open').click();
   await expect(page.locator('.conversation-title h2')).toHaveText('Synthetic 2');
   await page.keyboard.press('Escape');
   await open(page,4);await page.keyboard.press("Escape");await expect(row(page,4)).toBeVisible();await expect(attention.getByText("Synthetic 4",{exact:true})).toBeVisible();
@@ -65,7 +65,7 @@ test("personal-first inbox, independent attention, and durable keyboard correcti
   await page.keyboard.press("Escape");
   await page.getByRole("tab",{name:"Personal",exact:true}).click(); await expect(row(page,3)).toBeVisible();
   await open(page,0); await menu(page,"Detected types","Flights",true); await page.keyboard.press("Escape");
-  await page.reload(); await expect(row(page,0).getByText("Flights",{exact:true})).toBeVisible(); await expect(row(page,0).locator(".mail-details button")).toHaveCount(0);
+  await page.reload(); await expect(row(page,0)).toBeVisible(); await expect(row(page,0).locator(".detected-types")).toHaveCount(0); await expect(row(page,0).locator(".mail-details button")).toHaveCount(0);
   await expect(row(page,3)).toBeVisible(); await expect(attention.getByText("Synthetic 3",{exact:true})).toHaveCount(0);
   await open(page,0); await menu(page,"Personal or Automated","Always Automated for this sender"); await page.keyboard.press("Escape");
   await expect(row(page,0)).toHaveCount(0); await expect(row(page,3)).toBeVisible();

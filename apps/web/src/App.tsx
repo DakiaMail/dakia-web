@@ -91,6 +91,7 @@ import { useAppHistory, useBackLayer } from "./appHistory";
 
 type Nav =
   | "INBOX"
+  | "Needs attention"
   | "Starred"
   | "Snoozed"
   | "Sent"
@@ -99,6 +100,7 @@ type Nav =
   | "Scheduled";
 const navs = [
   { id: "INBOX", label: "Unified inbox", icon: Inbox },
+  { id: "Needs attention", label: "Needs attention", icon: ShieldAlert },
   { id: "Starred", label: "Starred", icon: Star },
   { id: "Snoozed", label: "Snoozed", icon: Clock },
   { id: "Sent", label: "Sent", icon: Send },
@@ -166,8 +168,8 @@ export function App() {
   const [search, setSearch] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
   const [q, setQ] = useState("");
-  const inboxFilter: MailFilter = !q && nav === "INBOX" ? { ...(view !== "all" ? { inbox_kind: view } : {}), ...(view === "automated" && typeFilter ? { email_type: typeFilter } : {}) } : {};
-  const categoryFilter = JSON.stringify({ revision: "personal-first-1", ...inboxFilter });
+  const inboxFilter: MailFilter = !q && nav === "INBOX" ? { ...(view !== "all" ? { inbox_kind: view } : {}), ...(view === "automated" && typeFilter ? { email_type: typeFilter } : {}) } : !q && nav === "Needs attention" ? { attention: true } : {};
+  const categoryFilter = JSON.stringify({ revision: "personal-first-2", ...inboxFilter });
 
   const [selected, setSelected] = useState<Message | null>(null);
   const savedSelections = useRef<Record<string, ReturnType<typeof emptySelection>>>({});
@@ -337,13 +339,13 @@ export function App() {
         retry: false,
       });
       // The provider search endpoint handles federated coverage and pagination.
-      if (ids.length > 1 || nav === "INBOX" || nav === "Starred" || nav === "Snoozed")
+      if (ids.length > 1 || nav === "INBOX" || nav === "Needs attention" || nav === "Starred" || nav === "Snoozed")
         return api.search(
           nav === "Starred"
             ? "is:starred"
             : nav === "Snoozed"
               ? "is:snoozed"
-              : `folder:${nav}`,
+              : `folder:${nav === "Needs attention" ? "INBOX" : nav}`,
           ids,
           pageParam,
           undefined,
@@ -360,6 +362,8 @@ export function App() {
       page.continuation && !params.includes(page.continuation) ? page.continuation : undefined,
     retry: false,
   });
+  const [attentionNow, setAttentionNow] = useState(Date.now);
+  useEffect(() => { if (nav !== "Needs attention") return; const timer = setInterval(() => setAttentionNow(Date.now()), 15000); return () => clearInterval(timer); }, [nav]);
   const rows = useMemo(() => {
     // A pending server projection may already have removed the cached row.
     // Keep failed originals in their source query until a fresh read reconciles.
@@ -369,14 +373,14 @@ export function App() {
     // projection as ordinary mail actions, independent of stale cached pages.
     if (nav === "Trash" && !q) all = mailRows([{ rows: all }, { rows: Object.values(cleanupRows).filter(m => ids.includes(m.account_id)) }], cleanupRows);
     else all = all.filter(m => !cleanupRows[identity(m)]);
-    if (!q && nav === "INBOX")
+    if (!q && (nav === "INBOX" || nav === "Needs attention"))
       all = all.filter((m) =>
         m.folder_ids.some((f) => f.toUpperCase() === "INBOX") && !snoozedThreads[`${m.account_id}/${m.thread_id}`],
       );
     if (!q && nav === "Snoozed" && snoozeState.isSuccess) all = all.filter(m => !!snoozedThreads[`${m.account_id}/${m.thread_id}`]);
     if (nav === "Starred") all = all.filter((m) => m.starred);
     return all.filter(m => matchesClassification(m, inboxFilter));
-  }, [mail.data, overrides, removed, restoredRows, nav, q, account, categoryFilter, accounts.data, cleanupRows, snoozedThreads, snoozeState.isSuccess]);
+  }, [mail.data, overrides, removed, restoredRows, nav, q, account, categoryFilter, accounts.data, cleanupRows, snoozedThreads, snoozeState.isSuccess, attentionNow]);
   const lastContinuation = mail.data?.pages.at(-1)?.continuation;
   // Start provider reconciliation after a preview without waiting for scroll.
   useEffect(() => {
@@ -863,7 +867,7 @@ export function App() {
   const selectionControls = <MatchingSelection key={`${matchingScope}/${selectionReset}`}
           visible={virtual.getVirtualItems().filter(v => v.end > (listRef.current?.scrollTop || 0) && v.start < (listRef.current?.scrollTop || 0) + (listRef.current?.clientHeight || 0)).map(v => items[v.index].message)}
           actions={checked.size ? messageActions : null} clear={clearSelection} checked={checked} expanded={allMatching} accounts={ids} busy={matchingBusy} setBusy={setMatchingBusy}
-          fetchPage={(token, signal) => api.search(q || (nav === "Starred" ? "is:starred" : nav === "Snoozed" ? "is:snoozed" : `folder:${nav}`), ids, token, undefined, signal, false, false, false, inboxFilter)}
+          fetchPage={(token, signal) => api.search(q || (nav === "Starred" ? "is:starred" : nav === "Snoozed" ? "is:snoozed" : `folder:${nav === "Needs attention" ? "INBOX" : nav}`), ids, token, undefined, signal, false, false, false, inboxFilter)}
           select={(messages, expanded) => { setMatching(expanded ? { scope: matchingScope, rows: messages } : undefined); setSelection({ scope: selectionScope, view, checked: new Set(messages.map(identity)), anchor: null }); }} />;
   const coverage = mail.data?.pages.at(-1);
   const inboxCoverage = !q && nav === "INBOX" ? coverage : undefined;
@@ -1033,7 +1037,7 @@ export function App() {
         setNotificationStatus("Enabling…");
         void enableNotifications().then(() => setNotificationStatus("Notifications enabled")).catch((error) => setNotificationStatus(error instanceof Error ? error.message : "Could not enable notifications. Try again."));
       }} />}
-      <main tabIndex={-1} className={`mailbox ${nav === "INBOX" && !q ? "compact-inbox" : ""} ${checked.size ? "has-selection" : ""}`}>
+      <main tabIndex={-1} className={`mailbox ${(nav === "INBOX" || nav === "Needs attention") && !q ? "compact-inbox" : ""} ${checked.size ? "has-selection" : ""}`}>
         <header className="pane-header">
           <button title="Open navigation"
             className="mobile"
@@ -1067,7 +1071,7 @@ export function App() {
           <RefreshButton updating={updating} failed={refreshFailed} status={refreshStatus} onRefresh={() => void refreshMail()} />
         </header>
         {q && !sidebar && searchForm}
-        {nav === "INBOX" && !q && <AttentionStrip account={account} ids={ids} overrides={overrides} removed={{...removed,...cleanupRows}} snoozed={snoozedThreads} open={message => void open(message)} act={(messages, change) => void act(messages, change)} />}
+        {nav === "INBOX" && !q && <AttentionStrip account={account} ids={ids} overrides={overrides} removed={{...removed,...cleanupRows}} snoozed={snoozedThreads} showAll={() => navigate("Needs attention")} open={message => void open(message)} act={(messages, change) => void act(messages, change)} />}
         <div className="view-toolbar">
           {nav === "INBOX" && !q && <div role="tablist" aria-label="Inbox view" onKeyDown={(event) => {
             if (!plainKey(event.nativeEvent) || event.repeat) return;

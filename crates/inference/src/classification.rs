@@ -7,7 +7,7 @@ use serde_json::Value;
 use std::sync::LazyLock;
 use url::Url;
 
-pub const POLICY_REVISION: &str = "personal-first-1";
+pub const POLICY_REVISION: &str = "personal-first-2";
 const MAX_TEXT: usize = 16_000;
 #[derive(Debug, Clone)]
 pub struct EmailClassificationInput {
@@ -316,6 +316,7 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
             &[
                 "payment receipt",
                 "your receipt",
+                "purchase receipt",
                 "payment received",
                 "payment was received",
             ][..],
@@ -357,6 +358,9 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
                 "you have been invited",
                 "invitation:",
                 "event invitation",
+                "canceled event:",
+                "cancelled event:",
+                "rescheduled event:",
                 "meeting invitation",
             ],
         ),
@@ -526,12 +530,14 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
         // Require one contextual candidate; dates and unrelated bare numbers are not codes.
         let pattern = r"(?i)(?:verification code|security code|one[- ]time code|login code|sign-in code|authentication code|pin code|one[- ]time password|otp)\s*(?:is|:|=)?\s*([A-Z0-9]{4,10})\b";
         let re = Regex::new(pattern).unwrap();
-        let candidates: Vec<_> = re
+        let mut candidates: Vec<_> = re
             .captures_iter(&own)
             .filter_map(|c| c.get(1))
             .map(|c| c.as_str())
             .filter(|s| s.chars().any(|c| c.is_ascii_digit()))
             .collect();
+        candidates.sort_unstable();
+        candidates.dedup();
         if candidates.len() == 1 {
             detail(
                 &mut out,
@@ -626,9 +632,11 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
         )
     }) {
         if let Some(amount) = regex(
-            r"(?i)(?:total(?: paid| due)?|amount paid|amount due|payment of)\s*:?\s*((?:USD|EUR|GBP|\$|€|£)\s*\d[\d,]*(?:\.\d{2})?|\d[\d,]*(?:\.\d{2})?\s*(?:USD|EUR|GBP))\b",
+            r"(?i)\b(?:total(?: paid| due)?|amount paid|amount due|payment of)\s*:?\s*((?:USD|EUR|GBP|\$|€|£)\s*\d[\d., \x{00a0}\x{202f}]*|\d[\d., \x{00a0}\x{202f}]*\s*(?:USD|EUR|GBP|€|£|\$))(?:\s|[;:!?)]|$)",
             &own,
-        ) {
+        ).map(|value| value.trim_end_matches(['.', ',']).trim().to_owned()).filter(|value| {
+            Regex::new(r"(?i)^(?:(?:USD|EUR|GBP|\$|€|£)\s*\d+(?:[., \x{00a0}\x{202f}]\d{3})*(?:[.,]\d{2})?|\d+(?:[., \x{00a0}\x{202f}]\d{3})*(?:[.,]\d{2})?\s*(?:USD|EUR|GBP|€|£|\$))$").unwrap().is_match(value)
+        }) {
             let t = if out.types.contains(&DetectedType::Receipt) {
                 DetectedType::Receipt
             } else if out.types.contains(&DetectedType::Invoice) {
@@ -781,6 +789,65 @@ mod tests {
         ))
         .details
         .is_empty());
+    }
+    #[test]
+    fn repeated_codes_and_european_receipt_totals() {
+        let c = detect(&mail(
+            "Your verification code is 937449",
+            "Your verification code is 937449",
+        ));
+        assert_eq!(
+            c.details
+                .iter()
+                .filter(|d| d.label == "Code"
+                    && d.value == "937449"
+                    && d.action == Some(DetailAction::Copy))
+                .count(),
+            1
+        );
+        for value in [
+            "€12.50",
+            "EUR 12,50",
+            "12,50 EUR",
+            "12,50 €",
+            "1.234,56 €",
+            "1 234,56 EUR",
+            "EUR 1,234.56",
+            "USD 42.00",
+            "$42.00",
+            "€1\u{202f}234,56",
+        ] {
+            let c = detect(&mail("Purchase receipt", &format!("Total: {value}")));
+            assert!(c.types.contains(&DetectedType::Receipt));
+            assert!(
+                c.details
+                    .iter()
+                    .any(|d| d.label == "Total" && d.value == value),
+                "missing {value}: {:?}",
+                c.details
+            );
+        }
+        assert!(
+            detect(&mail("Purchase receipt", "Total: €12.50. Thank you"))
+                .details
+                .iter()
+                .any(|d| d.value == "€12.50")
+        );
+        assert!(detect(&mail("Purchase receipt", "Subtotal: EUR 9.00"))
+            .details
+            .is_empty());
+        for value in ["EUR 12,5", "EUR 1,23,45", "12,5 €"] {
+            assert!(
+                detect(&mail("Purchase receipt", &format!("Total: {value}")))
+                    .details
+                    .is_empty(),
+                "malformed {value}"
+            );
+        }
+        let c = detect(&mail("Canceled event: Planning", "This event was canceled"));
+        assert!(c.types.contains(&DetectedType::EventInvitation));
+        assert!(c.attention.iter().any(|a| a.label == "Event changed"));
+        assert_eq!(c.kind, InboxKind::Personal);
     }
     #[test]
     fn html_quotes_and_untrusted_signals_do_not_create_attention() {

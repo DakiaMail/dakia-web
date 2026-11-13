@@ -1640,7 +1640,6 @@ body {
 .mail-details > :not(.sr-only) { flex-shrink: 0; }
 .mail-details button, .mail-details a { min-height: 28px; border: 1px solid var(--color-border); border-radius: 4px; padding: 2px 6px; color: var(--color-text); font-size: 11px; text-decoration: none; white-space: nowrap; }
 .mail-details a span { color: var(--color-secondary); }
-.detected-types { font-size: 10px; }
 .message-row:has(.mail-details.has-actions) { height: 80px; }
 .message-main:has(.mail-details.has-actions) .message-open { height: 79px; }
 .message-main:has(.mail-details.has-actions) .message-open { grid-template-rows: 18px 18px 30px; }
@@ -1697,3 +1696,6 @@ body {
  .matching-selection .reader-toolbar { flex-basis: 100%; justify-content: space-between; }
  .matching-selection .reader-toolbar button { min-width: 40px; min-height: 44px; }
 }
+
+.mail-details .unsubscribe { display: contents; }
+.mail-details .unsubscribe-trigger { display: inline-flex; align-items: center; gap: 4px; }

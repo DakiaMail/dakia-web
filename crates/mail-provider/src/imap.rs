@@ -559,31 +559,41 @@ impl ImapProvider {
                     checked(&mut s,&format!("UID STORE {} {}FLAGS.SILENT ({flag})",r.uid,if v{"+"}else{"-"})).await?;
                     timing.acknowledged();None
                 }
-                Mutation::Archive if self.config.kind==ProviderKind::Gmail && r.folder.eq_ignore_ascii_case("INBOX") && has(&caps,"MOVE")=>{
-                    // Gmail's discovered All Mail mailbox is its archive. MOVE
-                    // from INBOX removes that membership only, without a global
-                    // EXPUNGE or replaying a possibly applied label command.
+                Mutation::Archive if self.config.kind==ProviderKind::Gmail=>{
+                    // Gmail omits the selected mailbox's label from X-GM-LABELS.
+                    // Resolve the same message in All Mail before removing Inbox.
+                    let source=fetches(&mut s,&r.uid.to_string(),"UID X-GM-MSGID").await?;
+                    let id=if source.len()==1 && source[0].uid==Some(r.uid) {source[0].gmail_id} else {None}
+                        .ok_or_else(|| error(ErrorKind::StaleReference,"Gmail identity unavailable"))?;
                     timing.stage("folder_discovery");
                     let dest=self.special_folder(&mut s,"Archive").await?;
-                    if dest.eq_ignore_ascii_case(&r.folder) {return Err(error(ErrorKind::InvalidInput,"source and destination identical"));}
+                    if dest.eq_ignore_ascii_case("INBOX") {return Err(error(ErrorKind::InvalidInput,"source and destination identical"));}
+                    let selected=checked(&mut s,&format!("SELECT {}",quote(&dest)?)).await?;
+                    let validity=selected.uidvalidity.ok_or_else(|| error(ErrorKind::Unsupported,"missing UIDVALIDITY"))?;
+                    let uids=search_uids(&mut s,&format!("X-GM-MSGID {id}")).await?;
+                    if uids.len()!=1 || uids[0]==0 {return Err(error(ErrorKind::StaleReference,"Gmail identity unavailable"));}
+                    let uid=uids[0];
+                    let target=fetches(&mut s,&uid.to_string(),"UID X-GM-MSGID").await?;
+                    if target.len()!=1 || target[0].uid!=Some(uid) || target[0].gmail_id!=Some(id) {
+                        return Err(error(ErrorKind::StaleReference,"Gmail identity unavailable"));
+                    }
                     write_started = true;
                     timing.write();
-                    destination_reference=transfer(&mut s,r,&dest,"MOVE").await?;
+                    checked(&mut s,&format!("UID STORE {} -X-GM-LABELS ({})",uid,quote("\\Inbox")?)).await?;
                     timing.acknowledged();
-                    if search_uids(&mut s,&format!("UID {}",r.uid)).await?.contains(&r.uid) {
+                    let remaining=fetches(&mut s,&uid.to_string(),"UID X-GM-MSGID X-GM-LABELS").await?;
+                    if remaining.len()!=1 || remaining[0].uid!=Some(uid) || remaining[0].gmail_id!=Some(id) || !remaining[0].has_labels
+                        || remaining[0].labels.iter().any(|label|label.trim_start_matches('\\').eq_ignore_ascii_case("Inbox")) {
                         return Err(error(ErrorKind::Uncertain,"archive did not remove Inbox; reconcile before retry"));
                     }
-                    Some(dest)
-                }
-                Mutation::Archive if self.config.kind==ProviderKind::Gmail=>{
-                    write_started = true;
-                    timing.write();
-                    checked(&mut s,&format!("UID STORE {} -X-GM-LABELS ({})",r.uid,quote("\\Inbox")?)).await?;
-                    timing.acknowledged();
-                    let remaining=fetches(&mut s,&r.uid.to_string(),"UID X-GM-LABELS").await?;
-                    if remaining.iter().any(|f| f.uid==Some(r.uid) && f.labels.iter().any(|label|label.trim_start_matches('\\').eq_ignore_ascii_case("Inbox"))) {
+                    let inbox=checked(&mut s,"EXAMINE \"INBOX\"").await?;
+                    if r.folder.eq_ignore_ascii_case("INBOX") && inbox.uidvalidity!=Some(r.uidvalidity) {
+                        return Err(error(ErrorKind::Uncertain,"UIDVALIDITY changed during mutation verification"));
+                    }
+                    if !search_uids(&mut s,&format!("X-GM-MSGID {id}")).await?.is_empty() {
                         return Err(error(ErrorKind::Uncertain,"archive did not remove Inbox; reconcile before retry"));
                     }
+                    destination_reference=Some(MessageRef {graph_id:None,account_id:r.account_id.clone(),folder:dest,uidvalidity:validity,uid});
                     None
                 }
                 other=>{

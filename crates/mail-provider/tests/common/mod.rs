@@ -164,3 +164,30 @@ pub fn compose() -> dakia_mail_provider::mime::Compose {
         }],
     }
 }
+
+pub async fn gmail_archive_reference(w: &mut Wire) {
+    command(
+        w,
+        "UID FETCH 42 (UID X-GM-MSGID)",
+        "* 1 FETCH (UID 42 X-GM-MSGID 999)\r\n$TAG OK fetch\r\n",
+    )
+    .await;
+    command(
+        w,
+        "SELECT \"Archive\"",
+        "* OK [UIDVALIDITY 18] epoch\r\n$TAG OK selected\r\n",
+    )
+    .await;
+    command(
+        w,
+        "UID SEARCH X-GM-MSGID 999",
+        "* SEARCH 55\r\n$TAG OK found\r\n",
+    )
+    .await;
+    command(
+        w,
+        "UID FETCH 55 (UID X-GM-MSGID)",
+        "* 1 FETCH (UID 55 X-GM-MSGID 999)\r\n$TAG OK fetch\r\n",
+    )
+    .await;
+}

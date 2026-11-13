@@ -1,3 +1,4 @@
+import { MatchingSelection } from "./MatchingSelection";
 import { snoozeTime } from "./snoozeTime";
 import { IconButton, Toast, useDakiaColorScheme } from "@dakia/ui";
 import { DateTimeDialog } from "./DateTimeDialog";
@@ -171,6 +172,11 @@ export function App() {
   const [selected, setSelected] = useState<Message | null>(null);
   const savedSelections = useRef<Record<string, ReturnType<typeof emptySelection>>>({});
   const [selection, setSelection] = useState(() => emptySelection("", "personal"));
+  const [matching, setMatching] = useState<{ scope: string; rows: Message[] }>();
+  const [selectionReset, setSelectionReset] = useState(0);
+  const [matchingBusy, setMatchingBusy] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<{ total: number; done: number; failed: number }>();
+  const bulkRun = useRef<symbol | null>(null);
   const [overrides, setOverrides] = useState<Record<string, Message>>({});
   const [removed, setRemoved] = useState<Record<string, symbol>>({});
   const [restoredRows, setRestoredRows] = useState<Record<string, { message: Message; scope: string; token: symbol }>>({});
@@ -412,22 +418,27 @@ export function App() {
   const selectionOrder = useMemo(() => items.flatMap(item =>
     [identity(item.message)]), [items]);
   const selectionScope = JSON.stringify([account, nav, q, view === "automated" ? typeFilter : "", ids, workspace]);
+  const matchingScope = `${selectionScope}/${view}`;
+  const allMatching = matching?.scope === matchingScope ? matching.rows : undefined;
   const currentSelection = useMemo(() => {
     const saved = selection.view !== view ? savedSelections.current[`${account}/${nav}/${q}/${view}/${typeFilter}`] : undefined;
     const candidate = saved || selection;
     if (mail.isPending && candidate.scope === selectionScope) return candidate;
-    return reconcileSelection(candidate, [...selectionOrder, ...Object.keys(pendingTargets)], selectionScope, view);
-  }, [selection, selectionOrder, selectionScope, view, pendingTargets, mail.isPending]);
+    return reconcileSelection(candidate, [...selectionOrder, ...(allMatching || []).map(identity), ...Object.keys(pendingTargets)], selectionScope, view);
+  }, [selection, selectionOrder, selectionScope, view, pendingTargets, mail.isPending, allMatching]);
   const checked = currentSelection.checked;
   useEffect(() => {
     if (selection !== currentSelection) setSelection(currentSelection);
   }, [selection, currentSelection]);
   function clearSelection() {
+    setSelectionReset(n => n + 1);
+    setMatching(undefined);
     setSelection(emptySelection(selectionScope, view));
   }
   function selectMessage(message: Message, range: boolean, value: boolean) {
+    if (matchingBusy) setSelectionReset(n => n + 1);
     setSelection(old => selectMail(
-      reconcileSelection(old, selectionOrder, selectionScope, view),
+      reconcileSelection(old, [...selectionOrder, ...(allMatching || []).map(identity)], selectionScope, view),
       selectionOrder, identity(message), range, value,
     ));
   }
@@ -572,6 +583,8 @@ export function App() {
     const cacheAccounts = ["archive", "trash", "spam", "move", "snooze", "inbox_kind", "detected_type", "attention", "category"].includes(change.kind) ? [...new Set(messages.map(m => m.account_id))] : [];
     const cacheStarted = Date.now();
     const cacheInvalidation = cacheAccounts.length ? localMailCache.invalidateFolders(cacheAccounts) : Promise.resolve();
+    const progressToken = messages.length > 1 && !background ? Symbol() : null;
+    if (progressToken) { bulkRun.current = progressToken; setBulkProgress({ total: messages.length, done: 0, failed: 0 }); }
     const failures: string[] = [];
     setError(undefined);
     const removing = ["archive", "trash", "spam", "move", "snooze"].includes(change.kind);
@@ -651,7 +664,7 @@ export function App() {
                 return next;
               });
             }
-          }).finally(() => { if (!background && !localClassification) releasePending(identity(m)); });
+          }).finally(() => { if (!background && !localClassification) releasePending(identity(m)); if (progressToken && bulkRun.current === progressToken) setBulkProgress(old => old && ({ ...old, done: old.done + 1, failed: failures.length })); });
       }),
     );
     await reconcileMail(background);
@@ -819,8 +832,9 @@ export function App() {
     {q && <button title="Search" type="submit" aria-label="Search"><Search size={18} /></button>}
     {searchFocused && <SearchSuggestions value={search} ids={ids} onOpen={message => { setSearchFocused(false); setSidebar(false); void open(message, message.account_id); }} />}
   </form>;
+  const currentRows = new Map(rows.map(m => [identity(m), m]));
   const bulk = checked.size
-    ? rows.filter((m) => checked.has(identity(m)))
+    ? (allMatching || rows).filter((m) => checked.has(identity(m)) && !removed[identity(m)]).map(m => overrides[identity(m)] || currentRows.get(identity(m)) || m)
     : active
       ? [active]
       : [];
@@ -829,7 +843,7 @@ export function App() {
     sender={checked.size === 0 ? active || undefined : undefined}
     accounts={accounts.data || []}
     onCleanup={targets => { clearSelection(); if (active && targets.some(m => identity(m) === identity(active))) closeReader(); }}
-    pending={bulk.some(message => pendingTargets[identity(message)] > 0 || !!cleanupRows[identity(message)])}
+    pending={matchingBusy || !!(bulkProgress && bulkProgress.done < bulkProgress.total) || bulk.some(message => pendingTargets[identity(message)] > 0 || !!cleanupRows[identity(message)])}
     archive={() => removeFromReader("archive")}
     unread={() => void act(bulk, { kind: "read", value: false })}
     read={() => void act(bulk, { kind: "read", value: true })}
@@ -1069,6 +1083,12 @@ export function App() {
           <button aria-pressed={!typeFilter} onClick={() => setTypeFilter("")}>All automated</button>
           {Object.entries(emailTypes).map(([type, label]) => <button key={type} aria-pressed={typeFilter === type} onClick={() => setTypeFilter(type as DetectedType)}>{label}</button>)}
         </div>}
+        {!["Drafts", "Scheduled"].includes(nav) && !workspace && <MatchingSelection key={`${matchingScope}/${selectionReset}`}
+          visible={virtual.getVirtualItems().filter(v => v.end > (listRef.current?.scrollTop || 0) && v.start < (listRef.current?.scrollTop || 0) + (listRef.current?.clientHeight || 0)).map(v => items[v.index].message)}
+          checked={checked} expanded={allMatching} accounts={ids} busy={matchingBusy || !!(bulkProgress && bulkProgress.done < bulkProgress.total)} setBusy={setMatchingBusy}
+          fetchPage={(token, signal) => api.search(q || (nav === "Starred" ? "is:starred" : nav === "Snoozed" ? "is:snoozed" : `folder:${nav}`), ids, token, undefined, signal, false, false, false, inboxFilter)}
+          select={(messages, expanded) => { setMatching(expanded ? { scope: matchingScope, rows: messages } : undefined); setSelection({ scope: selectionScope, view, checked: new Set(messages.map(identity)), anchor: null }); }} />}
+        {bulkProgress && <div className="bulk-progress" role="status">{bulkProgress.done < bulkProgress.total ? `${bulkProgress.done} of ${bulkProgress.total} messages processed…` : `${bulkProgress.total - bulkProgress.failed} of ${bulkProgress.total} messages updated${bulkProgress.failed ? `; ${bulkProgress.failed} could not be verified` : ""}.`}{bulkProgress.done === bulkProgress.total && <button onClick={() => setBulkProgress(undefined)}>Dismiss</button>}</div>}
         <div className="pull-status" role="status" style={{ height: pull.refreshing ? 44 : pull.distance }}>
           {(pull.distance > 0 || pull.refreshing) && <span><RefreshCw size={15} />{pull.refreshing ? "Refreshing…" : pull.distance >= 64 ? "Release to refresh" : "Pull to refresh"}</span>}
         </div>

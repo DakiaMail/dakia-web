@@ -1660,3 +1660,11 @@ body {
  .mail-details { padding-left: 28px; }
  .mail-details button, .mail-details a { min-height: 44px; }
 }
+
+.matching-selection { flex-shrink:0; display:flex; align-items:center; flex-wrap:wrap; gap:12px; padding:10px 24px; border-bottom:1px solid var(--color-border); }
+.visible-selection-control { display:flex; align-items:center; gap:10px; cursor:pointer; min-height:32px; }
+.visible-selection-control input { width:16px; height:16px; accent-color:var(--color-accent); }
+.matching-selection-banner { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
+.matching-selection button, .bulk-progress button { color:var(--color-accent); text-decoration:underline; text-underline-offset:3px; background:transparent; border:0; padding:6px; }
+.bulk-progress { flex-shrink:0; padding:10px 24px; }
+@media(max-width:700px) { .matching-selection, .bulk-progress { padding:8px 16px; } }

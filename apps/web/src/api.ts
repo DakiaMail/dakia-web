@@ -226,6 +226,13 @@ export function actionLabel(change: Change): string {
 // Serialize each target's mutations. An older failure never restores stale state over a newer intent.
 export class OperationQueue {
   private journalKey = "";
+  private permits = 6;
+  private waiting: (() => void)[] = [];
+  private async acquire() {
+    if (this.permits) { this.permits--; return; }
+    await new Promise<void>(resolve => this.waiting.push(resolve));
+  }
+  private release() { const next = this.waiting.shift(); if (next) next(); else this.permits++; }
   private journal = new Map<string, Operation>();
   private chains = new Map<string, Promise<void>>();
   private revisions = new Map<string, number>();
@@ -301,6 +308,7 @@ export class OperationQueue {
         };
         this.remember(op);
         let result: Operation;
+        await this.acquire();
         try { result = await api.operate(op); }
         catch (error) {
           // A known 4xx rejection was not queued. Network/5xx outcomes may
@@ -311,6 +319,7 @@ export class OperationQueue {
           }
           throw new Error(`${actionLabel(change)} could not be verified for “${message.subject?.slice(0, 120) || "(no subject)"}”. ${error instanceof ApiFailure ? `${error.message} ` : ""}Refresh mail and check its current state before trying again.`);
         }
+        finally { this.release(); }
         // Acceptance only queues provider work. Keep the optimistic state and
         // serialize subsequent target actions until the durable outcome is known.
         await this.outcome(op, result, message.subject?.slice(0, 120) || "(no subject)");

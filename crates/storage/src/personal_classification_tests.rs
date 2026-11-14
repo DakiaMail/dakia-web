@@ -670,7 +670,7 @@ async fn type_filter_tracks_overlapping_corrections_and_pages_before_limiting() 
     for i in 0..60 {
         let id = format!("typed{i:03}");
         s.upsert_message(&a, message(&a, &id)).await.unwrap();
-        detect(&s, &a, &id, automated(vec![DetectedType::Receipt, DetectedType::Order])).await;
+        detect(&s, &a, &id, automated(vec![DetectedType::Receipt, DetectedType::Invoice, DetectedType::Order])).await;
     }
     let filter = ClassificationFilter { inbox_kind: Some(InboxKind::Automated), email_type: Some(DetectedType::Receipt), attention: false, transactions: false };
     let mut first = s.inbox_rows_filtered(&a, None, None, &filter).await.unwrap();
@@ -681,11 +681,17 @@ async fn type_filter_tracks_overlapping_corrections_and_pages_before_limiting() 
     assert_eq!(next.len(), 10);
     assert!(next.iter().all(|m| !first.iter().any(|old| old.id == m.id)));
     let transactions = ClassificationFilter { inbox_kind: Some(InboxKind::Automated), transactions: true, ..Default::default() };
-    assert_eq!(s.inbox_rows_filtered(&a, None, None, &transactions).await.unwrap().len(), 51);
+    let mut transaction_page = s.inbox_rows_filtered(&a, None, None, &transactions).await.unwrap();
+    assert_eq!(transaction_page.len(), 51);
+    transaction_page.truncate(50);
+    let last_transaction = transaction_page.last().unwrap();
+    let tail = s.inbox_rows_filtered(&a, Some((&last_transaction.received_at, &last_transaction.id)), None, &transactions).await.unwrap();
+    assert_eq!(tail.len(), 10);
+    assert!(tail.iter().all(|m| !transaction_page.iter().any(|old| old.id==m.id)));
     change(&s, &a, "typed000", Change::DetectedType { value: DetectedType::Receipt, present: false }).await;
     let db = s.db(&a).await.unwrap();
     let types: Vec<String> = sqlx::query_scalar("SELECT email_type FROM message_types WHERE message_id='typed000'").fetch_all(&db).await.unwrap();
-    assert_eq!(types, vec!["order"]);
+    assert_eq!(types, vec!["invoice", "order"]);
     change(&s, &a, "typed000", Change::InboxKind { value: Some(InboxKind::Personal), sender: false }).await;
     let filter = ClassificationFilter { inbox_kind: Some(InboxKind::Personal), email_type: Some(DetectedType::Order), attention: false, transactions: false };
     assert_eq!(s.inbox_rows_filtered(&a, None, None, &filter).await.unwrap().len(), 1);

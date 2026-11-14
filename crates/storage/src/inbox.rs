@@ -29,6 +29,8 @@ impl Store {
         };
         let source = if filter.email_type.is_some() {
             "message_types t CROSS JOIN messages m ON m.id=t.message_id"
+        } else if filter.transactions {
+            "(SELECT DISTINCT message_id FROM message_types WHERE email_type IN ('receipt','invoice')) tx CROSS JOIN messages m ON m.id=tx.message_id"
         } else {
             "messages m"
         };
@@ -48,9 +50,6 @@ impl Store {
             let value = serde_json::to_value(email_type)?;
             q.push(" AND t.email_type=")
                 .push_bind(value.as_str().ok_or(Error::Invalid)?.to_owned());
-        }
-        if filter.transactions {
-            q.push(" AND m.id IN (SELECT message_id FROM message_types WHERE email_type IN ('receipt','invoice'))");
         }
         q.push(format!(
             r#" AND instr(upper(json_extract(m.document,'$.folder_ids')),'"INBOX"')>0

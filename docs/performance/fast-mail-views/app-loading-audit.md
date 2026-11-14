@@ -27,3 +27,7 @@ The additional projection and indexes add storage and some write cost. Account m
 ## Search plan comparison
 
 The existing finite 50,000-body benchmark exposed a tradeoff. Forcing date order took 9.67 ms for the rare term and 8.47 ms for no matches; allowing direct FTS rowid seeks took 2.60 ms and 0.33 ms. Conversely a common term slowed from 173 ms to 469 ms with unconditional rowid seeks. The final implementation probes at most 512 FTS hits and uses seeks only for sparse results; common terms retain the original date-order path. Search semantics and substring verification are unchanged. The bounded cutoff is a documented tuning choice, not a universal latency guarantee.
+
+## Installed-version integration
+
+The installed app also has an attention mailbox, the 30-day attention policy and a combined Transactions filter. These are preserved in the integration. Transactions starts from distinct receipt/invoice message IDs in the type index, so messages with both types appear once. In the same synthetic corpus its query measured 150.83 ms before / 0.29 ms after. The combined-version Chrome regression exercises Personal, Automated, Transactions, Orders, cached revisits, Sent and Trash. The combined frontend suite has 261 passing tests.

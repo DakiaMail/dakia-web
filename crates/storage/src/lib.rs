@@ -328,7 +328,7 @@ impl Store {
         // Serialize opening with revocation. Cached handles still require current
         // ownership; stale capabilities must not recreate removed databases.
         let mut timing = timing::Timing::new("account_pool_lock");
-        let mut pools = self.account_pools.lock().await;
+        let mut pools = self.account_pools.clone().lock_owned().await;
         timing.stage("ownership");
         self.authorize(&a.user_id, &a.id).await?;
         timing.stage("account_pool_open");
@@ -339,16 +339,23 @@ impl Store {
         if let Some(db) = pools.get(&a.id) {
             return Ok(db.clone());
         }
-        let db = pool(&self.root.join("accounts").join(format!("{}.sqlite", a.id))).await?;
-        search_legacy::prepare(&db, self.search_database.is_some()).await?;
-        sqlx::migrate!("./migrations/account").run(&db).await?;
-        search_legacy::configure(&db, self.search_database.is_some()).await?;
-        let retained = account_repository::AccountRepository::sqlite(db.clone(), a)
-            .cache_blobs()
-            .await?;
-        self.cleanup_received_orphans(a, retained).await?;
-        pools.insert(a.id.clone(), db.clone());
-        Ok(db)
+        let store = self.clone();
+        let a = a.clone();
+        // A caller's deadline must not repeatedly roll back a long first-open migration.
+        tokio::spawn(async move {
+            let db = pool(&store.root.join("accounts").join(format!("{}.sqlite", a.id))).await?;
+            search_legacy::prepare(&db, store.search_database.is_some()).await?;
+            sqlx::migrate!("./migrations/account").run(&db).await?;
+            search_legacy::configure(&db, store.search_database.is_some()).await?;
+            let retained = account_repository::AccountRepository::sqlite(db.clone(), &a)
+                .cache_blobs()
+                .await?;
+            store.cleanup_received_orphans(&a, retained).await?;
+            pools.insert(a.id.clone(), db.clone());
+            Ok(db)
+        })
+        .await
+        .map_err(|_| Error::Invalid)?
     }
     pub async fn accounts(&self, user: &str) -> Result<Vec<Account>> {
         self.control_repository().accounts(user).await

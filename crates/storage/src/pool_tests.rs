@@ -322,3 +322,36 @@ mod seed_membership_tests;
 
 #[path = "search_lexical_tests.rs"]
 mod search_lexical_tests;
+
+#[tokio::test]
+async fn cancelled_first_open_finishes_initialization() {
+    let (dir, store, user, a, _input) = fixture().await;
+    let db = store.db(&a).await.unwrap();
+    let mut blocker = db.acquire().await.unwrap();
+    sqlx::query("BEGIN IMMEDIATE")
+        .execute(&mut *blocker)
+        .await
+        .unwrap();
+    let reopened = Store::open(dir.path(), [31; 32]).await.unwrap();
+    let scope = reopened.authorize(&user, a.id()).await.unwrap();
+    // The caller's deadline must not keep rolling back a slow initial upgrade.
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(100), reopened.db(&scope))
+            .await
+            .is_err()
+    );
+    sqlx::query("COMMIT").execute(&mut *blocker).await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            if let Ok(pools) = reopened.account_pools.try_lock() {
+                if pools.contains_key(scope.id()) {
+                    break;
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("initialization must finish after its caller is cancelled");
+    assert!(reopened.db(&scope).await.is_ok());
+}

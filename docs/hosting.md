@@ -1,63 +1,72 @@
-# Hosting Dakia
+# Host Dakia
 
-Use the published container image with Docker Compose. It includes the web app, server, classifier, and workers; a source build and a separate database service are not required. The image supports Linux AMD64 and ARM64.
+Run Dakia with Docker Compose. You keep your existing email provider; there is no mail server, database service, or MX change to set up.
 
-Start with [owner setup and everyday use](getting-started.md) after installation. For configuration, backups, and existing OIDC installations, see [operations](../deploy/README.md).
+The steps below use readable configuration files and the published image pinned in `compose.yaml`. They do not run Dakia scripts on your host. You still trust the container image and Docker; review the [Dockerfile](../Dockerfile) and [Compose file](../compose.yaml) before running them.
 
-## Docker Compose
+## Before you start
 
-### One command on a fresh server
+You need:
 
-On a new Debian or Ubuntu server, point your domain's A record at it, keep ports 80 and 443 reachable, and run:
+- A Linux AMD64 or ARM64 host with persistent local storage.
+- Docker Engine and its Compose plugin. On a fresh server, follow Docker's package-repository instructions for [Ubuntu](https://docs.docker.com/engine/install/ubuntu/#install-using-the-repository) or [Debian](https://docs.docker.com/engine/install/debian/#install-using-the-repository). Install Git with your operating system's package manager if needed.
+- An HTTPS address. Choose a public domain with Caddy, an existing reverse proxy, or private access with Tailscale Serve.
 
-```sh
-curl -fsSL -o dakia-install.sh https://raw.githubusercontent.com/DakiaMail/dakia-web/main/scripts/install.sh && sudo sh dakia-install.sh --domain mail.example.com
-```
+Commands use `sudo docker` for a standard Linux Docker installation. If Docker already works without sudo, such as Docker Desktop or rootless Docker, omit `sudo` from Docker commands. Adding yourself to the Docker group grants root-level access; it isn't required for these steps. See [Docker permissions](https://docs.docker.com/engine/install/linux-postinstall/).
 
-The script installs Docker, writes the Compose files and a private `.env` to `/opt/dakia`, starts Dakia with Caddy for automatic HTTPS, and waits for its health check. It needs a minute or two the first time. Then open your address and [create the first login](getting-started.md#create-the-first-login).
-
-Use `--prepare-only` to write the files without installing Docker or starting anything, `--dir` to choose another directory, and `--help` for the rest. The same script is in [`deploy/cloud-init.yaml`](../deploy/cloud-init.yaml) for a Droplet or Hetzner Cloud server's user data, which needs no shell at all: replace the domain, create the server, and wait for HTTPS.
-
-An installation made this way lives in `/opt/dakia`. Run upgrades there, keep its volumes, and use `docker compose -f compose.yaml -f compose.caddy.yaml` for every command.
-
-### Manual
-
-Install Docker with the Compose plugin on your host. Clone the repository and prepare configuration:
+Check the prerequisites:
 
 ```sh
-git clone https://github.com/DakiaMail/dakia-web.git
-cd dakia-web
-cp .env.example .env
+sudo docker version
+sudo docker compose version
+git --version
 ```
 
-Edit `.env` and set `DAKIA_ORIGIN` to the exact HTTPS origin people will open, for example `https://mail.example.com`. Include a nonstandard HTTPS port if you use one. Do not include a path, query, or trailing slash.
+### Protect the first login
+
+The first login owns the installation. Limit who can reach it **before** starting it.
+
+For a public server, use your provider's network firewall to allow TCP 443 only from your current public IP until you have created the owner login. Allow TCP 80 for Caddy's certificate validation. Keep your SSH access allowed. Then open 443 to others after setup. An unshared hostname is not private, and Docker-published ports can bypass UFW rules; use the provider's firewall or an equivalent Docker-aware network policy.
+
+If you cannot restrict public access, start with [private Tailscale access](#private-access-with-tailscale). Don't expose an unclaimed installation while you work through setup.
+
+## Prepare the files
+
+Run these as your normal user. Use a new directory so you don't replace an existing installation:
 
 ```sh
-docker compose up -d --wait
-docker compose ps
+git clone --depth 1 https://github.com/DakiaMail/dakia-web.git ~/dakia
+cd ~/dakia
+chmod 700 .
+(umask 077; printf '%s\n' 'DAKIA_ORIGIN=https://mail.example.com' > .env)
 ```
 
-The default publishes `127.0.0.1:3025` on the Docker host. Configure one of the HTTPS options below, open your address, and follow [first login](getting-started.md#create-the-first-login). Ordinary users do not need Rust, Node.js, Python, or a registry login.
+Replace `https://mail.example.com` with the exact HTTPS address people will open. Don't include a path, query, or trailing slash. Include the HTTPS port if it isn't 443. Keep `.env` private; it can later contain provider secrets.
 
-Run commands from the same directory and keep the same Compose project name. Changing the project name can select different volumes and make an existing installation appear empty. For an additional isolated instance, use a separate directory, project name, port, and origin; do not share its data or secrets volumes with another instance.
+Keep this directory and both Docker volumes through upgrades. Run later commands from here. A second installation needs a different Compose project name as well as its own ports, origin, and storage; a different directory alone doesn't isolate it because `compose.yaml` names the project `dakia`.
 
-## HTTPS on the same host
+## Public HTTPS with Caddy
 
-### Caddy in the same Compose stack
+Point your domain's A record at the server. If you have an AAAA record, it must also reach this server. Ports 80 and 443 must be available for Caddy; if you already have a proxy, use the next section instead of stopping it.
 
-The repository supplies a Compose override that runs Caddy in front of Dakia and obtains certificates for you:
+Copy the supplied Caddy configuration into Compose's automatic override:
 
 ```sh
-docker compose -f compose.yaml -f compose.caddy.yaml up -d --wait
+cp compose.caddy.yaml compose.override.yaml
+cat compose.yaml compose.override.yaml deploy/Caddyfile
+sudo docker compose config --quiet
+sudo docker compose pull
+sudo docker compose up -d --wait
+sudo docker compose ps
 ```
 
-It reads `DAKIA_ORIGIN` from `.env`, serves that exact host on ports 80 and 443, and redirects HTTP to HTTPS. Certificates and Caddy's own state live in the `caddy_data` and `caddy_config` volumes; losing them only means reissuing certificates. Dakia keeps publishing `127.0.0.1:3025` for host-local access, so stop any other service that already holds ports 80 or 443.
+Review the files before starting. The app publishes only `127.0.0.1:3025`; Caddy publishes 80 and 443 and obtains the certificate. The app runs as UID 1000 with a read-only root filesystem, dropped capabilities, and no Docker socket. `config --quiet` checks configuration without printing resolved secrets.
 
-Use this override for every later command, for example `docker compose -f compose.yaml -f compose.caddy.yaml logs -f dakia`. An upgrade still works from the installation directory with `sh scripts/upgrade.sh`.
+Leave `compose.override.yaml` in place. Plain `docker compose` commands load it automatically, including later provider-secret mounts you add to that file. Don't overwrite it with another example. Additional `dakia` settings belong under the existing top-level `services`, alongside `caddy`, not under the top-level `volumes`. Explicit `-f` commands load only the named files, so include every override if you use them.
 
-### Existing reverse proxy
+## Use an existing reverse proxy
 
-If Caddy runs directly on the same host as Docker, a site block can forward to Dakia:
+Skip the Caddy copy step. For Caddy running directly on the Docker host:
 
 ```caddyfile
 mail.example.com {
@@ -65,22 +74,42 @@ mail.example.com {
 }
 ```
 
-Set `DAKIA_ORIGIN=https://mail.example.com`. Configure DNS and certificate issuance for your network, validate your full proxy configuration, and reload it without replacing unrelated sites. See [Caddy's HTTPS reverse-proxy guide](https://caddyserver.com/docs/quick-starts/reverse-proxy).
+Validate and reload your existing proxy configuration without replacing unrelated sites. Preserve the browser's Origin header, then start Dakia:
 
-The example assumes the proxy can reach the Docker host's loopback port. A proxy in another container needs a private Docker network and an upstream pointing to Dakia's container port 3025. A proxy in another VM needs a reachable private bind address and firewall rules that restrict access to the proxy. `localhost` in another container or VM does not refer to Dakia's host.
+```sh
+sudo docker compose config --quiet
+sudo docker compose pull
+sudo docker compose up -d --wait
+```
 
-Preserve the browser's Origin header. A valid HTTPS certificate is required for normal sign-in; plain HTTP on a LAN address is not supported.
+A proxy in another container needs a shared private Docker network and upstream `dakia:3025`. A proxy in another VM needs a reachable private bind address restricted to that proxy. `localhost` inside another container or VM isn't Dakia's host. Don't publish port 3025 to the internet.
 
-### Tailscale Serve
+## Private access with Tailscale
 
-For private access, install and sign in to Tailscale on the Docker host, enable MagicDNS and HTTPS for your tailnet, and configure Serve on that host:
+Skip the Caddy copy step. Install and sign in to Tailscale on the Docker host, enable MagicDNS and HTTPS for your tailnet, and check any existing Serve configuration before adding a route:
 
 ```sh
 tailscale serve --bg http://127.0.0.1:3025
 tailscale serve status
 ```
 
-Set `DAKIA_ORIGIN` to the HTTPS origin shown by Serve, then run `docker compose up -d` again to apply it. Users need access to your tailnet as well as a Dakia login. This does not make the service public on the internet. Check existing Serve configuration before adding a route. See [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve) and its [command reference](https://tailscale.com/docs/reference/tailscale-cli/serve).
+Set `DAKIA_ORIGIN` in `.env` to the HTTPS origin shown by Serve, then run:
+
+```sh
+sudo docker compose config --quiet
+sudo docker compose pull
+sudo docker compose up -d --wait
+```
+
+Users need access to your tailnet and a Dakia login. On a shared tailnet, restrict initial access to your device until the owner login exists. Follow [Tailscale's Serve guide](https://tailscale.com/docs/features/tailscale-serve) if its command requests administrator access or the route isn't available.
+
+## Finish setup
+
+Open your configured HTTPS address. Certificate issuance can take longer than the app's health check; a healthy app doesn't prove HTTPS is ready. Don't bypass certificate warnings. If the page doesn't open, check [operations and troubleshooting](../deploy/README.md#troubleshooting).
+
+Choose **Sign in**, create the first username and password, then follow [Connect an email account](getting-started.md#connect-an-email-account). Once the owner login exists, you can widen network access. Don't remove Dakia's normal login protection from your proxy.
+
+Confirm you can sign out and back in. Connect a mailbox, open a message, and send a test message to an address you control. Take a [backup](../deploy/README.md#backup-and-restore) before relying on the installation.
 
 ## Storage and network access
 
@@ -109,7 +138,7 @@ A managed container platform can run the published image without a shell on the 
 
 Set `DAKIA_ORIGIN` to the exact HTTPS origin the platform gives you, without a trailing slash. It is a plain setting, not a password.
 
-Create the first login immediately after the first deployment completes. A new installation accepts its first login from whoever reaches it and that login becomes the owner, so keep the address to yourself until you have created it. Platform-provided addresses are public by default.
+Restrict access through the platform before the first start, then create the owner login before opening access to others. Knowing an unshared address is not an access restriction. If the platform cannot restrict a fresh installation, use a private deployment path instead.
 
 Managed platforms do not run on the host, so `scripts/upgrade.sh` does not apply. Upgrade by deploying the new image digest and keeping both volumes, and confirm the platform's backup covers `/secrets` as well as `/data`.
 
@@ -121,7 +150,7 @@ Confirm persistent storage, outbound IMAP/SMTP access, backups, and an always-on
 
 ## Platform paths
 
-The Compose package and native AMD64/ARM64 images have been checked, and a Docker VM under Proxmox has been exercised with separate users and disposable TLS mailboxes. The NAS paths below describe manual configuration; platform-specific acceptance and catalog packages are not yet complete.
+The Compose package and native AMD64/ARM64 images have been checked, and a Docker VM under Proxmox has been exercised with separate users and disposable TLS mailboxes. The NAS paths below describe manual configuration; platform-specific acceptance and catalog packages are not yet complete. The [dated VM setup exercise](testing/self-hosting.md) records the latest tested path and its limits.
 
 ### PikaPods
 
@@ -129,7 +158,7 @@ Dakia is not yet a PikaPods catalog app. The [PikaPods catalog handoff](../deplo
 
 ### DigitalOcean or Hetzner Cloud
 
-Create a Debian or Ubuntu server with Docker support and persistent local storage. Point your domain at it, then follow the [installer steps](#one-command-on-a-fresh-server), or supply [`deploy/cloud-init.yaml`](../deploy/cloud-init.yaml) as user data after replacing the example domain. Keep the server running for sync and scheduled sending, and back up both Dakia volumes.
+Create a Debian or Ubuntu server with Docker support and persistent local storage. Point your domain at it, then follow the [Compose steps](#prepare-the-files). The optional [cloud-init installer](#optional-installer) is available if you prefer automated host setup. Keep the server running for sync and scheduled sending, and back up both Dakia volumes.
 
 ### Memory planning
 
@@ -178,8 +207,25 @@ Removing OIDC settings from an installation with OIDC users fails startup. It do
 
 ## Updates and recovery
 
-Run `sh scripts/upgrade.sh` from your installation directory to check published releases, back up, and upgrade. Use `--check` to review a release without changing the installation. The command requires Docker Compose and a shell, and briefly stops Dakia while making its backup.
+Use the [upgrade guide](upgrading.md) to choose a new image and keep the same persistent volumes. The optional upgrade helper makes a backup before activation. Take [routine backups](../deploy/README.md#backup-and-restore) even when you are not upgrading.
 
 The local owner also sees a dismissible release notice in the app. See [upgrading and recovery](upgrading.md) for existing-installation setup, preview releases, private backup storage, recovery, and manual NAS/Portainer upgrades.
 
 Pulling the currently pinned image alone does not select a new version. Keep both persistent volumes and the credential key. Never start an older image against migrated data; recovery uses a matching restored snapshot in fresh storage.
+
+## Optional installer
+
+The main setup above doesn't need an installer. `scripts/install.sh` and [`deploy/cloud-init.yaml`](../deploy/cloud-init.yaml) remain available for operators who want automated host setup.
+
+The installer runs as root, installs Docker through Docker's convenience script when Docker is missing, downloads deployment files, writes `/opt/dakia`, and starts Caddy on ports 80 and 443. Review both the installer and the Docker installation method before choosing it. Use it on a fresh Debian or Ubuntu server, with the same DNS and first-login network restrictions described above.
+
+To inspect a downloaded copy without running it:
+
+```sh
+curl -fsSL -o dakia-install.sh https://raw.githubusercontent.com/DakiaMail/dakia-web/main/scripts/install.sh
+less dakia-install.sh
+```
+
+`sh dakia-install.sh --help` lists its options. After review, `sudo sh dakia-install.sh --domain mail.example.com` starts installation. `--prepare-only` writes files without installing Docker or starting services, and can run without root in a directory you own.
+
+The root installer creates a private, root-owned `/opt/dakia`. For maintenance, enter a root shell with `sudo -i`, then `cd /opt/dakia`. Its Caddy file is named `compose.caddy.yaml`; either include it explicitly in Compose commands or, before adding other overrides, copy it to `compose.override.yaml` so ordinary commands load it. Keep any provider and OIDC changes in that same override.

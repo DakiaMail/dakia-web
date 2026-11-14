@@ -205,7 +205,21 @@ impl Store {
             }
         }
         let expression = fts.join(" AND ");
-        let mut q = sqlx::QueryBuilder::<sqlx::Sqlite>::new("SELECT m.document FROM search_documents d INDEXED BY search_order JOIN messages m ON m.id=d.message_id CROSS JOIN (SELECT ");
+        // Sparse searches should seek FTS hits; common terms keep chronological reads.
+        let sparse = if expression.is_empty() {
+            false
+        } else {
+            // shortcut: sample at most 512 hits, tune this cutoff with live search profiles.
+            let hits: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM (SELECT rowid FROM search_fts WHERE search_fts MATCH ? LIMIT 512)")
+                .bind(&expression).fetch_one(&db).await?;
+            hits < 512
+        };
+        let source = if sparse {
+            "search_documents d"
+        } else {
+            "search_documents d INDEXED BY search_order"
+        };
+        let mut q = sqlx::QueryBuilder::<sqlx::Sqlite>::new(format!("SELECT m.document FROM {source} JOIN messages m ON m.id=d.message_id CROSS JOIN (SELECT "));
         q.push_bind(serde_json::to_string(&filter.classification)?).push(" AS filter) cf WHERE json_array_length(m.document,'$.folder_ids')>0 AND d.source=json_extract(m.document,'$.provider_id') AND NOT EXISTS(SELECT 1 FROM search_dirty WHERE message_id=m.id) ");
         q.push(CLASSIFICATION_SQL);
         if !expression.is_empty() {

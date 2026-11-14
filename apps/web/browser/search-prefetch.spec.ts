@@ -18,7 +18,7 @@ test("indexed search prefetches one page without appending or refetching it", as
     return route.fulfill({ json: [] });
   });
   await page.goto("/");
-  const input = page.getByRole("textbox", { name: "Search all mail" });
+  const input = page.getByRole("combobox", { name: "Search all mail" });
   await input.fill("needle"); await input.press("Enter");
   await expect(page.getByText("Indexed initial", { exact: true })).toBeVisible();
   await expect.poll(() => calls).toEqual(["initial", "second"]);

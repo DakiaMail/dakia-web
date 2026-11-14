@@ -56,7 +56,7 @@ test("keyboard journey persists drafts and mail changes through the real backend
   await page.keyboard.press("f");
   await expect(page.getByRole("dialog").getByRole("textbox", { name: "To", exact: true })).toBeFocused();
   await page.keyboard.press("Escape"); await expect(page.getByRole("dialog")).toHaveCount(0);
-  await page.keyboard.press("/"); await expect(page.getByRole("textbox", { name: "Search all mail" })).toBeFocused();
+  await page.keyboard.press("/"); await expect(page.getByRole("combobox", { name: "Search all mail" })).toBeFocused();
   await page.keyboard.press("Escape"); await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeFocused();
   const order = await page.locator(".message-row .subject").allTextContents();
   const index = order.indexOf("Synthetic 0");

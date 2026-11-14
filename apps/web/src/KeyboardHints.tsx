@@ -6,7 +6,7 @@ export function KeyHint({ keys }: { keys: string }) {
 }
 
 export const shortcutGroups = [
-  { title: "Navigate", shortcuts: [["J / K", "Next / previous email"], ["/", "Search"], ["Escape", "Back / clear selection"], ["?", "Keyboard shortcuts"]] },
+  { title: "Navigate", shortcuts: [["J / K", "Next / previous email"], ["/", "Focus mail search"], ["Escape", "Back / clear selection"], ["?", "Keyboard shortcuts"]] },
   { title: "Write", shortcuts: [["C", "Compose"], ["R", "Reply"], ["Shift+R", "Reply all"], ["F", "Forward"]] },
   { title: "Manage mail", shortcuts: [["E", "Archive"], ["Delete", "Move to trash"], ["U", "Mark unread"], ["Shift+U", "Mark read"], ["S", "Star / unstar"], ["X", "Select / deselect"], ["M", "Move"], ["B", "Snooze"], ["!", "Mark as spam"]] },
 ] as const;

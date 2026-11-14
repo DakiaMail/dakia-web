@@ -143,7 +143,8 @@ test("account, mailbox and search changes clear selection and anchor", async ({ 
   await page.getByRole("button", { name: "Unified inbox", exact: true }).click();
   await page.getByRole("combobox", { name: "Account filter" }).selectOption("all");
   await checkbox(page, 0).click();
-  await page.getByRole("textbox", { name: "Search all mail" }).fill("range");
+  await page.getByRole("combobox", { name: "Search all mail" }).fill("range");
+  await page.getByRole("combobox", { name: "Search all mail" }).press("Enter");
   await expect(page.locator(".mailbox h1")).toHaveText("Search");
   await selected(page, []);
   await checkbox(page, 5).click({ modifiers: ["Shift"] }); await selected(page, [5]);

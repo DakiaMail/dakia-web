@@ -7,6 +7,8 @@
 @import "./tokens.css";
 @import "./date-time.css";
 @import "./menu.css";
+@import "@mantine/core/styles/Popover.css";
+@import "./search.css";
 
 .dakia-button.dakia-button,
 .dakia-icon-button.dakia-icon-button {

@@ -186,7 +186,8 @@ for (const nav of ["Starred", "Snoozed", "Sent", "Trash", "Search"]) {
   test(`incremental scroll pagination applies to ${nav}`, async ({ page }) => {
     const state = await fixture(page);
     if (nav === "Search") {
-      await page.getByRole("textbox", { name: "Search all mail" }).fill("fictional");
+      await page.getByRole("combobox", { name: "Search all mail" }).fill("fictional");
+    await page.getByRole("combobox", { name: "Search all mail" }).press("Enter");
     } else await page.getByRole("button", { name: nav, exact: true }).click();
     await expect.poll(() => state.calls.filter(c => c === "initial").length).toBe(2);
     await bottom(page);

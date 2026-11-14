@@ -46,12 +46,11 @@ for (const width of [1480, 390]) for (const action of ["Archive", "Move to trash
     await page.setViewportSize({ width, height: 980 });
     const state = await fixture(page, { thread });
     // Change account, folder and search before opening the reader.
-    if (width === 390) await page.getByRole("button", { name: "Open navigation" }).click();
     await page.getByRole("combobox", { name: "Account filter" }).selectOption(accounts[0].id);
-    await page.getByRole("button", { name: "Sent", exact: true }).click();
     if (width === 390) await page.getByRole("button", { name: "Open navigation" }).click();
-    await page.getByRole("textbox", { name: "Search all mail" }).fill("Return");
-    await page.getByRole("textbox", { name: "Search all mail" }).press("Enter");
+    await page.getByRole("button", { name: "Sent", exact: true }).click();
+    await page.getByRole("combobox", { name: "Search all mail" }).fill("Return");
+    await page.getByRole("combobox", { name: "Search all mail" }).press("Enter");
     await list(page).evaluate(el => { el.scrollTop = 450; });
     await expect.poll(() => list(page).evaluate(el => el.scrollTop)).toBeGreaterThan(300);
     const scroll = await list(page).evaluate(el => el.scrollTop);
@@ -76,7 +75,7 @@ for (const width of [1480, 390]) for (const action of ["Archive", "Move to trash
     await capture(page, `${width}-${action}-${thread}-after`);
     if (width === 390) await page.getByRole("button", { name: "Open navigation" }).click();
     await expect(page.getByRole("combobox", { name: "Account filter" })).toHaveValue(accounts[0].id);
-    await expect(page.getByRole("textbox", { name: "Search all mail" })).toHaveValue("Return");
+    await expect(page.getByRole("combobox", { name: "Search all mail" })).toHaveValue("Return");
   });
 }
 for (const width of [1480, 390]) for (const action of ["Archive", "Move to trash"]) {

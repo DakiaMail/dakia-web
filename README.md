@@ -55,7 +55,7 @@ Bring Gmail, Outlook.com, Microsoft 365, and other IMAP/SMTP mailboxes into one 
   </tr>
 </table>
 
-Archive, star, snooze, move, or clean up mail in bulk. Unsubscribe from supported mailing lists and block unwanted senders. Keyboard shortcuts and optional shortcut hints keep everyday actions close at hand.
+Archive, star, snooze, move, or clean up mail in bulk. Unsubscribe from supported mailing lists and block unwanted senders. Keyboard shortcuts and optional shortcut hints keep everyday actions close at hand. Press `/` to focus mail search, use arrow keys to choose a quick match, or press Enter to search all mail in the selected accounts. Escape closes suggestions without clearing the query. The Filters control adds sender, recipient, subject, folder, date, and read or starred status filters.
 
 ## At your desk or on your phone
 

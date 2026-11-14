@@ -29,24 +29,22 @@ for (const width of [320, 390, 1480]) test(`search results chrome ${width}`, asy
     return respond([]);
   });
   await page.goto("/");
-  if (width <= 600) await page.getByRole("button", { name: "Open navigation" }).click();
-  const input = page.getByRole("textbox", { name: "Search all mail" });
+  const input = page.getByRole("combobox", { name: "Search all mail" });
   await input.fill("planning");
-  await expect(page.locator(".search-suggestions").getByText("Project planning 1", { exact: true })).toBeVisible();
+  await expect(page.getByRole("listbox", { name: "Search suggestions" }).getByText("Project planning 1", { exact: true })).toBeVisible();
   expect(suggestions).toBeGreaterThan(0);
-  // A debounced search must not move a still-focused mobile drawer input
-  // behind the scrim or lose desktop typing focus.
-  await expect.poll(() => searches.includes("planning")).toBe(true);
+  // Typing shows index-only matches without replacing the inbox.
+  expect(searches).not.toContain("planning");
   await expect(input).toBeVisible();
   await expect(input).toBeFocused();
   await input.press("Enter");
   await expect(page.locator(".message-open").first()).toContainText("Project planning");
   await expect(page.getByRole("combobox", { name: "Search category" })).toHaveCount(0);
   await expect(page.locator(".search-filters,.inbox-sync-status")).toHaveCount(0);
-  await expect(page.locator(".search-suggestions")).toHaveCount(0);
+  await expect(page.getByRole("listbox", { name: "Search suggestions" })).toHaveCount(0);
   await expect(input).toBeVisible();
   await expect(input).toHaveValue("planning");
-  await expect(page.getByRole("textbox", { name: "Search all mail" })).toHaveCount(1);
+  await expect(page.getByRole("combobox", { name: "Search all mail" })).toHaveCount(1);
   if (width <= 600) {
     await expect(page.locator(".app")).not.toHaveClass(/nav-open/);
     await expect.poll(async () => {
@@ -60,7 +58,7 @@ for (const width of [320, 390, 1480]) test(`search results chrome ${width}`, asy
   // queries scroll inside the input rather than widening the whole page.
   const longQuery = "planning a long project query with Unicode café and 東京 ".repeat(3).trim();
   await input.fill(longQuery);
-  await expect(page.locator(".search-suggestions").getByText("Project planning 1", { exact: true })).toBeVisible();
+  await expect(page.getByRole("listbox", { name: "Search suggestions" }).getByText("Project planning 1", { exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Search", exact: true }).click();
   await expect.poll(() => searches.includes(longQuery)).toBe(true);
   await expect(input).toHaveValue(longQuery);
@@ -81,7 +79,7 @@ for (const width of [320, 390, 1480]) test(`search results chrome ${width}`, asy
   await scopedRequest;
   await expect(page.getByRole("combobox", { name: "Account filter" })).toHaveValue(accounts[0].id);
   await input.fill("planning after Enter");
-  await expect(page.locator(".search-suggestions").getByText("Project planning 1", { exact: true })).toBeVisible();
+  await expect(page.getByRole("listbox", { name: "Search suggestions" }).getByText("Project planning 1", { exact: true })).toBeVisible();
   await input.press("Enter");
   // Real provider errors remain actionable, unlike routine partial coverage.
   failed = true;

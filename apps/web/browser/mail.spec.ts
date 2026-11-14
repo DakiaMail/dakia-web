@@ -779,8 +779,9 @@ test("search retains pagination without provider diagnostics", async ({
   );
   await page.goto("/");
   await page
-    .getByRole("textbox", { name: "Search all mail" })
+    .getByRole("combobox", { name: "Search all mail" })
     .fill("old uncached subject");
+  await page.getByRole("combobox", { name: "Search all mail" }).press("Enter");
   await expect(page.getByLabel("Search category")).toHaveCount(0);
   await expect(page.getByText("Provider search", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Provider unavailable", { exact: false })).toHaveCount(0);

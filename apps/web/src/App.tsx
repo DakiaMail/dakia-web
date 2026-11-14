@@ -43,7 +43,6 @@ import {
   Plus,
   RefreshCw,
 
-  Search,
   Send,
   ShieldAlert,
   Star,
@@ -62,7 +61,7 @@ import type {
 } from "@dakia/api-types";
 import { escapeHtml } from "@dakia/mail-renderer";
 import { api, ApiFailure, OperationQueue, optimistic } from "./api";
-import { SearchSuggestions } from "./SearchSuggestions";
+import { MailSearch } from "./MailSearch";
 import { Composer, newDraft } from "./Composer";
 import { AccountSetup } from "./AccountSetup";
 import { MailboxSettingsDialog } from "./MailboxSettings";
@@ -190,7 +189,6 @@ export function App() {
     try { if (session.data) localStorage.setItem(`dakia-inbox-tab:${session.data.user_id}`, tab); } catch { /* denied storage */ }
   }
   const [search, setSearch] = useState("");
-  const [searchFocused, setSearchFocused] = useState(false);
   const [q, setQ] = useState("");
   const inboxFilter: MailFilter = !q && nav === "INBOX" ? { ...(view !== "all" ? { inbox_kind: view } : {}), ...(view === "automated" && typeFilter ? typeFilter === "transactions" ? { transactions: true } : { email_type: typeFilter } : {}) } : !q && nav === "Needs attention" ? { attention: true } : {};
   const categoryFilter = JSON.stringify({ revision: "personal-first-4-attention-30d-transactions", ...inboxFilter });
@@ -523,10 +521,6 @@ export function App() {
         positions.current[`${account}/${nav}/${q}/${view}/${typeFilter}`] || 0;
   }, [account, nav, q, view, typeFilter, mail.isPending, selected, listHeight]);
   useEffect(() => {
-    const t = setTimeout(() => applySearch(search.trim()), 350);
-    return () => clearTimeout(t);
-  }, [search, q]);
-  useEffect(() => {
     const restore = () => void reconcileMail();
     window.addEventListener("online", restore);
     window.addEventListener("focus", restore);
@@ -556,9 +550,9 @@ export function App() {
       if (key === "?") return consume(() => setShortcutHelp(true));
       if (key === "c" && !e.shiftKey) return consume(startCompose);
       if (key === "/" && !e.shiftKey) return consume(() => {
-        setSidebar(true);
-        setSearchFocused(true);
-        requestAnimationFrame(() => document.querySelector<HTMLInputElement>('.sidebar .search input')?.focus());
+        if (selected) navigation.push({ ...route, selected: null });
+        setSidebar(false);
+        requestAnimationFrame(() => document.querySelector<HTMLInputElement>('.mailbox .search input')?.focus());
       });
       if ((key === "j" || key === "k") && !e.shiftKey) return consume(() => navigateMessage(key === "j" ? 1 : -1, target));
       if (!targets.length || pending) return;
@@ -826,44 +820,15 @@ export function App() {
   }
   function applySearch(next: string) {
     if (next === q) return;
+    positions.current[`${account}/${nav}/${q}/${view}/${typeFilter}`] = listRef.current?.scrollTop || 0;
     // A mobile search is submitted from a navigation history layer. Update its
     // underlying screen before closing it, or Back restores the previous query.
-    if (!!next !== !!q || sidebar) {
+    if (!!next !== !!q || sidebar || selected) {
       navigation.push({ ...route, q: next, search: next, selected: null, workspace: false }, undefined, { ...route, search: q }, sidebar);
       setSidebar(sidebar);
     }
     else setQ(next);
   }
-  const searchForm = <form
-    className={`search ${q ? "results-search" : ""}`}
-    role="search"
-    onFocus={() => setSearchFocused(true)}
-    onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setSearchFocused(false); }}
-    onKeyDown={event => {
-      if (event.key !== "Escape" || !plainKey(event.nativeEvent) || event.repeat) return;
-      event.preventDefault(); event.stopPropagation();
-      setSearchFocused(false); setSidebar(false);
-      requestAnimationFrame(() => (listRef.current?.matches("[tabindex]") ? listRef.current : document.querySelector<HTMLElement>(".mailbox"))?.focus());
-    }}
-    onSubmit={event => {
-      event.preventDefault();
-      applySearch(search.trim());
-      setSearchFocused(false);
-      setSidebar(false);
-    }}
-  >
-    {!q && <Search size={16} />}
-    <input
-      placeholder="Search all mail"
-      aria-label="Search all mail"
-      value={search}
-      autoFocus={searchFocused}
-      onChange={event => { setSearch(event.target.value); setSearchFocused(true); }}
-    />
-    <KeyHint keys="/" />
-    {q && <button title="Search" type="submit" aria-label="Search"><Search size={18} /></button>}
-    {searchFocused && <SearchSuggestions value={search} ids={ids} onOpen={message => { setSearchFocused(false); setSidebar(false); void open(message, message.account_id); }} />}
-  </form>;
   const currentRows = new Map(rows.map(m => [identity(m), m]));
   const bulk = checked.size
     ? (allMatching || rows).filter((m) => checked.has(identity(m)) && !removed[identity(m)]).map(m => overrides[identity(m)] || currentRows.get(identity(m)) || m)
@@ -962,7 +927,6 @@ export function App() {
             <X size={18} />
           </button>
         </div>
-        {(!q || sidebar) && searchForm}
 
         <nav aria-label="Mailboxes">
           {navs.map(({ id, label, icon: Icon }) => (
@@ -1062,7 +1026,7 @@ export function App() {
         void enableNotifications().then(() => setNotificationStatus("Notifications enabled")).catch((error) => setNotificationStatus(error instanceof Error ? error.message : "Could not enable notifications. Try again."));
       }} />}
       <main tabIndex={-1} className={`mailbox ${(nav === "INBOX" || nav === "Needs attention") && !q ? "compact-inbox" : ""} ${checked.size ? "has-selection" : ""}`}>
-        <header className="pane-header">
+        <header className="pane-header mail-search-toolbar">
           <button title="Open navigation"
             className="mobile"
             aria-label="Open navigation"
@@ -1070,31 +1034,21 @@ export function App() {
           >
             <Menu size={20} />
           </button>
-          <h1>{q ? "Search" : nav === "INBOX" ? "Inbox" : nav}</h1>
-          <button title="Compose"
-            className="primary list-compose"
-            aria-label="Compose"
-            onClick={startCompose}
-          >
-            <Pencil size={16} />
-          </button>
-          <select title="Account filter"
-            aria-label="Account filter"
-            value={account}
-            onChange={(e) => {
-              changeAccount(e.target.value);
-            }}
-          >
-            <option value="all">All accounts</option>
-            {(accounts.data || []).map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.display_name}
-              </option>
-            ))}
-          </select>
-          <RefreshButton updating={updating} failed={refreshFailed} status={refreshStatus} onRefresh={() => void refreshMail()} />
+          <h1 className="dakia-sr-only">{q ? "Search" : nav === "INBOX" ? "Inbox" : nav}</h1>
+          <MailSearch value={search} committed={q} ids={ids} accounts={accounts.data || []}
+            onChange={setSearch} onSearch={next => { applySearch(next); setSidebar(false); }}
+            onOpen={message => { setSidebar(false); void open(message, message.account_id); requestAnimationFrame(() => document.querySelector<HTMLElement>(".reader")?.focus()); }}
+            backLabel={nav === "INBOX" ? "Back to inbox" : `Back to ${nav.toLowerCase()}`}
+            onBack={() => { navigation.backTo(previous => !previous.q && !previous.selected); requestAnimationFrame(() => document.querySelector<HTMLElement>(".mailbox")?.focus()); }}
+            accountControl={<select title="Account filter" aria-label="Account filter" value={account} onChange={event => changeAccount(event.target.value)}>
+              <option value="all">All accounts</option>
+              {(accounts.data || []).map(account => <option key={account.id} value={account.id}>{account.display_name}</option>)}
+            </select>}
+            actions={<>
+              <RefreshButton updating={updating} failed={refreshFailed} status={refreshStatus} onRefresh={() => void refreshMail()} />
+              <button title="Compose" className="primary list-compose" aria-label="Compose" onClick={startCompose}><Pencil size={16} /></button>
+            </>} />
         </header>
-        {q && !sidebar && searchForm}
         {nav === "INBOX" && !q && <AttentionStrip account={account} ids={ids} overrides={overrides} removed={{...removed,...cleanupRows}} snoozed={snoozedThreads} showAll={() => navigate("Needs attention")} open={message => void open(message)} act={(messages, change) => void act(messages, change)} />}
         <div className="view-toolbar">
           {nav === "INBOX" && !q && <div role="tablist" aria-label="Inbox view" onKeyDown={(event) => {

@@ -90,30 +90,24 @@ test("normal browser history can leave the app after internal navigation is exha
 });
 test("submitted search creates one Back step and restores the previous inbox", async ({ page }) => {
   await fixture(page); await page.goto("/");
-  await page.getByRole("button", { name: "Open navigation", exact: true }).click();
-  await page.getByRole("textbox", { name: "Search all mail" }).fill("Back navigation");
-  await page.getByRole("textbox", { name: "Search all mail" }).press("Enter");
+  await page.getByRole("combobox", { name: "Search all mail" }).fill("Back navigation");
+  await page.getByRole("combobox", { name: "Search all mail" }).press("Enter");
   await expect(page.locator(".mailbox h1")).toHaveText("Search");
   await page.clock.install(); await page.clock.runFor(1000);
   await page.goBack(); await expect(page.locator(".mailbox h1")).toHaveText("Inbox");
   await page.clock.runFor(1000); await expect(page.locator(".mailbox h1")).toHaveText("Inbox");
 });
 
-test("search debounce keeps mobile navigation open while typing", async ({ page }) => {
+test("typing stays in the inbox until Enter and Back restores it", async ({ page }) => {
   await fixture(page); await page.goto("/");
-  await page.getByRole("button", { name: "Open navigation", exact: true }).click();
-  await page.clock.install();
-  const search = page.getByRole("textbox", { name: "Search all mail" });
-  await search.fill("First words"); await page.clock.runFor(400);
-  await expect(page.locator(".app")).toHaveClass(/nav-open/);
+  const search = page.getByRole("combobox", { name: "Search all mail" });
+  await search.fill("First words");
+  await expect(page.locator(".mailbox h1")).toHaveText("Inbox");
   await expect(search).toBeFocused();
-  await search.fill("First words continued"); await page.clock.runFor(400);
-  await search.press("Enter"); await expect(page.locator(".app")).not.toHaveClass(/nav-open/);
+  await search.fill("First words continued"); await search.press("Enter");
   await expect(page.locator(".mailbox h1")).toHaveText("Search");
-  // Each debounced query was committed while the navigation layer stayed open.
-  // Back restores the preceding committed search, then the original inbox.
-  await page.goBack(); await expect(page.getByRole("textbox", { name: "Search all mail" })).toHaveValue("First words");
   await page.goBack(); await expect(page.locator(".mailbox h1")).toHaveText("Inbox");
+  await expect(search).toHaveValue("");
 });
 
 test("a late failed deep-link lookup cannot add an error after manual navigation", async ({ page }) => {

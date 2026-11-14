@@ -10,3 +10,6 @@ export { MailActionButton, type MailActionButtonProps } from "./MailActionButton
 export { DropdownMenu, DropdownMenuItem, DropdownSubmenu, DropdownMenuDivider, type DropdownMenuProps, type DropdownMenuItemProps } from "./DropdownMenu";
 
 export { CopyButton, type CopyButtonProps } from "./CopyButton";
+export { SearchField, type SearchFieldProps, type SearchOption } from "./SearchField";
+export { FilterChip, type FilterChipProps } from "./FilterChip";
+export { FilterPopover, type FilterPopoverProps } from "./FilterPopover";

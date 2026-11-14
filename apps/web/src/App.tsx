@@ -332,9 +332,8 @@ export function App() {
         staleTime: pageParam ? 30000 : 0,
         retry: false,
       });
-      // The provider search endpoint handles federated coverage and pagination.
-      if (ids.length > 1 || nav === "INBOX" || nav === "Starred" || nav === "Snoozed")
-        return api.search(
+      // Every folder uses the same cache-first path, including single-account views.
+      return api.search(
           nav === "Starred"
             ? "is:starred"
             : nav === "Snoozed"
@@ -349,7 +348,6 @@ export function App() {
           true,
           inboxFilter,
         );
-      return api.messages(ids[0], nav, pageParam, signal);
     },
     // Repeated opaque cursors are not progress, including multi-page cycles.
     getNextPageParam: (page, _pages, _param, params) =>

@@ -508,3 +508,31 @@ async fn sparse_views_use_indexes_instead_of_scanning_mailbox_json() {
         assert!(!details.iter().any(|detail| detail == "SCAN m"), "{details:?}");
     }
 }
+
+#[tokio::test]
+async fn type_filter_tracks_overlapping_corrections_and_pages_before_limiting() {
+    let (_d, s, _u, a, _) = fixture().await;
+    for i in 0..60 {
+        let id = format!("typed{i:03}");
+        s.upsert_message(&a, message(&a, &id)).await.unwrap();
+        detect(&s, &a, &id, automated(vec![DetectedType::Receipt, DetectedType::Order])).await;
+    }
+    let filter = ClassificationFilter { inbox_kind: Some(InboxKind::Automated), email_type: Some(DetectedType::Receipt), attention: false };
+    let mut first = s.inbox_rows_filtered(&a, None, None, &filter).await.unwrap();
+    assert_eq!(first.len(), 51);
+    first.truncate(50);
+    let last = first.last().unwrap();
+    let next = s.inbox_rows_filtered(&a, Some((&last.received_at, &last.id)), None, &filter).await.unwrap();
+    assert_eq!(next.len(), 10);
+    assert!(next.iter().all(|m| !first.iter().any(|old| old.id == m.id)));
+    change(&s, &a, "typed000", Change::DetectedType { value: DetectedType::Receipt, present: false }).await;
+    let db = s.db(&a).await.unwrap();
+    let types: Vec<String> = sqlx::query_scalar("SELECT email_type FROM message_types WHERE message_id='typed000'").fetch_all(&db).await.unwrap();
+    assert_eq!(types, vec!["order"]);
+    change(&s, &a, "typed000", Change::InboxKind { value: Some(InboxKind::Personal), sender: false }).await;
+    let filter = ClassificationFilter { inbox_kind: Some(InboxKind::Personal), email_type: Some(DetectedType::Order), attention: false };
+    assert_eq!(s.inbox_rows_filtered(&a, None, None, &filter).await.unwrap().len(), 1);
+    sqlx::query("DELETE FROM messages WHERE id='typed000'").execute(&db).await.unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM message_types WHERE message_id='typed000'").fetch_one(&db).await.unwrap();
+    assert_eq!(count, 0);
+}

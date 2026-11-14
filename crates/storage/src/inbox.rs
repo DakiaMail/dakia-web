@@ -20,23 +20,65 @@ impl Store {
         filter: &ClassificationFilter,
     ) -> Result<Vec<Message>> {
         let db = self.db(a).await?;
-        let rows: Vec<String> = sqlx::query_scalar(&format!(
-            r#"SELECT m.document FROM messages m CROSS JOIN (SELECT ? AS filter) cf
-             WHERE instr(upper(json_extract(m.document,'$.folder_ids')),'"INBOX"')>0
+        // The static candidate predicate lets SQLite use the sparse attention index.
+        // Expiry and manual dismissal are still checked by CLASSIFICATION_SQL.
+        let attention = if filter.attention {
+            "AND (json_extract(m.document,'$.classification.attention_override')=1 OR json_array_length(m.document,'$.classification.attention')>0)"
+        } else {
+            ""
+        };
+        let source = if filter.email_type.is_some() {
+            "message_types t CROSS JOIN messages m ON m.id=t.message_id"
+        } else {
+            "messages m"
+        };
+        let mut q = sqlx::QueryBuilder::<sqlx::Sqlite>::new(format!(
+            "SELECT m.document FROM {source} CROSS JOIN (SELECT "
+        ));
+        q.push_bind(serde_json::to_string(filter)?)
+            .push(" AS filter) cf WHERE 1=1");
+        if let Some(kind) = &filter.inbox_kind {
+            q.push(" AND COALESCE(json_extract(m.document,'$.classification.kind'),'personal')=")
+                .push_bind(match kind {
+                    InboxKind::Personal => "personal",
+                    InboxKind::Automated => "automated",
+                });
+        }
+        if let Some(email_type) = &filter.email_type {
+            let value = serde_json::to_value(email_type)?;
+            q.push(" AND t.email_type=")
+                .push_bind(value.as_str().ok_or(Error::Invalid)?.to_owned());
+        }
+        if filter.transactions {
+            q.push(" AND m.id IN (SELECT message_id FROM message_types WHERE email_type IN ('receipt','invoice'))");
+        }
+        q.push(format!(
+            r#" AND instr(upper(json_extract(m.document,'$.folder_ids')),'"INBOX"')>0
              AND EXISTS(SELECT 1 FROM json_each(m.document,'$.folder_ids') f WHERE upper(f.value)='INBOX')
              AND CASE WHEN json_valid(json_extract(m.document,'$.provider_id')) THEN NOT EXISTS(SELECT 1 FROM provider_documents v WHERE v.key='thread:epoch:'||json_extract(json_extract(m.document,'$.provider_id'),'$.folder') AND CAST(v.document AS INTEGER)<>json_extract(json_extract(m.document,'$.provider_id'),'$.uidvalidity')) ELSE 1 END
              AND NOT EXISTS(SELECT 1 FROM operations o WHERE json_extract(o.document,'$.target_id')=m.id AND json_extract(o.document,'$.status')='pending' AND json_extract(o.document,'$.change.kind') IN ('archive','spam','trash'))
              AND NOT EXISTS(SELECT 1 FROM snoozes s WHERE s.thread_id=json_extract(m.document,'$.thread_id') AND s.until>?)
+             {attention}
              {CLASSIFICATION_SQL}
              AND (? IS NULL OR json_extract(m.document,'$.category') IS NULL OR json_extract(m.document,'$.category')=?)
              AND (? IS NULL OR (json_extract(m.document,'$.received_at'),m.id)<(?,?))
-             ORDER BY json_extract(m.document,'$.received_at') DESC,m.id DESC LIMIT 51"#,
-        ))
-        .bind(serde_json::to_string(filter)?)
-        .bind(now())
-        .bind(category).bind(category)
-        .bind(before.map(|b| b.0)).bind(before.map(|b| b.0)).bind(before.map(|b| b.1))
-        .fetch_all(&db).await?;
+             "#,
+        ));
+        q.push(if filter.email_type.is_some() {
+            " ORDER BY t.received_at DESC,t.message_id DESC LIMIT 51"
+        } else {
+            " ORDER BY json_extract(m.document,'$.received_at') DESC,m.id DESC LIMIT 51"
+        });
+        // Bind nullable predicates in the static tail without widening the page.
+        let mut query = q.build_query_scalar::<String>();
+        query = query
+            .bind(now())
+            .bind(category)
+            .bind(category)
+            .bind(before.map(|b| b.0))
+            .bind(before.map(|b| b.0))
+            .bind(before.map(|b| b.1));
+        let rows = query.fetch_all(&db).await?;
         rows.into_iter()
             .map(|s| Ok(serde_json::from_str(&s)?))
             .collect()

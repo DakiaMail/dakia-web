@@ -29,3 +29,11 @@ test("IME and modified keys retain native behavior", () => {
   }
   expect(search).not.toHaveBeenCalled(); expect(choose).not.toHaveBeenCalled();
 });
+
+test("native form submission cannot search during an active composition", () => {
+  const { input, search, getByRole } = field();
+  fireEvent.compositionStart(input); fireEvent.keyDown(input, { key: "Enter" }); fireEvent.submit(getByRole("search"));
+  expect(search).not.toHaveBeenCalled();
+  fireEvent.compositionEnd(input); fireEvent.submit(getByRole("search"));
+  expect(search).toHaveBeenCalledOnce();
+});

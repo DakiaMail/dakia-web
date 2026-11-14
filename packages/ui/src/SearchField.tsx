@@ -31,6 +31,7 @@ export const SearchField = forwardRef<HTMLInputElement, SearchFieldProps>(functi
   value, onChange, onSearch, onDismiss, label, placeholder = label, searchActionLabel, icon, clearIcon, options = [], loading, status, shortcutHint, className = "",
 }, ref) {
   const id = useId();
+  const composing = useRef(false);
   const input = useRef<HTMLInputElement | null>(null);
   const [opened, setOpened] = useState(false);
   const [selection, setSelection] = useState<{ id: string; value: string }>();
@@ -42,7 +43,7 @@ export const SearchField = forwardRef<HTMLInputElement, SearchFieldProps>(functi
   }
   function submit() { setOpened(false); setSelection(undefined); onSearch(); }
   return <form className={`dakia-search-field ${className}`} role="search" aria-label={label}
-    onSubmit={event => { event.preventDefault(); submit(); }}
+    onSubmit={event => { event.preventDefault(); if (!composing.current) submit(); }}
     onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) { setOpened(false); setSelection(undefined); } }}>
     <div className="dakia-search-control">
       <button type="submit" aria-label="Search" className="dakia-search-icon">{icon}</button>
@@ -50,13 +51,13 @@ export const SearchField = forwardRef<HTMLInputElement, SearchFieldProps>(functi
         role="combobox" type="text" aria-label={label} placeholder={placeholder} autoComplete="off" spellCheck={false}
         aria-autocomplete="list" aria-expanded={expanded} aria-controls={expanded ? `${id}-list` : undefined}
         aria-activedescendant={expanded && active >= 0 ? `${id}-${active}` : undefined}
-        value={value} onFocus={() => setOpened(true)} onClick={() => setOpened(true)}
+        value={value} onCompositionStart={() => { composing.current = true; }} onCompositionEnd={() => { composing.current = false; }} onFocus={() => setOpened(true)} onClick={() => setOpened(true)}
         onChange={event => { onChange(event.target.value); setSelection(undefined); setOpened(true); }}
         onKeyDown={event => {
           if (event.key === "Tab" && !event.ctrlKey && !event.metaKey && !event.altKey && !event.nativeEvent.isComposing) {
             setOpened(false); setSelection(undefined); return;
           }
-          if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+          if (composing.current || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229 || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
           if (event.key === "Escape") {
             event.preventDefault(); event.stopPropagation();
             if (expanded) { setOpened(false); setSelection(undefined); } else if (onDismiss) onDismiss(); else input.current?.blur();

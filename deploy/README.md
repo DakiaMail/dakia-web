@@ -66,7 +66,7 @@ Use the source-revision label and immutable digest to identify an image. Keep op
 
 ## Build
 
-Install the requirements and run the checks in the root README. Retrieve the oversized model first:
+Install the requirements and run the checks in the root README. To build the legacy runtime bundle:
 
 ```sh
 sh deploy/build-bundle.sh
@@ -124,7 +124,7 @@ Do not run an older binary directly against migrated data. Roll back using a mat
 Use `Dockerfile.build` when compiling Linux binaries in a container. It combines
 Rust 1.98 with the Ubuntu 24.04 C runtime used by the production image. Building
 against Debian Bookworm's older glibc can fail on `__isoc23_strtol` symbols from
-the pinned inference library. Do not change runtime security or inference
+native dependencies. Do not change runtime security or inference
 features to work around a mismatched build environment.
 
 Build the image using only its Dockerfile as context:

@@ -1,45 +1,63 @@
 # Features
 
-Dakia connects to Microsoft accounts through [Microsoft Graph](microsoft-oauth.md), Gmail through Google sign-in or app passwords, and other existing IMAP/SMTP mailboxes. It does not replace your email provider. See [getting started](getting-started.md) for owner setup, joining, and connecting mail.
+Dakia brings your existing mailboxes into one app. Connect Gmail with Google sign-in or an app password, Outlook.com and Microsoft 365 with Microsoft sign-in, or another provider through IMAP/SMTP. Start with [getting started](getting-started.md).
 
-## Separate people and mailboxes
+## Personal and Automated
 
-The local owner can invite other people with single-use links. Each person chooses their own login and connects their own email accounts. Their unified inbox, search, drafts, and attachments stay scoped to their account. Invitation management does not grant access to someone else's mail.
+The inbox starts with **Personal**. **Automated** keeps generated mail together, and **All** shows both. Dakia remembers your last inbox tab. Read messages stay in their tab, and uncertain mail stays in Personal.
 
-Each person can connect more than one mailbox. Use the account list for one mailbox or Unified inbox for all of your own accounts.
+![Personal inbox with a conversation open](images/personal.webp)
 
-## Read and organize
+Automated has filters for Transactions, Orders, Shipping, Invitations, Codes, Flights, Newsletters, Offers, and Security alerts. **Transactions** includes receipts and invoices. Types can overlap, so an order confirmation can also appear under Shipping when both are detected.
 
-Conversations, search, smart categories, stars, snooze, and bulk actions help organize mail. Workspace provides mailbox settings, reconnection, removal, and per-browser image privacy controls.
+![Automated mail with type filters and a receipt open](images/automated.webp)
 
-![Desktop Workspace with a connected fictional mailbox and image privacy controls](images/workspace-desktop.png)
+Use **More actions** in a message to correct Personal/Automated, remember or forget a sender preference for that mailbox, edit detected types, or change attention. An individual message correction takes priority over a sender preference. Classification runs on your server with local rules. Detection is best effort, especially outside English; see the [classification reference](personal-first-classification.md).
 
-## Block unwanted senders
+## Needs attention
 
-Open an email and choose **More actions → Block sender** in the toolbar. Future emails from that address move to Trash across your mailboxes without notifications while Dakia syncs. Older mail stays in place unless you review it and confirm cleanup. Manage blocks in **Workspace → Blocked senders**. Restored emails stay restored, and unblocking does not empty or restore Trash.
+Important items can surface above every inbox tab, including when they are Automated. **Needs attention** in the sidebar gives them a separate view. Examples include verification codes, flight changes, and payment problems. Where Dakia finds useful details, copy a code or open a labelled link directly from the list.
 
-## Write and send
+![Attention view with a verification code and cancelled flight](images/attention.webp)
 
-Rich-text composing, attachments, drafts, replies, forwarding, and scheduled sending. Dakia must remain running and connected for scheduled work.
+Reading doesn't dismiss attention. Dismiss it explicitly, snooze it, or archive it when finished. Attention covers mail received in the last 30 days. Code highlighting expires at a detected expiry or after 15 minutes when none is found; this doesn't determine whether the code itself is valid. Detection doesn't make payments or respond to invitations for you.
 
-## On your devices
+## Translation on your device
 
-The web app adapts to desktop and mobile screens and can be installed as a PWA. Sign in on another device with the same Dakia login to access your mailboxes. Recent folders and bodies are cached on this browser for fast reopening after session checks. An already-authorized session can read saved mail offline; installation does not download a full offline mailbox.
+Choose **Translate to English** in a message and switch between the translation and original. On-device translation runs in your browser. Its first use downloads a language pack; saved packs can be reused after reloads and browser restarts, including offline when the message and session are already available.
 
-<img src="images/mail-mobile.png" alt="Mobile view of a message in Bob's fictional mailbox" width="390">
+![Real on-device translation of an Estonian message](images/translation.webp)
 
-Both screenshots use fictional mailboxes. They show the running app, not a design mockup.
+The installation owner chooses **On devices**, **On devices with host fallback**, or **On the host** in **Workspace → Translation**. Server translation is the default. Everyone can remove saved language packs from their own browser. See [translation settings](on-device-translation.md) for supported behavior and storage limits.
 
-Optional push notifications require host configuration and browser permission. Notifications can include a summary fetched by the signed-in browser; see [privacy](privacy.md).
+## Search and conversations
 
-## Translate on your device
+Search across your connected accounts or narrow the scope to one mailbox. Follow replies in conversations, download attachments, star messages, and switch between folders. Recent folders and message bodies are saved in a bounded browser cache for faster reopening after session checks. See [saved mail and offline limits](persistent-local-cache.md).
 
-Choose **Translate to English** while reading an email. The first on-device translation downloads the language pack, with a circular progress indicator and a cancel button. Saved packs survive page reloads and browser restarts, so later translations can reuse them without another download. Switch back to the original email at any time.
+## Write now, send later
 
-In **Workspace → Translation**, administrators can choose device-only translation, device translation with host fallback, or host-only translation. Host fallback lets devices that cannot finish a translation use the server instead. Host-only remains the default. You can also remove saved language packs from your browser in Workspace.
+Compose rich-text messages with attachments, reply, forward, and keep drafts. Choose a send time when a message should go later. Dakia must stay running and connected for scheduled sending.
 
-See [translation settings and saved languages](on-device-translation.md) for details, including offline use and browser storage limits.
+![New message composer and send-later picker](images/compose.webp)
 
-## Local mail tools
+## Clean up mail
 
-Classification runs on the host. Provider compatibility, resource requirements, and platform coverage are still being tested.
+Archive, move, mark read, snooze, or remove messages in bulk. Snooze hides a message from Inbox until your chosen time; **Snoozed** shows when it will return and lets you bring it back sooner.
+
+Unsubscribe from supported mailing lists. To block an address, open a message and choose **More actions → Block sender**. Future mail from that address moves to Trash across your mailboxes without notifications during sync. Older mail stays where it is unless you review and confirm cleanup. Manage blocks in **Workspace → Blocked senders**. Unblocking doesn't restore Trash, and restored messages stay restored.
+
+## Desktop and mobile
+
+Use the responsive app in a browser or install it as a PWA. Sign in on another device with the same Dakia login. Keyboard shortcuts and optional hints support everyday mail actions; Tab reaches controls, and arrow keys navigate inbox tabs and menus. Shortcut preferences are in Workspace.
+
+<img src="images/reader-mobile.webp" alt="Mobile conversation reader in dark theme" width="320">
+
+Optional push notifications require [host configuration](../workers/README.md) and browser permission. Personal mail and active attention items are eligible, subject to unread, block, and snooze rules. Notifications can display a message summary fetched by the signed-in browser; see [privacy](privacy.md).
+
+## Separate logins and mailboxes
+
+Invite others with single-use links. Each person gets separate mailbox connections, messages, search, drafts, and attachments. A unified inbox combines only that person's accounts. The owner's invitation controls don't give access to another person's mail through the app. The server operator still has access to host files and backups.
+
+Workspace contains mailbox settings, reconnection, removal, image privacy, and translation settings. See [security](security.md) and [getting started](getting-started.md).
+
+Screenshots use fictional mail. [Capture details](images/README.md).

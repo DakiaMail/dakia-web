@@ -1,6 +1,6 @@
 # Security
 
-This is an initial overview, not a security audit or a guarantee. A fuller threat model and hardening guide are planned.
+This guide describes Dakia's current protections and limits. It isn't an independent security audit.
 
 ## Login and ownership
 

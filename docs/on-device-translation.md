@@ -1,24 +1,23 @@
-# Translation location and saved language packs
+# On-device translation
+
+Open an email and choose **Translate to English**. Use **Show original** to switch back and **Show translation** to return to the translated version. Translation is available for the source languages supported by the selected mode; an unavailable language or failed download is shown in the reader.
+
+The first on-device use downloads the language pack. Later translations can reuse it without another download. Remove saved languages in **Workspace → Translation** when you no longer need them. Browsers may remove packs under storage pressure. Offline translation requires an already-available message, session, and pack; it doesn't provide offline sign-in.
+
+![An Estonian email translated to English on the device](images/translation.webp)
+
+## Choose where translation runs
 
 Installation owners can choose where translations run in **Workspace → Translation**:
 
 - **On devices:** translation runs in the reader's browser. If it cannot finish, the reader shows an error and lets the user retry. Host translation is blocked by the backend, including direct API requests and queued work.
 - **On devices with host fallback:** try the browser first, then use the host if the browser cannot download or run the language pack, runs out of storage, or cannot finish. The reader explicitly reports when host translation is used. Cancellation and a busy translator do not trigger fallback.
-- **On the host:** use the existing host translation worker. This remains the default for existing installations. Devices do not download translation weights in this mode.
+- **On the host:** use the existing host translation worker. This is the default. Devices do not download translation weights in this mode.
 
-The choice applies to everyone on this Dakia installation and survives server restarts. Ordinary users can see the policy but cannot edit it. Switching to device-only mode prevents new host jobs and cancels queued translation jobs; active host translation checks the policy every 500 ms and discards its subprocess/result when host translation is disabled. Classification is unaffected.
+The choice applies to everyone on this installation and survives restarts. Other users can see the setting but cannot change it. Device-only mode blocks server translation, including queued work. Classification still runs on the server.
 
-## Administration
-
-The local installation owner has permission automatically. For an OIDC installation, the operator must explicitly nominate administrators using comma-separated stable Dakia user IDs:
-
-```sh
-DAKIA_ADMIN_USERS=user-id-one,user-id-two
-```
-
-Use the `user_id` from `/api/session`, not an email address or OIDC display name. The compose file forwards this setting to the container. This does not grant access to another person's mailboxes. No first-visitor or email-domain-based promotion is performed.
-
-The authenticated `GET /api/translation/settings` response includes `mode` (`host`, `device`, or `automatic`) and `can_manage`. Only an administrator can `PUT` a new mode. Normal origin and CSRF checks apply. The policy is stored in the existing control database settings table; no data migration is required. Invalid/corrupt policy data fails closed rather than silently allowing host work.
+<details>
+<summary>Operator and implementation reference</summary>
 
 ## Reader experience
 
@@ -35,6 +34,18 @@ Workspace lists complete saved packs and lets any user remove weights from their
 One browser worker is active at a time. It uses Firefox's optimized runtime, transferable model buffers, input-buffer detachment and disabled sentence caching. Downloads fill one bounded buffer directly instead of retaining and combining network chunks. It releases native response handles after each translation. The reader cancels work and releases the worker when its content/account changes, it unmounts, the user cancels, or the session expires. A warm idle worker is released after fifteen seconds. Downloaded files remain saved, so reuse after idle does not need another network download.
 
 The implementation uses actual worker availability and runtime errors, not an unverified minimum-RAM cutoff. A bounded worker deadline makes automatic fallback possible when the browser stalls. An operating-system termination of the entire browser tab cannot be recovered inside that tab. Other browsers and lower-memory devices still need qualification; the earlier physical Android study is evidence for the runtime, not universal device certification.
+
+## Administration
+
+The local installation owner has permission automatically. For an OIDC installation, the operator must explicitly nominate administrators using comma-separated stable Dakia user IDs:
+
+```sh
+DAKIA_ADMIN_USERS=user-id-one,user-id-two
+```
+
+Use the `user_id` from `/api/session`, not an email address or OIDC display name. The compose file forwards this setting to the container. This does not grant access to another person's mailboxes. No first-visitor or email-domain-based promotion is performed.
+
+The authenticated `GET /api/translation/settings` response includes `mode` (`host`, `device`, or `automatic`) and `can_manage`. Only an administrator can `PUT` a new mode. Normal origin and CSRF checks apply. The policy is stored in the existing control database settings table; no data migration is required. Invalid/corrupt policy data fails closed rather than silently allowing host work.
 
 ## Host and asset delivery
 
@@ -66,3 +77,5 @@ CHROME_PATH='/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' npx p
 ```
 
 This starts a real loopback Rust fixture with synthetic mail on port 4346. It never connects a real mailbox. Public language weights may be downloaded into `/private/tmp/dakia-production-translation-models` when missing; set `DAKIA_MODEL_CACHE` to another disposable directory if needed.
+
+</details>

@@ -105,7 +105,7 @@ A managed container platform can run the published image without a shell on the 
 | Two persistent volumes, mounted at `/data` and `/secrets` | Restarts and redeploys must keep mail, the credential key, and their file permissions |
 | One always-on instance with no scale-to-zero | Synchronization, scheduled sending, and an exclusive lock on the data directory |
 | Outbound IMAP, SMTP submission, and HTTPS | Port 25 is not needed; use the provider's submission port, 465 or 587 |
-| At least 1 GB of memory | The classifier loads at boot; an idle installation used about 450 MB in testing |
+| Enough memory for your mailbox workload | Classification uses local rules; server translation adds language-model memory use |
 
 Set `DAKIA_ORIGIN` to the exact HTTPS origin the platform gives you, without a trailing slash. It is a plain setting, not a password.
 
@@ -115,12 +115,9 @@ Managed platforms do not run on the host, so `scripts/upgrade.sh` does not apply
 
 If you use Gmail sign-in, register `$DAKIA_ORIGIN/api/accounts/gmail/callback` in your own Google client. Platform origin changes require updating both the Google client and `DAKIA_ORIGIN`.
 
-### Platform notes
+### Check the platform before installing
 
-- **Fly.io, Render (paid), Zeabur** can run the image with a persistent volume and one always-on instance.
-- **Railway** blocks outbound SMTP on its Hobby plan, so mail cannot be sent there. It needs Pro or higher.
-- **DigitalOcean App Platform and Koyeb's free tier** have no persistent volume. They can show the interface but lose mail data and the credential key on every redeploy, so they are not suitable for an installation you want to keep. Use a Droplet or another advertised platform instead; the [Compose steps](#docker-compose) apply to a Droplet with Docker installed.
-- **PikaPods** is tracked in the [catalog handoff](../deploy/pikapods.md).
+Confirm persistent storage, outbound IMAP/SMTP access, backups, and an always-on instance with your platform. Free tiers and email-port restrictions vary. A service that only hosts static pages cannot run Dakia. [PikaPods](../deploy/pikapods.md) has a separate catalog handoff.
 
 ## Platform paths
 
@@ -132,24 +129,13 @@ Dakia is not yet a PikaPods catalog app. The [PikaPods catalog handoff](../deplo
 
 ### DigitalOcean or Hetzner Cloud
 
-Create a Droplet or Cloud server from Ubuntu 24.04 with at least 1 GB of memory. If your region reports the 1 GB size as unavailable, choose its Intel or AMD variant; DigitalOcean capacity varies by region. Add your domain's A record first, then paste [`deploy/cloud-init.yaml`](../deploy/cloud-init.yaml) into the provider's user-data field with your domain in place of the example. The server installs Dakia and Caddy on first boot; open your address once DNS resolves and it answers. A tested run reached a working HTTPS login page about two and a half minutes after the Droplet was created.
+Create a Debian or Ubuntu server with Docker support and persistent local storage. Point your domain at it, then follow the [installer steps](#one-command-on-a-fresh-server), or supply [`deploy/cloud-init.yaml`](../deploy/cloud-init.yaml) as user data after replacing the example domain. Keep the server running for sync and scheduled sending, and back up both Dakia volumes.
 
-Both providers bill hourly, so a short test costs cents. Keep the server running: synchronization, scheduled sending, and the exclusive lock on the data directory need one always-on instance. Add the provider's backups or snapshots; they must include both Dakia volumes and the Docker volumes that hold them.
+### Memory planning
 
-### Memory on a 1 GB server
+Current minimum hardware requirements haven't been established. Older measurements used a model-based classifier that Dakia no longer ships, so they aren't a sizing guide for the current app. Classification now uses deterministic rules without a model download.
 
-1 GB works for a single mailbox, but there is little left over. Measured on a 1 GB Droplet with HTTPS running and no mail synced yet: the container used about 430 MB, Docker and system services about 400 MB, and roughly 130 MB stayed free. Loading a second copy of the classifier, or running translation for several languages, exhausted that free memory and the kernel killed the server process; Docker restarted it and it recovered, but mail was unavailable for a few seconds.
-
-Add swap before you connect a mailbox. With 2 GB of swap the same work completed without a restart:
-
-```sh
-fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
-echo '/swapfile none swap sw 0 0' >> /etc/fstab
-```
-
-Choose 2 GB of memory if the installation will hold more than one mailbox or translate regularly; that removes the guesswork instead of relying on swap.
-
-Debian 13 used about 35 MB less than Ubuntu 24.04 and installs the same way. On Ubuntu, `systemctl mask --now multipathd` and `systemctl disable --now unattended-upgrades` free another 40 MB or so. Those numbers are small next to the container's own usage, so pick the distribution you can maintain rather than the one that looks smallest.
+Mailbox size, concurrent users, attachments, and translation affect resource use. On-device translation moves inference to each browser; server translation needs memory for its language models. Test representative mailboxes and watch memory and disk use before relying on the installation.
 
 ### Proxmox
 
@@ -158,7 +144,7 @@ Debian 13 used about 35 MB less than Ubuntu 24.04 and installs the same way. On 
 3. Follow the Compose and HTTPS steps above inside the VM. If using a proxy in another VM, account for the loopback binding described above.
 4. Keep the guest running for background work. Test backup and restore before depending on it.
 
-A dedicated appliance image or cloud-init installer is not supplied. Nested Docker in LXC is outside the tested path.
+A dedicated Proxmox appliance image is not supplied. Nested Docker in LXC is outside the tested path.
 
 ### Mac mini
 

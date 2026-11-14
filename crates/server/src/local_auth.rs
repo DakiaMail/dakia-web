@@ -34,7 +34,6 @@ pub fn initialize_credential_key(data: &str, path: &str) -> std::io::Result<()> 
 
 pub async fn initialize_local_login(
     store: &Store,
-    key_path: &str,
 ) -> std::result::Result<(), Box<dyn std::error::Error>> {
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
         .fetch_one(store.control())
@@ -49,22 +48,7 @@ pub async fn initialize_local_login(
         );
     }
     if local == 0 {
-        let path = Path::new(key_path).with_file_name("setup-token");
-        let token = match std::fs::read_to_string(&path) {
-            Ok(t) => t,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                let t = random();
-                private_file(&path, t.as_bytes())?;
-                t
-            }
-            Err(e) => return Err(e.into()),
-        };
-        if token.len() < 32 {
-            return Err("invalid setup token file".into());
-        }
-        sqlx::query("INSERT INTO settings(key,value) VALUES('local_setup_token',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
-            .bind(hash(&token)).execute(store.control()).await?;
-        tracing::info!("Local setup awaits the private setup-token file beside the credential key");
+        tracing::info!("Local setup awaits the first login, which becomes the owner");
     }
     Ok(())
 }
@@ -108,7 +92,7 @@ async fn render(
     let setup = if joining {
         format!("<label>Invitation code<input id=\"invite-code\" name=\"code\" value=\"{code}\" required autocomplete=\"off\" autocapitalize=\"none\" spellcheck=\"false\" maxlength=\"256\"></label><p>Create your own login. Your email accounts stay separate.</p>")
     } else if ready == 0 {
-        format!("<label>Setup code<input name=\"code\" value=\"{code}\" required autocomplete=\"off\" autocapitalize=\"none\" autocorrect=\"off\" spellcheck=\"false\" maxlength=\"256\"></label><p>Read the setup-token file on your host. Create your login below, then connect your mailbox.</p>")
+        String::from("<p>The first login you create becomes the owner of this installation. Create it now, before you share the address.</p>")
     } else {
         String::new()
     };
@@ -238,7 +222,6 @@ async fn submit_mode(
                     "This invitation is invalid, expired, or already used. Ask for a new one."
                 }
                 "username_taken" => "That username is already in use. Choose another.",
-                "invalid_setup_code" => "Check the setup code on your host and try again.",
                 "try_again_later" => "Too many attempts. Wait a minute, then try again.",
                 "csrf_rejected" => "Open Dakia at its configured HTTPS address, then try again.",
                 "setup_already_complete" => "Setup is complete. Sign in with your account.",
@@ -298,14 +281,6 @@ async fn process(
         }
         row.unwrap().get::<String, _>("user_id")
     } else {
-        let expected: Option<String> =
-            sqlx::query_scalar("SELECT value FROM settings WHERE key='local_setup_token'")
-                .fetch_optional(app.store.control())
-                .await
-                .map_err(StorageError::from)?;
-        if expected.as_deref() != Some(hash(&input.code).as_str()) {
-            return Err(ApiFailure(StatusCode::UNAUTHORIZED, "invalid_setup_code"));
-        }
         let encoded = password_hash(input.password).await?;
         let user = uuid::Uuid::new_v4().to_string();
         let mut tx = app
@@ -327,10 +302,6 @@ async fn process(
         .execute(&mut *tx)
         .await
         .map_err(StorageError::from)?;
-        sqlx::query("DELETE FROM settings WHERE key='local_setup_token'")
-            .execute(&mut *tx)
-            .await
-            .map_err(StorageError::from)?;
         tx.commit().await.map_err(StorageError::from)?;
         user
     };
@@ -366,9 +337,7 @@ mod tests {
         let store = Store::open(dir.path(), std::fs::read(&key).unwrap().try_into().unwrap())
             .await
             .unwrap();
-        initialize_local_login(&store, key.to_str().unwrap())
-            .await
-            .unwrap();
+        initialize_local_login(&store).await.unwrap();
         let app = App {
             store,
             config: Arc::new(Config {
@@ -393,8 +362,8 @@ mod tests {
     }
     #[tokio::test]
     async fn releases_require_the_local_owner() {
-        let (dir, app) = fixture().await;
-        let cookie = owner(&dir, &app).await;
+        let (_dir, app) = fixture().await;
+        let cookie = owner(&app).await;
         let anon = router(app.clone())
             .oneshot(
                 Request::builder()
@@ -432,9 +401,8 @@ mod tests {
     }
     #[tokio::test]
     async fn setup_login_sessions_and_replay() {
-        let (dir, app) = fixture().await;
-        let code = std::fs::read_to_string(dir.path().join("setup-token")).unwrap();
-        let body = format!("username=owner&password=long-test-password&code={code}");
+        let (_dir, app) = fixture().await;
+        let body = "username=owner&password=long-test-password".to_string();
         let router = router(app.clone());
         let form = router
             .clone()
@@ -455,18 +423,6 @@ mod tests {
                 .unwrap()
                 .status(),
             StatusCode::FORBIDDEN
-        );
-        assert_eq!(
-            router
-                .clone()
-                .oneshot(request(
-                    "https://mail.test",
-                    "username=owner&password=long-test-password&code=wrong".into()
-                ))
-                .await
-                .unwrap()
-                .status(),
-            StatusCode::UNAUTHORIZED
         );
         let response = router
             .clone()
@@ -493,18 +449,12 @@ mod tests {
             .await
             .unwrap();
         assert!(stored.starts_with("$argon2id$"));
-        let token: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM settings WHERE key='local_setup_token'")
-                .fetch_one(app.store.control())
-                .await
-                .unwrap();
-        assert_eq!(token, 0);
         assert_eq!(
             router
                 .clone()
                 .oneshot(request(
                     "https://mail.test",
-                    format!("username=intruder&password=another-password&code={code}")
+                    "username=intruder&password=another-password".into()
                 ))
                 .await
                 .unwrap()
@@ -538,12 +488,26 @@ mod tests {
     #[tokio::test]
     async fn failed_setup_retains_escaped_fields_but_never_passwords() {
         let (_dir, app) = fixture().await;
-        let response = router(app)
+        let response = router(app.clone())
             .oneshot(request(
                 "https://mail.test",
-                "username=%3Cowner%3E&password=never-echo-password&code=bad%22%3E%3Cscript%3E"
-                    .into(),
+                "username=%3Cowner%3E&password=never-echo".into(),
             ))
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let html = String::from_utf8(bytes.to_vec()).unwrap();
+        assert!(html.contains("value=\"&lt;owner&gt;\""));
+        assert!(html.contains("role=\"alert\""));
+        assert!(html.contains("autocapitalize=\"none\""));
+        assert!(!html.contains("never-echo"));
+        assert!(!html.contains("<script>"));
+        assert!(html.contains("type=\"password\" required"));
+        let response = router(app)
+            .oneshot(join_request("<owner>", "bad\"><script>"))
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
@@ -553,11 +517,7 @@ mod tests {
         let html = String::from_utf8(bytes.to_vec()).unwrap();
         assert!(html.contains("value=\"&lt;owner&gt;\""));
         assert!(html.contains("value=\"bad&quot;&gt;&lt;script&gt;\""));
-        assert!(html.contains("role=\"alert\""));
-        assert!(html.contains("autocapitalize=\"none\""));
-        assert!(!html.contains("never-echo-password"));
-        assert!(!html.contains("<script>"));
-        assert!(html.contains("type=\"password\" required"));
+        assert!(!html.contains("value=\"bad\"><script>"));
     }
 
     async fn auth_json(
@@ -609,12 +569,11 @@ mod tests {
             .unwrap()
             .to_string()
     }
-    async fn owner(dir: &tempfile::TempDir, app: &App) -> String {
-        let code = std::fs::read_to_string(dir.path().join("setup-token")).unwrap();
+    async fn owner(app: &App) -> String {
         let response = router(app.clone())
             .oneshot(request(
                 "https://mail.test",
-                format!("username=owner&password=long-test-password&code={code}"),
+                "username=owner&password=long-test-password".into(),
             ))
             .await
             .unwrap();
@@ -634,8 +593,8 @@ mod tests {
     }
     #[tokio::test]
     async fn invitations_are_owner_only_single_use_and_users_stay_separate() {
-        let (dir, app) = fixture().await;
-        let owner = owner(&dir, &app).await;
+        let (_dir, app) = fixture().await;
+        let owner = owner(&app).await;
         assert_eq!(
             auth_json(&app, &owner, "POST", "/api/invitations", false)
                 .await
@@ -753,7 +712,7 @@ mod tests {
     #[tokio::test]
     async fn invitations_expire_revoke_and_do_not_survive_backup_restore() {
         let (dir, app) = fixture().await;
-        let owner = owner(&dir, &app).await;
+        let owner = owner(&app).await;
         for revoke in [false, true] {
             let invite =
                 json(auth_json(&app, &owner, "POST", "/api/invitations", true).await).await;
@@ -801,17 +760,13 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(count, 0);
-        assert!(
-            initialize_local_login(&restored, dir.path().join("key").to_str().unwrap())
-                .await
-                .is_ok()
-        );
+        assert!(initialize_local_login(&restored).await.is_ok());
     }
 
     #[tokio::test]
     async fn concurrent_claims_create_only_one_invited_user() {
-        let (dir, app) = fixture().await;
-        let owner = owner(&dir, &app).await;
+        let (_dir, app) = fixture().await;
+        let owner = owner(&app).await;
         let invite = json(auth_json(&app, &owner, "POST", "/api/invitations", true).await).await;
         let code = invite["url"].as_str().unwrap().split('#').nth(1).unwrap();
         let (a, b) = tokio::join!(
@@ -882,9 +837,7 @@ mod tests {
             .user("https://issuer.test", "existing-owner")
             .await
             .unwrap();
-        assert!(initialize_local_login(&app.store, "/nonexistent/key")
-            .await
-            .is_err());
+        assert!(initialize_local_login(&app.store).await.is_err());
         let mut config = (*app.config).clone();
         assert!(config.validate().is_ok());
         config.issuer = "https://issuer.test".into();
@@ -911,30 +864,24 @@ mod tests {
     #[tokio::test]
     async fn throttles_and_preserves_keys() {
         let (dir, app) = fixture().await;
-        for _ in 0..10 {
-            assert_eq!(
-                router(app.clone())
-                    .oneshot(request(
-                        "https://mail.test",
-                        "username=owner&password=long-test-password&code=wrong".into()
-                    ))
-                    .await
-                    .unwrap()
-                    .status(),
-                StatusCode::UNAUTHORIZED
-            );
-        }
-        assert_eq!(
-            router(app)
+        owner(&app).await;
+        let mut limited = false;
+        for _ in 0..12 {
+            let status = router(app.clone())
                 .oneshot(request(
                     "https://mail.test",
-                    "username=owner&password=long-test-password&code=wrong".into()
+                    "username=owner&password=wrong-password".into(),
                 ))
                 .await
                 .unwrap()
-                .status(),
-            StatusCode::TOO_MANY_REQUESTS
-        );
+                .status();
+            if status == StatusCode::TOO_MANY_REQUESTS {
+                limited = true;
+                break;
+            }
+            assert_eq!(status, StatusCode::UNAUTHORIZED);
+        }
+        assert!(limited);
         let key = dir.path().join("key");
         let before = std::fs::read(&key).unwrap();
         initialize_credential_key(dir.path().to_str().unwrap(), key.to_str().unwrap()).unwrap();

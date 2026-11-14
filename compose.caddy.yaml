@@ -1,0 +1,24 @@
+# Adds HTTPS with automatic certificates for the supplied Compose package.
+# Usage: docker compose -f compose.yaml -f compose.caddy.yaml up -d --wait
+# DAKIA_ORIGIN must already be the exact HTTPS address people open.
+services:
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    depends_on:
+      - dakia
+    environment:
+      DAKIA_ORIGIN: ${DAKIA_ORIGIN:?Set the external HTTPS address in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    security_opt:
+      - no-new-privileges:true
+volumes:
+  caddy_data:
+  caddy_config:

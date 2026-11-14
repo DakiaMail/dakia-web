@@ -63,7 +63,7 @@ test("local search, reading, download, translation, unsubscribe, and blocked ext
   await expect(page.frameLocator('iframe[title="Translated message"]').locator("body")).toContainText("new designs");
   await search.fill('subject:"A slower kind"'); await search.press("Enter");
   await page.getByRole("region", { name: "Messages", exact: true }).getByRole("button", { name: /The Reading Room/ }).first().click();
-  await page.getByRole("button", { name: "Unsubscribe", exact: true }).click();
+  await page.getByRole("region", { name: "Reading pane", exact: true }).getByRole("button", { name: "Unsubscribe", exact: true }).click();
   await expect(page.getByRole("dialog", { name: "Unsubscribe request sent" })).toBeVisible();
   await page.keyboard.press("Escape");
   await search.fill('subject:"A few thoughts"'); await search.press("Enter");

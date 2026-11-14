@@ -82,7 +82,9 @@ for (const width of [390, 1480]) {
     await expect(page.getByRole("checkbox", { name: "Select Quiet work" })).toBeChecked();
     await expect(page.getByRole("button", { name: action, exact: true })).toBeEnabled();
     await expect(page.locator(".message-open").filter({ hasText: "Quiet personal" })).toHaveCount(0);
-    await expect(page.getByRole("alert")).toContainText("Refresh mail and check");
+    await expect(page.getByRole("alert").filter({hasText:"Refresh mail and check"})).toBeVisible();
+    await expect(page.locator(".dakia-toast-container")).toHaveAttribute("role", "alert");
+    await expect(page.locator(".dakia-toast-container")).toContainText("couldn’t be updated");
     // Work is restored while Personal is still pending, not after Promise.all.
     expect([...f.ops.values()].find(o => o.account_id === "personal")!.status).toBe("pending");
     await capture(page, `${width}-${action}-partial-failure`);
@@ -123,7 +125,7 @@ for (const width of [390, 1480]) {
     await page.getByRole("button", { name: "Archive", exact: true }).click();
     await expect(page.locator(".message-open")).toHaveCount(1);
     f.releasePost();
-    await expect(page.getByRole("alert")).toContainText("could not be verified");
+    await expect(page.getByRole("alert").filter({hasText:"could not be verified"})).toBeVisible();
     await expect(page.locator(".message-open")).toHaveCount(2);
     await page.reload();
     await expect(page.locator(".message-open")).toHaveCount(1);

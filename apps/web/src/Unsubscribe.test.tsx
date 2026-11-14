@@ -36,3 +36,21 @@ for (const action of [
   expect(writes[0]).toEqual({ expected_action: action });
   client.clear();
 });
+
+it("a newsletter row loads unsubscribe metadata only after a click and sends once",async()=>{
+ const action={kind:"one_click",url:"https://example.org/leave"};const writes:unknown[]=[];
+ const fetch=vi.fn(async(_url:string,init?:RequestInit)=>{if(init?.method==="POST"){writes.push(JSON.parse(init.body as string));return new Response(null,{status:204});}return new Response(JSON.stringify(action));});
+ vi.stubGlobal("fetch",fetch);const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+ render(<QueryClientProvider client={client}><Unsubscribe message={messages[0]} lazy/></QueryClientProvider>);
+ const button=screen.getByRole("button",{name:"Unsubscribe"});expect(fetch).not.toHaveBeenCalled();
+ fireEvent.click(button);fireEvent.click(button);await screen.findByRole("heading",{name:"Unsubscribe request sent"});
+ expect(writes).toEqual([{expected_action:action}]);client.clear();
+});
+it("web unsubscribe remains a domain-labelled link and never sends automatically",async()=>{
+ const fetch=vi.fn(async(_url:string,_init?:RequestInit)=>new Response(JSON.stringify({kind:"web",url:"https://example.org/leave"})));
+ vi.stubGlobal("fetch",fetch);const client=new QueryClient({defaultOptions:{queries:{retry:false}}});
+ render(<QueryClientProvider client={client}><Unsubscribe message={messages[0]} lazy/></QueryClientProvider>);
+ fireEvent.click(screen.getByRole("button",{name:"Unsubscribe"}));
+ const link=await screen.findByRole("link",{name:"Unsubscribe example.org"});expect(link.getAttribute("href")).toBe("https://example.org/leave");
+ expect(fetch.mock.calls.every(args=>!(args[1] as RequestInit|undefined)?.method)).toBe(true);client.clear();
+});

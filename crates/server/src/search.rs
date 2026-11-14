@@ -17,6 +17,8 @@ pub(super) struct SearchRequest {
     #[serde(default)]
     attention: bool,
     #[serde(default)]
+    transactions: bool,
+    #[serde(default)]
     exclude_trash: bool,
     #[serde(default)]
     refresh: bool,
@@ -31,6 +33,7 @@ impl SearchRequest {
             inbox_kind: self.inbox_kind.clone(),
             email_type: self.email_type.clone(),
             attention: self.attention,
+            transactions: self.transactions,
         }
     }
 }

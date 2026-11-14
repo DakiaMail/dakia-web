@@ -1,3 +1,4 @@
+import { MatchingSelection } from "./MatchingSelection";
 import { snoozeTime } from "./snoozeTime";
 import { IconButton, Toast, useDakiaColorScheme } from "@dakia/ui";
 import { DateTimeDialog } from "./DateTimeDialog";
@@ -16,6 +17,16 @@ import {
 import { measureElement, useVirtualizer } from "@tanstack/react-virtual";
 import {
   Archive,
+  Layers,
+  ReceiptText,
+  ShoppingBag,
+  Truck,
+  CalendarDays,
+  KeyRound,
+  Plane,
+  Newspaper,
+  Tag,
+  ShieldCheck,
   FolderInput,
   ArrowUp,
   ArrowDown,
@@ -79,8 +90,7 @@ import { Conversation } from "./Conversation";
 import { useCleanupProjection } from "./cleanupJobs";
 import { replyDraft } from "./reply";
 import { emptySelection, reconcileSelection, selectMail } from "./selection";
-import { classification, matchesClassification, emailTypes, type InboxTab, type MailFilter } from "./classification";
-import type { DetectedType } from "@dakia/api-types";
+import { classification, matchesClassification, type InboxTab, type MailFilter } from "./classification";
 import { MailDetails } from "./MailDetails";
 import { AttentionStrip } from "./AttentionStrip";
 import { mailRows } from "./mailRows";
@@ -90,14 +100,27 @@ import { useAppHistory, useBackLayer } from "./appHistory";
 
 type Nav =
   | "INBOX"
+  | "Needs attention"
   | "Starred"
   | "Snoozed"
   | "Sent"
   | "Drafts"
   | "Trash"
   | "Scheduled";
+const automatedFilters = [
+  { value: "transactions", label: "Transactions", icon: ReceiptText },
+  { value: "order", label: "Orders", icon: ShoppingBag },
+  { value: "shipping", label: "Shipping", icon: Truck },
+  { value: "event_invitation", label: "Invitations", icon: CalendarDays },
+  { value: "verification_code", label: "Codes", icon: KeyRound },
+  { value: "flight_booking", label: "Flights", icon: Plane },
+  { value: "newsletter", label: "Newsletters", icon: Newspaper },
+  { value: "offer", label: "Offers", icon: Tag },
+  { value: "security_alert", label: "Security alerts", icon: ShieldCheck },
+] as const;
 const navs = [
   { id: "INBOX", label: "Unified inbox", icon: Inbox },
+  { id: "Needs attention", label: "Needs attention", icon: ShieldAlert },
   { id: "Starred", label: "Starred", icon: Star },
   { id: "Snoozed", label: "Snoozed", icon: Clock },
   { id: "Sent", label: "Sent", icon: Send },
@@ -146,7 +169,7 @@ export function App() {
   const [account, setAccount] = useState("all");
   const [nav, setNav] = useState<Nav>("INBOX");
   const [view, setView] = useState<InboxTab>("personal");
-  const [typeFilter, setTypeFilter] = useState<DetectedType | "">("");
+  const [typeFilter, setTypeFilter] = useState<(typeof automatedFilters)[number]["value"] | "">("");
   const tabOwner = useRef("");
   useEffect(() => {
     const owner = session.data?.user_id;
@@ -165,12 +188,15 @@ export function App() {
   const [search, setSearch] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
   const [q, setQ] = useState("");
-  const inboxFilter: MailFilter = !q && nav === "INBOX" ? { ...(view !== "all" ? { inbox_kind: view } : {}), ...(view === "automated" && typeFilter ? { email_type: typeFilter } : {}) } : {};
-  const categoryFilter = JSON.stringify({ revision: "personal-first-1", ...inboxFilter });
+  const inboxFilter: MailFilter = !q && nav === "INBOX" ? { ...(view !== "all" ? { inbox_kind: view } : {}), ...(view === "automated" && typeFilter ? typeFilter === "transactions" ? { transactions: true } : { email_type: typeFilter } : {}) } : !q && nav === "Needs attention" ? { attention: true } : {};
+  const categoryFilter = JSON.stringify({ revision: "personal-first-4-attention-30d-transactions", ...inboxFilter });
 
   const [selected, setSelected] = useState<Message | null>(null);
   const savedSelections = useRef<Record<string, ReturnType<typeof emptySelection>>>({});
   const [selection, setSelection] = useState(() => emptySelection("", "personal"));
+  const [matching, setMatching] = useState<{ scope: string; rows: Message[] }>();
+  const [selectionReset, setSelectionReset] = useState(0);
+  const [matchingBusy, setMatchingBusy] = useState(false);
   const [overrides, setOverrides] = useState<Record<string, Message>>({});
   const [removed, setRemoved] = useState<Record<string, symbol>>({});
   const [restoredRows, setRestoredRows] = useState<Record<string, { message: Message; scope: string; token: symbol }>>({});
@@ -219,7 +245,7 @@ export function App() {
   const attemptedReads = useRef(new Set<string>());
   const [pendingTargets, setPendingTargets] = useState<Record<string, number>>({});
   const [submission, setSubmission] = useState<Submission | null>(null);
-  const [toast, setToast] = useState<{ id: string; message: string } | null>(null);
+  const [toast, setToast] = useState<{ id: string; message: string; error?: boolean } | null>(null);
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(null), 7000); return () => clearTimeout(timer); }, [toast]);
   const [snooze, setSnooze] = useState<Message[] | null>(null);
   const [move, setMove] = useState<Message[] | null>(null);
@@ -333,13 +359,13 @@ export function App() {
         retry: false,
       });
       // The provider search endpoint handles federated coverage and pagination.
-      if (ids.length > 1 || nav === "INBOX" || nav === "Starred" || nav === "Snoozed")
+      if (ids.length > 1 || nav === "INBOX" || nav === "Needs attention" || nav === "Starred" || nav === "Snoozed")
         return api.search(
           nav === "Starred"
             ? "is:starred"
             : nav === "Snoozed"
               ? "is:snoozed"
-              : `folder:${nav}`,
+              : `folder:${nav === "Needs attention" ? "INBOX" : nav}`,
           ids,
           pageParam,
           undefined,
@@ -356,6 +382,8 @@ export function App() {
       page.continuation && !params.includes(page.continuation) ? page.continuation : undefined,
     retry: false,
   });
+  const [attentionNow, setAttentionNow] = useState(Date.now);
+  useEffect(() => { if (nav !== "Needs attention") return; const timer = setInterval(() => setAttentionNow(Date.now()), 15000); return () => clearInterval(timer); }, [nav]);
   const rows = useMemo(() => {
     // A pending server projection may already have removed the cached row.
     // Keep failed originals in their source query until a fresh read reconciles.
@@ -365,14 +393,14 @@ export function App() {
     // projection as ordinary mail actions, independent of stale cached pages.
     if (nav === "Trash" && !q) all = mailRows([{ rows: all }, { rows: Object.values(cleanupRows).filter(m => ids.includes(m.account_id)) }], cleanupRows);
     else all = all.filter(m => !cleanupRows[identity(m)]);
-    if (!q && nav === "INBOX")
+    if (!q && (nav === "INBOX" || nav === "Needs attention"))
       all = all.filter((m) =>
         m.folder_ids.some((f) => f.toUpperCase() === "INBOX") && !snoozedThreads[`${m.account_id}/${m.thread_id}`],
       );
     if (!q && nav === "Snoozed" && snoozeState.isSuccess) all = all.filter(m => !!snoozedThreads[`${m.account_id}/${m.thread_id}`]);
     if (nav === "Starred") all = all.filter((m) => m.starred);
     return all.filter(m => matchesClassification(m, inboxFilter));
-  }, [mail.data, overrides, removed, restoredRows, nav, q, account, categoryFilter, accounts.data, cleanupRows, snoozedThreads, snoozeState.isSuccess]);
+  }, [mail.data, overrides, removed, restoredRows, nav, q, account, categoryFilter, accounts.data, cleanupRows, snoozedThreads, snoozeState.isSuccess, attentionNow]);
   const lastContinuation = mail.data?.pages.at(-1)?.continuation;
   // Start provider reconciliation after a preview without waiting for scroll.
   useEffect(() => {
@@ -412,29 +440,34 @@ export function App() {
   const selectionOrder = useMemo(() => items.flatMap(item =>
     [identity(item.message)]), [items]);
   const selectionScope = JSON.stringify([account, nav, q, view === "automated" ? typeFilter : "", ids, workspace]);
+  const matchingScope = `${selectionScope}/${view}`;
+  const allMatching = matching?.scope === matchingScope ? matching.rows : undefined;
   const currentSelection = useMemo(() => {
     const saved = selection.view !== view ? savedSelections.current[`${account}/${nav}/${q}/${view}/${typeFilter}`] : undefined;
     const candidate = saved || selection;
     if (mail.isPending && candidate.scope === selectionScope) return candidate;
-    return reconcileSelection(candidate, [...selectionOrder, ...Object.keys(pendingTargets)], selectionScope, view);
-  }, [selection, selectionOrder, selectionScope, view, pendingTargets, mail.isPending]);
+    return reconcileSelection(candidate, [...selectionOrder, ...(allMatching || []).map(identity), ...Object.keys(pendingTargets)], selectionScope, view);
+  }, [selection, selectionOrder, selectionScope, view, pendingTargets, mail.isPending, allMatching]);
   const checked = currentSelection.checked;
   useEffect(() => {
     if (selection !== currentSelection) setSelection(currentSelection);
   }, [selection, currentSelection]);
   function clearSelection() {
+    setSelectionReset(n => n + 1);
+    setMatching(undefined);
     setSelection(emptySelection(selectionScope, view));
   }
   function selectMessage(message: Message, range: boolean, value: boolean) {
+    if (matchingBusy) setSelectionReset(n => n + 1);
     setSelection(old => selectMail(
-      reconcileSelection(old, selectionOrder, selectionScope, view),
+      reconcileSelection(old, [...selectionOrder, ...(allMatching || []).map(identity)], selectionScope, view),
       selectionOrder, identity(message), range, value,
     ));
   }
   const virtual = useVirtualizer({
     count: items.length,
     getScrollElement: () => listRef.current,
-    estimateSize: () => 88,
+    estimateSize: () => 64,
     // display:none on mobile must not collapse every measured row to zero.
     measureElement: (element, entry, instance) => measureElement(element, entry, instance)
       || instance.measurementsCache[instance.indexFromElement(element)]?.size || 64,
@@ -600,27 +633,32 @@ export function App() {
       if (!background && !localClassification) for (const message of messages) next[identity(message)] = (next[identity(message)] || 0) + 1;
       return next;
     });
+    const prepared = messages.map(m => {
+      const token = Symbol();
+      mutationTokens.current.set(identity(m), token);
+      const senderTargets = change.kind === "inbox_kind" && change.sender
+        ? mailRows(client.getQueriesData<InfiniteData<SearchPage>>({ queryKey: ["mail"] }).flatMap(([, data]) => data?.pages || []), overrides)
+          .filter(row => row.account_id === m.account_id && row.sender.email.trim().toLowerCase() === m.sender.email.trim().toLowerCase() && identity(row) !== identity(m) && classification(row).source !== "message") : [];
+      for (const row of senderTargets) mutationTokens.current.set(identity(row), token);
+      const effectiveChange: Change = destinations ? { kind: "move", folder_id: destinations[m.account_id] } : change;
+      return { m, token, senderTargets, effectiveChange, value: optimistic(m, effectiveChange) };
+    });
+    // One local transition for the complete selection, before any provider work.
+    setOverrides(old => ({ ...old, ...Object.fromEntries(prepared.flatMap(p => [[identity(p.m), p.value], ...p.senderTargets.map(row => [identity(row), optimistic(row, change)])])) }));
+    setSelected(old => old ? prepared.find(p => identity(p.m) === identity(old))?.value || old : old);
+    if (removing) setRemoved(old => ({ ...old, ...Object.fromEntries(prepared.map(p => [identity(p.m), p.token])) }));
+    if (messages.length > 1 && !background) {
+      const action = change.kind === "archive" ? "archived" : change.kind === "trash" ? "moved to Trash" : change.kind === "read" ? change.value ? "marked read" : "marked unread" : "updated";
+      setToast({ id: crypto.randomUUID(), message: `${messages.length} emails ${action}.` });
+      requestAnimationFrame(() => { if (document.activeElement === document.body) listRef.current?.focus(); });
+    }
     await Promise.all(
-      messages.map((m) => {
-        const token = Symbol();
-        mutationTokens.current.set(identity(m), token);
-        const senderTargets = change.kind === "inbox_kind" && change.sender
-          ? mailRows(client.getQueriesData<InfiniteData<SearchPage>>({ queryKey: ["mail"] }).flatMap(([, data]) => data?.pages || []), overrides)
-            .filter(row => row.account_id === m.account_id && row.sender.email.trim().toLowerCase() === m.sender.email.trim().toLowerCase() && identity(row) !== identity(m) && classification(row).source !== "message") : [];
-        for (const row of senderTargets) mutationTokens.current.set(identity(row), token);
-        if (senderTargets.length) setOverrides(old => ({ ...old, ...Object.fromEntries(senderTargets.map(row => [identity(row), optimistic(row, change)])) }));
-
-        if (removing) {
-          setRemoved(old => ({ ...old, [identity(m)]: token }));
-        }
+      prepared.map(({ m, token, senderTargets, effectiveChange }) => {
         return operations
           .enqueue(
             m,
-            destinations ? { kind: "move", folder_id: destinations[m.account_id] } : change,
-            (_id, value) => {
-              setOverrides(old => ({ ...old, [identity(value)]: value }));
-              setSelected(old => old && identity(old) === identity(value) ? value : old);
-            },
+            effectiveChange,
+            () => {},
             () => {
               settledTokens.current.set(identity(m), token);
               for (const row of senderTargets) settledTokens.current.set(identity(row), token);
@@ -638,7 +676,10 @@ export function App() {
             if (mutationTokens.current.get(identity(m)) === token) setSelected(old => old && identity(old) === identity(m) ? m : old);
 
             if (background) setReadFailures(old => ({ ...old, [identity(m)]: true }));
-            else setActionError(failureSummary(failures));
+            else {
+              setActionError(failureSummary(failures));
+              setToast({ id: crypto.randomUUID(), message: `${failures.length === 1 ? "An email couldn’t" : `${failures.length} emails couldn’t`} be updated. Check the error details.`, error: true });
+            }
             // Restore this item immediately, without overwriting newer intent.
             if (mutationTokens.current.get(identity(m)) === token) {
               setOverrides(old => ({ ...old, [identity(m)]: m }));
@@ -708,7 +749,9 @@ export function App() {
   }
   function closeReader() {
     navigation.backTo(previous => !previous.selected && !previous.workspace);
-    requestAnimationFrame(() => listRef.current?.focus());
+    requestAnimationFrame(() => {
+      if (document.activeElement === document.body || document.activeElement?.closest(".reader")) listRef.current?.focus();
+    });
   }
   function removeFromReader(kind: "archive" | "trash" | "spam") {
     // Snapshot the existing toolbar targets before closing. Checkbox/bulk
@@ -819,8 +862,9 @@ export function App() {
     {q && <button title="Search" type="submit" aria-label="Search"><Search size={18} /></button>}
     {searchFocused && <SearchSuggestions value={search} ids={ids} onOpen={message => { setSearchFocused(false); setSidebar(false); void open(message, message.account_id); }} />}
   </form>;
+  const currentRows = new Map(rows.map(m => [identity(m), m]));
   const bulk = checked.size
-    ? rows.filter((m) => checked.has(identity(m)))
+    ? (allMatching || rows).filter((m) => checked.has(identity(m)) && !removed[identity(m)]).map(m => overrides[identity(m)] || currentRows.get(identity(m)) || m)
     : active
       ? [active]
       : [];
@@ -829,7 +873,7 @@ export function App() {
     sender={checked.size === 0 ? active || undefined : undefined}
     accounts={accounts.data || []}
     onCleanup={targets => { clearSelection(); if (active && targets.some(m => identity(m) === identity(active))) closeReader(); }}
-    pending={bulk.some(message => pendingTargets[identity(message)] > 0 || !!cleanupRows[identity(message)])}
+    pending={matchingBusy || bulk.some(message => !!cleanupRows[identity(message)])}
     archive={() => removeFromReader("archive")}
     unread={() => void act(bulk, { kind: "read", value: false })}
     read={() => void act(bulk, { kind: "read", value: true })}
@@ -842,6 +886,11 @@ export function App() {
     messages={bulk}
     classify={change => void act(bulk, change)}
   /> : null;
+  const selectionControls = <MatchingSelection key={`${matchingScope}/${selectionReset}`}
+          visible={virtual.getVirtualItems().filter(v => v.end > (listRef.current?.scrollTop || 0) && v.start < (listRef.current?.scrollTop || 0) + (listRef.current?.clientHeight || 0)).map(v => items[v.index].message)}
+          actions={checked.size ? messageActions : null} clear={clearSelection} checked={checked} expanded={allMatching} accounts={ids} busy={matchingBusy} setBusy={setMatchingBusy}
+          fetchPage={(token, signal) => api.search(q || (nav === "Starred" ? "is:starred" : nav === "Snoozed" ? "is:snoozed" : `folder:${nav === "Needs attention" ? "INBOX" : nav}`), ids, token, undefined, signal, false, false, false, inboxFilter)}
+          select={(messages, expanded) => { setMatching(expanded ? { scope: matchingScope, rows: messages } : undefined); setSelection({ scope: selectionScope, view, checked: new Set(messages.map(identity)), anchor: null }); }} />;
   const coverage = mail.data?.pages.at(-1);
   const inboxCoverage = !q && nav === "INBOX" ? coverage : undefined;
   const refreshFailed = !!mail.error || !!inboxCoverage?.coverage.some(c => c.state === "error");
@@ -1010,7 +1059,7 @@ export function App() {
         setNotificationStatus("Enabling…");
         void enableNotifications().then(() => setNotificationStatus("Notifications enabled")).catch((error) => setNotificationStatus(error instanceof Error ? error.message : "Could not enable notifications. Try again."));
       }} />}
-      <main tabIndex={-1} className={`mailbox ${nav === "INBOX" && !q ? "compact-inbox" : ""} ${checked.size ? "has-selection" : ""}`}>
+      <main tabIndex={-1} className={`mailbox ${(nav === "INBOX" || nav === "Needs attention") && !q ? "compact-inbox" : ""} ${checked.size ? "has-selection" : ""}`}>
         <header className="pane-header">
           <button title="Open navigation"
             className="mobile"
@@ -1044,7 +1093,7 @@ export function App() {
           <RefreshButton updating={updating} failed={refreshFailed} status={refreshStatus} onRefresh={() => void refreshMail()} />
         </header>
         {q && !sidebar && searchForm}
-        {nav === "INBOX" && !q && <AttentionStrip account={account} ids={ids} overrides={overrides} removed={{...removed,...cleanupRows}} snoozed={snoozedThreads} open={message => void open(message)} act={(messages, change) => void act(messages, change)} />}
+        {nav === "INBOX" && !q && <AttentionStrip account={account} ids={ids} overrides={overrides} removed={{...removed,...cleanupRows}} snoozed={snoozedThreads} showAll={() => navigate("Needs attention")} open={message => void open(message)} act={(messages, change) => void act(messages, change)} />}
         <div className="view-toolbar">
           {nav === "INBOX" && !q && <div role="tablist" aria-label="Inbox view" onKeyDown={(event) => {
             if (!plainKey(event.nativeEvent) || event.repeat) return;
@@ -1058,27 +1107,21 @@ export function App() {
           }}>
             {(["personal", "automated", "all"] as const).map(tab => <button key={tab} role="tab" aria-selected={view === tab} tabIndex={view === tab ? 0 : -1} className={view === tab ? "active" : ""} onClick={() => changeTab(tab)}>{tab[0].toUpperCase() + tab.slice(1)}</button>)}
           </div>}
-          {checked.size > 0 && (
-            <button title="Clear selection" className="selection-clear-desktop" onClick={clearSelection}>
-              {checked.size} selected · Clear
-            </button>
-          )}
+
 
         </div>
         {nav === "INBOX" && !q && view === "automated" && <div className="email-type-filters" role="group" aria-label="Filter automated email">
-          <button aria-pressed={!typeFilter} onClick={() => setTypeFilter("")}>All automated</button>
-          {Object.entries(emailTypes).map(([type, label]) => <button key={type} aria-pressed={typeFilter === type} onClick={() => setTypeFilter(type as DetectedType)}>{label}</button>)}
+          <button aria-pressed={!typeFilter} onClick={() => setTypeFilter("")}><Layers size={14} aria-hidden="true" />All automated</button>
+          {automatedFilters.map(({ value, label, icon: Icon }) => <button key={value} aria-pressed={typeFilter === value} onClick={() => setTypeFilter(value)}><Icon size={14} aria-hidden="true" />{label}</button>)}
         </div>}
+        {!active && !workspace && selectionControls}
         <div className="pull-status" role="status" style={{ height: pull.refreshing ? 44 : pull.distance }}>
           {(pull.distance > 0 || pull.refreshing) && <span><RefreshCw size={15} />{pull.refreshing ? "Refreshing…" : pull.distance >= 64 ? "Release to refresh" : "Pull to refresh"}</span>}
         </div>
         <ErrorNotice error={accounts.error || mail.error || error || deepLinkError} />
 
         {!active && actionFailure()}
-        {!active && messageActions && <div className="selection-actions" role="group" aria-label="Selected message actions">
-          <button title={`Clear selection (${checked.size} selected)`} className="selection-clear-mobile" aria-label={`Clear selection (${checked.size} selected)`} onClick={clearSelection}><span>{checked.size} selected</span><span>Clear</span></button>
-          {messageActions}
-        </div>}
+
 
         {ready
           .filter((a) => a.state !== "ready")
@@ -1241,6 +1284,7 @@ export function App() {
                           }}
                         />
                         </label>
+                        <div className="message-main">
                         <button title={`Open ${item.message.subject || "message"}`}
                           className="message-open"
                           onFocus={() => prefetch.request(item.message)}
@@ -1280,6 +1324,7 @@ export function App() {
                           </span>
                         </button>
                         <MailDetails message={item.message} />
+                        </div>
                         <div className="row-quick-actions" role="group" aria-label="Quick message actions">
                           {snoozedThreads[`${item.message.account_id}/${item.message.thread_id}`] && <IconButton label="Move back to Inbox" disabled={pendingTargets[identity(item.message)] > 0} onClick={() => void restoreInbox([item.message])}><FolderInput size={16} /></IconButton>}
                           {([
@@ -1380,9 +1425,9 @@ export function App() {
         </header>
         {connectionNotice}
         {active && actionFailure()}
-        {active && checked.size > 0 && <button title="Clear selection" onClick={clearSelection}>{checked.size} selected messages · Clear</button>}
+        {active && checked.size > 0 && selectionControls}
 
-        {active && messageActions}
+        {active && !checked.size && messageActions}
         {active && snoozedThreads[`${active.account_id}/${active.thread_id}`] && <p className="snooze-notice">Snoozed until {snoozeTime(snoozedThreads[`${active.account_id}/${active.thread_id}`].until)}</p>}
         {active ? (
           <Conversation key={identity(active)} selected={active} accounts={accounts.data || []} cleanupRows={cleanupRows}
@@ -1423,7 +1468,7 @@ export function App() {
           }}
         />
       )}
-      <Toast announcementKey={toast?.id}>{toast?.message}</Toast>
+      <Toast announcementKey={toast?.id} error={toast?.error}>{toast?.message}</Toast>
       {snooze && <DateTimeDialog title="Snooze until" confirmLabel="Snooze"
         onChoose={until => { void snoozeMessages([...snooze], until); }}
         onClose={() => setSnooze(null)} />}

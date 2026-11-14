@@ -7,7 +7,7 @@ use serde_json::Value;
 use std::sync::LazyLock;
 use url::Url;
 
-pub const POLICY_REVISION: &str = "personal-first-1";
+pub const POLICY_REVISION: &str = "personal-first-4";
 const MAX_TEXT: usize = 16_000;
 #[derive(Debug, Clone)]
 pub struct EmailClassificationInput {
@@ -299,11 +299,38 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
             "mailing-list identifier header present"
                 | "mailing-list precedence header"
                 | "bulk-mail precedence header"
-        )
+        ) || s == "gmail category: promotions"
     });
+    let footer_unsubscribe = doc
+        .select(&Selector::parse("a[href]").unwrap())
+        .take(200)
+        .filter(|a| {
+            a.value().attr("hidden").is_none()
+                && !a.ancestors().any(|node| {
+                    node.value().as_element().is_some_and(|e| {
+                        matches!(e.name(), "blockquote" | "head" | "template")
+                            || e.attr("hidden").is_some()
+                            || e.attr("class")
+                                .is_some_and(|c| has(c, &["gmail_quote", "yahoo_quoted"]))
+                            || e.attr("id").is_some_and(|id| id == "divRplyFwdMsg")
+                    })
+                })
+        })
+        .any(|a| {
+            a.value().attr("rel").is_some_and(|rel| {
+                rel.split_whitespace()
+                    .any(|v| v.eq_ignore_ascii_case("unsubscribe"))
+            }) || a.value().attr("href").is_some_and(|href| {
+                Url::parse(href).is_ok_and(|url| {
+                    matches!(url.scheme(), "http" | "https")
+                        && url.path().to_ascii_lowercase().contains("unsubscribe")
+                })
+            })
+        });
     let unsubscribe = signals
         .iter()
-        .any(|s| s == "mailing-list unsubscribe header present");
+        .any(|s| s == "mailing-list unsubscribe header present")
+        || footer_unsubscribe;
     let generated = signals.iter().any(|s| {
         matches!(
             s.as_str(),
@@ -316,6 +343,7 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
             &[
                 "payment receipt",
                 "your receipt",
+                "purchase receipt",
                 "payment received",
                 "payment was received",
             ][..],
@@ -324,6 +352,7 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
             DetectedType::Invoice,
             &[
                 "your invoice",
+                "customer invoice",
                 "invoice attached",
                 "invoice number",
                 "invoice #",
@@ -357,6 +386,9 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
                 "you have been invited",
                 "invitation:",
                 "event invitation",
+                "canceled event:",
+                "cancelled event:",
+                "rescheduled event:",
                 "meeting invitation",
             ],
         ),
@@ -411,6 +443,8 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
         (
             DetectedType::SecurityAlert,
             &[
+                "new login to",
+                "new login from",
                 "new sign-in",
                 "new sign in",
                 "suspicious activity",
@@ -424,7 +458,47 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
             add(&mut out, kind);
         }
     }
-    if list || (unsubscribe && !input.known_correspondence) {
+    let subject = input.subject.to_lowercase();
+    let reply_context =
+        signals.iter().any(|s| s == "reply thread header present") || subject.starts_with("re:");
+    let receipt_subject =
+        Regex::new(r"(?i)\byour(?: [\p{L}\p{N}'’-]+){0,4} receipt\b|\byour recent purchase\b")
+            .unwrap()
+            .is_match(&input.subject);
+    if receipt_subject {
+        add(&mut out, DetectedType::Receipt);
+    }
+    let service_notice = has(
+        &subject,
+        &[
+            "your pre-payment has been used",
+            "restore nameservers for",
+            "data has been exported",
+            "submission approved",
+            "submission rejected",
+            "is now available to test",
+            "important security update (action required)",
+        ],
+    ) || (subject.contains("archive of")
+        && subject.contains("data requested"));
+    if has(
+        &subject,
+        &["new opportunities for you", "recommended jobs for you"],
+    ) {
+        add(&mut out, DetectedType::Offer);
+    }
+    let delivery_service = signals
+        .iter()
+        .any(|s| s == "bulk delivery service header present");
+    let role_sender = Regex::new(r"(?i)^(?:no[-_.]?reply|do[-_.]?not[-_.]?reply|notifications?|billing|invoices?|receipts?)(?:[+._-].*)?$").unwrap().is_match(input.from_address.split('@').next().unwrap_or(""));
+    let delivered_notice = role_sender && delivery_service;
+    let generated_document = signals
+        .iter()
+        .any(|s| s == "document generation application header present")
+        && signals
+            .iter()
+            .any(|s| s == "pdf document attachment present");
+    if list || (unsubscribe && !(input.known_correspondence && reply_context)) {
         add(&mut out, DetectedType::Newsletter);
     }
     static SCRIPT: LazyLock<Selector> =
@@ -461,10 +535,8 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
                 | DetectedType::FlightBooking
         )
     }) || payment_failure;
-    let direct_reply = input.known_correspondence
-        && !generated
-        && !list
-        && (!machine_transaction || input.subject.to_lowercase().starts_with("re:"));
+    // Ambiguous replies remain visible; sender history alone never protects a notice.
+    let direct_reply = reply_context && !generated && !list && !delivered_notice;
     let personal_invitation = input.known_correspondence
         && out.types.contains(&DetectedType::EventInvitation)
         && !machine_transaction
@@ -480,7 +552,16 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
                 .types
                 .iter()
                 .any(|t| !matches!(t, DetectedType::EventInvitation | DetectedType::Invoice))
-            || payment_failure)
+            || payment_failure
+            || receipt_subject
+            || service_notice
+            || delivered_notice
+            || generated_document
+            || (out.types.contains(&DetectedType::Invoice)
+                && has(
+                    &subject,
+                    &["customer invoice", "invoice number", "invoice #"],
+                )))
     {
         out.kind = InboxKind::Automated;
     }
@@ -526,12 +607,14 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
         // Require one contextual candidate; dates and unrelated bare numbers are not codes.
         let pattern = r"(?i)(?:verification code|security code|one[- ]time code|login code|sign-in code|authentication code|pin code|one[- ]time password|otp)\s*(?:is|:|=)?\s*([A-Z0-9]{4,10})\b";
         let re = Regex::new(pattern).unwrap();
-        let candidates: Vec<_> = re
+        let mut candidates: Vec<_> = re
             .captures_iter(&own)
             .filter_map(|c| c.get(1))
             .map(|c| c.as_str())
             .filter(|s| s.chars().any(|c| c.is_ascii_digit()))
             .collect();
+        candidates.sort_unstable();
+        candidates.dedup();
         if candidates.len() == 1 {
             detail(
                 &mut out,
@@ -626,9 +709,11 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
         )
     }) {
         if let Some(amount) = regex(
-            r"(?i)(?:total(?: paid| due)?|amount paid|amount due|payment of)\s*:?\s*((?:USD|EUR|GBP|\$|€|£)\s*\d[\d,]*(?:\.\d{2})?|\d[\d,]*(?:\.\d{2})?\s*(?:USD|EUR|GBP))\b",
+            r"(?i)\b(?:total(?: paid| due)?|amount paid|amount due|payment of)\s*:?\s*((?:USD|EUR|GBP|\$|€|£)\s*\d[\d., \x{00a0}\x{202f}]*|\d[\d., \x{00a0}\x{202f}]*\s*(?:USD|EUR|GBP|€|£|\$))(?:\s|[;:!?)]|$)",
             &own,
-        ) {
+        ).map(|value| value.trim_end_matches(['.', ',']).trim().to_owned()).filter(|value| {
+            Regex::new(r"(?i)^(?:(?:USD|EUR|GBP|\$|€|£)\s*\d+(?:[., \x{00a0}\x{202f}]\d{3})*(?:[.,]\d{2})?|\d+(?:[., \x{00a0}\x{202f}]\d{3})*(?:[.,]\d{2})?\s*(?:USD|EUR|GBP|€|£|\$))$").unwrap().is_match(value)
+        }) {
             let t = if out.types.contains(&DetectedType::Receipt) {
                 DetectedType::Receipt
             } else if out.types.contains(&DetectedType::Invoice) {
@@ -781,6 +866,173 @@ mod tests {
         ))
         .details
         .is_empty());
+    }
+    #[test]
+    fn repeated_codes_and_european_receipt_totals() {
+        let c = detect(&mail(
+            "Your verification code is 937449",
+            "Your verification code is 937449",
+        ));
+        assert_eq!(
+            c.details
+                .iter()
+                .filter(|d| d.label == "Code"
+                    && d.value == "937449"
+                    && d.action == Some(DetailAction::Copy))
+                .count(),
+            1
+        );
+        for value in [
+            "€12.50",
+            "EUR 12,50",
+            "12,50 EUR",
+            "12,50 €",
+            "1.234,56 €",
+            "1 234,56 EUR",
+            "EUR 1,234.56",
+            "USD 42.00",
+            "$42.00",
+            "€1\u{202f}234,56",
+        ] {
+            let c = detect(&mail("Purchase receipt", &format!("Total: {value}")));
+            assert!(c.types.contains(&DetectedType::Receipt));
+            assert!(
+                c.details
+                    .iter()
+                    .any(|d| d.label == "Total" && d.value == value),
+                "missing {value}: {:?}",
+                c.details
+            );
+        }
+        assert!(
+            detect(&mail("Purchase receipt", "Total: €12.50. Thank you"))
+                .details
+                .iter()
+                .any(|d| d.value == "€12.50")
+        );
+        assert!(detect(&mail("Purchase receipt", "Subtotal: EUR 9.00"))
+            .details
+            .is_empty());
+        for value in ["EUR 12,5", "EUR 1,23,45", "12,5 €"] {
+            assert!(
+                detect(&mail("Purchase receipt", &format!("Total: {value}")))
+                    .details
+                    .is_empty(),
+                "malformed {value}"
+            );
+        }
+        let c = detect(&mail("Canceled event: Planning", "This event was canceled"));
+        assert!(c.types.contains(&DetectedType::EventInvitation));
+        assert!(c.attention.iter().any(|a| a.label == "Event changed"));
+        assert_eq!(c.kind, InboxKind::Personal);
+    }
+    #[test]
+    fn generated_notices_branded_receipts_and_real_replies() {
+        for subject in [
+            "[Action required] Restore nameservers for example.test",
+            "[Cloud] Payment required: Your pre-payment has been used",
+            "Your service data has been exported",
+            "Archive of service data requested",
+            "New login to Example",
+            "ChatGPT Plugin Submission Approved[opaque]",
+            "Product 1.2 for iOS is now available to test.",
+            "3 new opportunities for you!",
+            "Your OpenCode receipt [#1647-5380]",
+            "Your recent purchase at a shop",
+            "Customer Invoice",
+        ] {
+            let m = mail(subject, "Your account notification").with_known_correspondence(true);
+            assert_eq!(detect(&m).kind, InboxKind::Automated, "{subject}");
+        }
+        let mut reply = mail(
+            "Re: Billing: Refund Request",
+            "Hi, I can help with the refund.",
+        )
+        .with_known_correspondence(true);
+        reply.classification_signals = "Reply thread header present".into();
+        assert_eq!(detect(&reply).kind, InboxKind::Personal);
+        assert_eq!(
+            detect(&mail("Can you send the data requested?", "Thanks, Alex")).kind,
+            InboxKind::Personal
+        );
+        let mut invoice = mail("Your invoice", "Here is the invoice we discussed.");
+        invoice.subject = "Re: Your invoice".into();
+        invoice.known_correspondence = true;
+        assert_eq!(detect(&invoice).kind, InboxKind::Personal);
+        invoice.known_correspondence = false;
+        assert_eq!(detect(&invoice).kind, InboxKind::Personal);
+        assert_eq!(
+            detect(&mail(
+                "Your invoice",
+                "Hi, here is the invoice we discussed."
+            ))
+            .kind,
+            InboxKind::Personal
+        );
+        assert_eq!(
+            detect(&mail("Sk sent you a message", "Can we discuss the work?")).kind,
+            InboxKind::Personal
+        );
+        assert!(detect(&mail(
+            "[Action required] Restore nameservers for example.test",
+            "Please review this notice"
+        ))
+        .attention
+        .is_empty());
+    }
+    #[test]
+    fn language_independent_delivery_and_footer_evidence_stay_message_specific() {
+        let mut m = mail("Teade", "Teie konto");
+        m.from_address = "no-reply@example.test".into();
+        assert_eq!(detect(&m).kind, InboxKind::Personal);
+        m.classification_signals = "Bulk delivery service header present".into();
+        assert_eq!(detect(&m).kind, InboxKind::Automated);
+        m.from_address = "alex@example.test".into();
+        assert_eq!(detect(&m).kind, InboxKind::Personal);
+        m.classification_signals.clear();
+        m.html = "<p>News</p><a href=\"https://example.test/unsubscribe/token\">Leave</a>".into();
+        assert_eq!(detect(&m).kind, InboxKind::Automated);
+        m.html = "<p>Let's discuss</p><blockquote><a href=\"https://example.test/unsubscribe/token\">Leave</a></blockquote>".into();
+        assert_eq!(detect(&m).kind, InboxKind::Personal);
+        m.html.clear();
+        m.classification_signals = "Gmail category: Promotions".into();
+        assert_eq!(detect(&m).kind, InboxKind::Automated);
+        m.classification_signals.clear();
+        m.body_text = "Gmail category: Promotions Bulk delivery service header present".into();
+        assert_eq!(detect(&m).kind, InboxKind::Personal);
+    }
+    #[test]
+    fn document_generators_need_attachment_metadata_and_replies_remain_visible() {
+        for agent in [
+            "SAP NetWeaver 758",
+            "Quadient Inspire Designer MIME",
+            "OpenText Exstream",
+        ] {
+            let raw = format!("From: billing@example.test\r\nX-Mailer: {agent}\r\nContent-Type: multipart/mixed; boundary=doc\r\n\r\n--doc\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nTeade\r\n--doc\r\nContent-Type: application/pdf\r\nContent-Disposition: attachment; filename=document.pdf\r\n\r\nsynthetic-not-a-pdf\r\n--doc--\r\n");
+            let parsed = mail_parser::MessageParser::default()
+                .parse(raw.as_bytes())
+                .unwrap();
+            let mut m = mail("Teade", "Teie dokument");
+            m.classification_signals = crate::signals::classification_signals(&parsed, &[]);
+            assert_eq!(detect(&m).kind, InboxKind::Automated, "{agent}");
+            assert!(detect(&m).types.is_empty());
+            let ordinary = raw.replace(agent, "Microsoft Outlook 16");
+            let parsed = mail_parser::MessageParser::default()
+                .parse(ordinary.as_bytes())
+                .unwrap();
+            m.classification_signals = crate::signals::classification_signals(&parsed, &[]);
+            assert_eq!(detect(&m).kind, InboxKind::Personal);
+            m.classification_signals = "Document generation application header present".into();
+            assert_eq!(detect(&m).kind, InboxKind::Personal);
+        }
+        let mut reply = mail("Re: Your invoice", "Hi, I can help.").with_known_correspondence(true);
+        reply.html = "<a href=\"https://example.test/unsubscribe/token\">Leave</a>".into();
+        assert_eq!(detect(&reply).kind, InboxKind::Personal);
+        let m = mail(
+            "Teade",
+            "X-Mailer: SAP NetWeaver 758 PDF document attachment present",
+        );
+        assert_eq!(detect(&m).kind, InboxKind::Personal);
     }
     #[test]
     fn html_quotes_and_untrusted_signals_do_not_create_attention() {

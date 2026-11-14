@@ -1,7 +1,7 @@
 // Real Rust HTTP, durable corrections, MIME detection, and SQLite; only mail transport is synthetic.
 import { test, expect, type Page } from "@playwright/test";
 const row = (page: Page, n: number) => page.locator(".message-row").filter({ has: page.locator(".subject", { hasText: new RegExp(`^Synthetic ${n}$`) }) });
-async function open(page: Page, n: number) { await row(page,n).locator(".message-open").focus(); await page.keyboard.press("Enter"); await expect(page.locator(".conversation-title h2")).toHaveText(`Synthetic ${n}`); }
+async function open(page: Page, n: number) { const target = row(page,n).locator(".message-open"); await target.focus(); await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve()))); await expect(target).toBeFocused(); await page.keyboard.press("Enter"); await expect(page.locator(".conversation-title h2")).toHaveText(`Synthetic ${n}`); }
 async function menu(page: Page, submenu: string, item: string, checked = false) {
   const trigger = page.getByRole("button",{name:"More actions",exact:true}); await trigger.focus(); await page.keyboard.press("Enter");
   await page.getByRole("menuitem",{name:submenu,exact:true}).focus(); await page.keyboard.press("ArrowRight");
@@ -25,12 +25,16 @@ test("personal-first inbox, independent attention, and durable keyboard correcti
 
   await page.getByRole("tab",{name:"Personal",exact:true}).focus(); await page.keyboard.press("ArrowRight");
   await expect(page.getByRole("tab",{name:"Automated",exact:true})).toHaveAttribute("aria-selected","true");
-  await page.getByRole("button",{name:"Receipts",exact:true}).focus(); await page.keyboard.press("Enter");
+  await page.getByRole("button",{name:"Transactions",exact:true}).focus(); await page.keyboard.press("Enter");
   await expect(row(page,2)).toBeVisible(); await expect(page.locator(".message-row")).toHaveCount(1);
   await page.getByRole("button",{name:"Orders",exact:true}).click(); await expect(row(page,2)).toBeVisible();
   await page.getByRole("button",{name:"Flights",exact:true}).click(); await expect(row(page,3)).toBeVisible();
   await expect(row(page,3).getByText("Reference: ABC123",{exact:true})).toBeVisible();
   await page.getByRole("button",{name:"All automated",exact:true}).click(); await expect(row(page,7)).toBeVisible();
+  await expect(page.locator('.detected-types')).toHaveCount(0);
+  await row(page,2).locator('.message-open').click();
+  await expect(page.locator('.conversation-title h2')).toHaveText('Synthetic 2');
+  await page.keyboard.press('Escape');
   await open(page,4);await page.keyboard.press("Escape");await expect(row(page,4)).toBeVisible();await expect(attention.getByText("Synthetic 4",{exact:true})).toBeVisible();
 
   for (const [width,height] of [[1480,980],[390,740],[390,480]]) for (const theme of ["light","dark"]) {
@@ -61,7 +65,7 @@ test("personal-first inbox, independent attention, and durable keyboard correcti
   await page.keyboard.press("Escape");
   await page.getByRole("tab",{name:"Personal",exact:true}).click(); await expect(row(page,3)).toBeVisible();
   await open(page,0); await menu(page,"Detected types","Flights",true); await page.keyboard.press("Escape");
-  await page.reload(); await expect(row(page,0).getByText("Flights",{exact:true})).toBeVisible(); await expect(row(page,0).locator(".mail-details button")).toHaveCount(0);
+  await page.reload(); await expect(row(page,0)).toBeVisible(); await expect(row(page,0).locator(".detected-types")).toHaveCount(0); await expect(row(page,0).locator(".mail-details button")).toHaveCount(0);
   await expect(row(page,3)).toBeVisible(); await expect(attention.getByText("Synthetic 3",{exact:true})).toHaveCount(0);
   await open(page,0); await menu(page,"Personal or Automated","Always Automated for this sender"); await page.keyboard.press("Escape");
   await expect(row(page,0)).toHaveCount(0); await expect(row(page,3)).toBeVisible();

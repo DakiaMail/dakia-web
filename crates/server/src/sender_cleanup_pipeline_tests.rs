@@ -191,3 +191,46 @@ async fn cleanup_acceptance_and_status_do_not_wait_for_slow_provider_and_keep_pa
     assert_eq!(job.failed_targets.len(), 1);
     db.close().await;
 }
+
+#[tokio::test]
+async fn ordinary_bulk_actions_drain_together_without_replay() {
+    let (_dir, app, _, a, provider) = controlled().await;
+    let rows = app
+        .mail
+        .snapshot_page(&app.store, &a, "INBOX", None)
+        .await
+        .unwrap()
+        .rows;
+    assert_eq!(rows.len(), 2);
+    for row in &rows {
+        app.store
+            .operation(
+                &a,
+                Operation {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    account_id: a.id().into(),
+                    target_id: row.id.clone(),
+                    expected_revision: row.revision,
+                    change: Change::Archive,
+                    status: OperationStatus::Pending,
+                    revision: 0,
+                },
+            )
+            .await
+            .unwrap();
+    }
+    assert!(provider.mutations.lock().await.is_empty());
+    crate::mutations::drain(&app, &a).await.unwrap();
+    assert_eq!(provider.mutations.lock().await.len(), 2);
+    for row in &rows {
+        assert!(!app
+            .store
+            .message(&a, &row.id)
+            .await
+            .unwrap()
+            .folder_ids
+            .contains(&"INBOX".into()));
+    }
+    crate::mutations::drain(&app, &a).await.unwrap();
+    assert_eq!(provider.mutations.lock().await.len(), 2);
+}

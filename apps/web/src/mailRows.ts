@@ -1,6 +1,6 @@
 import type { Message } from "@dakia/api-types";
 
-const identity = (message: Message) => `${message.account_id}/${message.id}`;
+export const identity = (message: Message) => `${message.account_id}/${message.id}`;
 
 // Each federated page is sorted independently, not relative to earlier pages.
 // Merge the complete loaded set before list virtualization.

@@ -160,6 +160,7 @@ pub async fn run(app: App) {
     let classifier = Some(Arc::new(Mutex::new(LocalEmailClassifier)));
     let mut recovered = std::collections::HashSet::new();
     loop {
+        let mut progressed = false;
         if app.store.jobs_enabled().await.unwrap_or(false) {
             if let Ok(accounts) = app.store.job_accounts().await {
                 for a in accounts {
@@ -184,6 +185,7 @@ pub async fn run(app: App) {
                         }
                     }
                     if let Ok(Some(mut job)) = app.store.claim_model(&a).await {
+                        progressed = true;
                         let mut reason = ModelFailureReason::WorkerFailed;
                         let result = execute(&app, &a, &job, classifier.clone(), &mut reason)
                             .instrument(tracing::info_span!(
@@ -231,7 +233,13 @@ pub async fn run(app: App) {
                 }
             }
         }
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        // Keep active backfill moving; each turn still handles one job per account.
+        tokio::time::sleep(if progressed {
+            Duration::from_millis(100)
+        } else {
+            Duration::from_secs(2)
+        })
+        .await;
     }
 }
 pub(crate) async fn execute(

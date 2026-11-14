@@ -944,3 +944,44 @@ mod hybrid_search_tests;
 
 #[path = "search_scale_tests.rs"]
 mod search_scale_tests;
+
+#[tokio::test]
+async fn semantic_worker_recovers_after_first_delivery_resets_search_state() {
+    let (_dir, mut app, _user, a, _provider) = controlled().await;
+    app.store.configure_search_database(None).await.unwrap();
+    app.store.maintain_search_vectors(false).await.unwrap();
+    let worker = tokio::spawn(crate::search_models::run(app.clone()));
+    let result = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if app
+                .store
+                .embedding_coverage(&a)
+                .await
+                .unwrap()
+                .model_revision
+                .is_some()
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        app.store.flush_search_index(&a).await.unwrap();
+        loop {
+            if app
+                .store
+                .embedding_coverage(&a)
+                .await
+                .unwrap()
+                .model_revision
+                .is_some()
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    worker.abort();
+    let _ = worker.await;
+    result.expect("worker must restore preparation after first delivery resets the index");
+}

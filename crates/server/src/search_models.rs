@@ -4,7 +4,6 @@ use crate::App;
 use dakia_inference::embedding::{search_model_revision, LocalSearchEmbedder};
 use dakia_storage::{AuthorizedAccount, EmbeddedPassage, Error, Store};
 use std::{
-    collections::HashMap,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
@@ -15,7 +14,6 @@ pub async fn run(app: App) {
     let revision = search_model_revision();
     let mut model: Option<Model> = None;
     let mut next_load = Instant::now();
-    let mut prepared = HashMap::new();
     let mut turns = 0u64;
     let mut account_cursor = 0usize;
     let mut next_snapshot = Instant::now();
@@ -25,7 +23,6 @@ pub async fn run(app: App) {
             match tokio::task::spawn_blocking(move || LocalSearchEmbedder::from_dir(path)).await {
                 Ok(Ok(loaded)) => {
                     model = Some(Arc::new(Mutex::new(loaded)));
-                    prepared.clear();
                 }
                 _ => {
                     tracing::warn!(target:"dakia_server::diagnostics",operation="search_embeddings",outcome="model_unavailable","local search model unavailable");
@@ -60,18 +57,16 @@ pub async fn run(app: App) {
                 }
                 account_cursor = (start + index + 1) % count;
                 let available = model.is_some();
-                if prepared.get(a.id()) != Some(&available) {
-                    if !matches!(
-                        tokio::time::timeout(
-                            Duration::from_millis(250),
-                            app.store.prepare_embeddings(&a, &revision, available)
-                        )
-                        .await,
-                        Ok(Ok(()))
-                    ) {
-                        continue;
-                    }
-                    prepared.insert(a.id().to_owned(), available);
+                // First delivery or index recovery can reset durable model preparation.
+                if !matches!(
+                    tokio::time::timeout(
+                        Duration::from_millis(250),
+                        app.store.prepare_embeddings(&a, &revision, available)
+                    )
+                    .await,
+                    Ok(Ok(()))
+                ) {
+                    continue;
                 }
                 if enabled {
                     if let Some(model) = &model {

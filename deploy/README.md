@@ -9,7 +9,9 @@ The root image already supplies the data, key, web, worker, and model paths. For
 | Variable | Root image default / purpose |
 | --- | --- |
 | `DAKIA_ORIGIN` | Required external HTTPS origin, without a path or trailing slash |
-| `DAKIA_DATA_DIR` | `/data`; persistent control/account databases, mail and blobs |
+| `DAKIA_DATA_DIR` | `/data`; persistent local data, SQLite account files and blobs |
+| `DAKIA_DATABASE_URL` | Optional application backend; unset/empty keeps SQLite; PostgreSQL uses native control/account schemas |
+| `DAKIA_SEARCH_DATABASE_URL` | Optional independent search backend; unset/empty follows application storage |
 | `DAKIA_CREDENTIAL_KEY_FILE` | `/secrets/credential-key`; exactly 32 raw bytes, generated on a fresh installation if absent |
 | `DAKIA_OIDC_ISSUER` | Unset for local login; exact HTTPS issuer when using OIDC |
 | `DAKIA_OIDC_CLIENT_ID` | Required with OIDC; confidential client with PKCE and callback `<origin>/auth/callback` |
@@ -17,7 +19,7 @@ The root image already supplies the data, key, web, worker, and model paths. For
 
 A standalone server outside the supplied image needs explicit data and key paths. On first start, the key's parent directory must exist and be writable. Missing keys on an existing installation fail startup instead of being replaced.
 
-The root Compose file passes `DAKIA_ORIGIN` to the container. Other runtime settings need explicit `environment` entries and any required mounts; simply adding them to `.env` does not pass them through automatically. For OIDC, save the following as `compose.override.yaml` beside `compose.yaml` and set its issuer, client ID, and host secret-file path in `.env`. Compose loads this override automatically:
+The root Compose file passes origin, database and Gmail OAuth settings to the container. Other runtime settings need explicit `environment` entries and any required mounts; simply adding them to `.env` does not pass them through automatically. For OIDC, save the following as `compose.override.yaml` beside `compose.yaml` and set its issuer, client ID, and host secret-file path in `.env`. Compose loads this override automatically:
 
 ```yaml
 services:
@@ -48,7 +50,7 @@ Optional/runtime settings:
 | `DAKIA_MODEL_CACHE` | Writable cache for public translation models |
 | `DAKIA_VAPID_FILE` | Private VAPID JSON file for Web Push; see `workers/README.md` |
 
-Preserve key bytes across upgrades. Restrict secret directory/file permissions. New local setup needs writable `/secrets` to create its key and setup-code file. Existing provisioned secret files, such as an OIDC client secret, can be mounted read-only. Never put credentials in command arguments, URLs, Git or logs. Give the service UID access to its data/model cache, not other application stores. Keep live SQLite on a local filesystem, not a network share. Run only one server/operator against a data directory; an exclusive lock enforces this.
+Preserve key bytes across upgrades. Restrict secret directory/file permissions. New local setup needs writable `/secrets` to create its key and setup-code file. Existing provisioned secret files, such as an OIDC client secret, can be mounted read-only. Never put credentials in command arguments, public URLs, Git or logs. Treat database connection URLs and populated environment files as secrets. Give the service UID access to its data/model cache, not other application stores. Keep live SQLite on a local filesystem, not a network share. Run only one server/operator against a data directory; an exclusive lock enforces this.
 
 ## Local users
 
@@ -58,7 +60,7 @@ The first local login is the owner. Workspace provides owner-only invitation cre
 
 GitHub Actions builds application source changes on `main` for Linux AMD64 and ARM64. Source images use `ghcr.io/dakiamail/dakia-web:sha-<source-commit>` and carry the source commit in the `org.opencontainers.image.revision` label. Semantic version tags publish versioned images, then a GitHub release with a digest manifest and the paired upgrade scripts after packaged-runtime checks pass. Stable releases take priority over previews for update discovery. Manual workflow runs can build a chosen source revision.
 
-Each native image must pass packaged classifier, translation-worker, health, Gmail OAuth, and restart checks before the multi-platform image is published. The classification check verifies the deterministic policy on synthetic messages as the normal app user. The OAuth checks use synthetic credentials with networking disabled. `edge` tracks a successful `main` build; the Compose default uses an explicitly verified digest. Documentation and Compose-pin-only changes do not rebuild unchanged application code.
+Each native image must pass packaged classifier, CPU search-model, translation-worker, health, Gmail OAuth, and restart checks before the multi-platform image is published. The classification check verifies the deterministic policy on synthetic messages as the normal app user. The OAuth checks use synthetic credentials with networking disabled. `edge` tracks a successful `main` build; the Compose default uses an explicitly verified digest. Documentation and Compose-pin-only changes do not rebuild unchanged application code.
 
 Use the source-revision label and immutable digest to identify an image. Keep operator credentials and mail data in runtime configuration and persistent volumes, outside the image.
 
@@ -67,12 +69,13 @@ Use the source-revision label and immutable digest to identify an image. Keep op
 Install the requirements and run the checks in the root README. Retrieve the oversized model first:
 
 ```sh
+python3 scripts/fetch-search-model.py
 sh deploy/build-bundle.sh
 ```
 
-The builder installs locked npm dependencies, builds/tests the UI, tests the workers and Rust workspace, builds release binaries, and creates `deploy/bundle/runtime.tar.gz`. It packages copied binaries, web assets, workers and classification policy, excluding account data and operator secrets. Build on Linux x86_64 using Node 24 LTS and the pinned Rust toolchain. Classification requires no model files or runtime downloads.
+The builder installs locked npm dependencies, builds/tests the UI, tests the workers and Rust workspace, builds release binaries, and creates `deploy/bundle/runtime.tar.gz`. It packages copied binaries, web assets, workers, classification policy and search-model artifacts, excluding account data and operator secrets. Build on Linux x86_64 using Node 24 LTS and the pinned Rust toolchain. The model fetch is explicit so offline builds can use a previously verified local artifact.
 
-Extract the archive into a new build directory and build the included Dockerfile with an explicit local tag. It expects `bin/`, `web/`, `workers/` beside it. The image runs as UID/GID 1000. Mount persistent storage at `/data`, set the required environment and mount private configuration files at their configured paths. Configure `DAKIA_WEB_ROOT=/app/web`; the image already sets the worker and translation model-cache paths. A private VAPID file is needed for push, not embedded in the image.
+Extract the archive into a new build directory and build the included Dockerfile with an explicit local tag. It expects `bin/`, `web/`, `workers/` and `search-model/` beside it. The image runs as UID/GID 1000. Mount persistent storage at `/data`, set the required environment and mount private configuration files at their configured paths. Configure `DAKIA_WEB_ROOT=/app/web`; the image already sets the search-model, worker and model-cache paths. A private VAPID file is needed for push, not embedded in the image.
 
 Use a read-only root filesystem, no new privileges, dropped capabilities and suitable resource limits. Networking must permit OIDC discovery/backchannel, mail provider TLS, selected model downloads and supported push endpoints. Do not bypass TLS verification to resolve routing failures. Ensure `/sw.js` serves JavaScript rather than the SPA fallback.
 
@@ -113,7 +116,32 @@ dakia-admin backup DATA_DIR NEW_BACKUP_DIR KEY_FILE
 dakia-admin restore BACKUP_DIR NEW_DATA_DIR KEY_FILE
 ```
 
-Backup coordinates SQLite snapshots and durable blobs and writes a manifest last. Received cache and public models are excluded. Restore requires a new directory, clears authentication sessions/login flows and pending invitation links, disables jobs and changes in-flight submissions to `delivery_unknown`. Inspect and reconcile before enabling jobs. Protect completed backups and separately back up encryption, identity-provider and VAPID keys. Encrypt off-host archives using operator-controlled tooling and test restore into an isolated directory.
+Backup coordinates portable control/account snapshots and durable blobs and writes a manifest last. PostgreSQL snapshots stream into the same SQLite archive format. Derived extracted search text is excluded. Received cache and public models are excluded. Restore requires a new directory, clears authentication sessions/login flows and pending invitation links, disables jobs and changes in-flight submissions to `delivery_unknown`. Inspect and reconcile before enabling jobs. Protect completed backups and separately back up encryption, identity-provider and VAPID keys. Encrypt off-host archives using operator-controlled tooling and test restore into an isolated directory.
+
+For a backend transfer, use the same credential key and a build containing the
+dual-database implementation. Set `DAKIA_DATABASE_URL` to the stopped source for
+export, then to the new destination for import. An unset value selects SQLite.
+The currently published image is not proof of this work-in-progress feature.
+
+```sh
+dakia-admin export DATA_DIR NEW_ARCHIVE_DIR KEY_FILE
+dakia-admin import ARCHIVE_DIR NEW_DATA_DIR KEY_FILE
+```
+
+Import preserves IDs, ciphertext, revisions, queue ordering and durable jobs; it
+pauses jobs without changing submission states. Search is rebuilt through normal
+background acquisition. `restore` remains the disaster-recovery path and resets
+authentication and uncertain sends as described above. PostgreSQL offline commands
+hold an exclusive database-wide lease, so all online instances must be stopped,
+even when they use other data directories or hosts. A populated target is refused.
+Do not reuse a failed import directory. Its `backend-import-in-progress` marker
+and PostgreSQL `backend_import=incomplete` setting prevent startup with partial
+state. Preserve that evidence and inspect the isolated destination before retrying
+into a fresh database and directory. Do not remove the guards to force startup.
+
+The approved hybrid-search rollout remains blocked on semantic retrieval,
+recovery/packaging acceptance and the measured latency gate. See the detailed
+[implementation status](../docs/dual-database-search.md).
 
 Do not run an older binary directly against migrated data. Roll back using a matching restored snapshot and retain the newer data until reconciliation is complete. Local backup/restore behavior is covered by storage tests; this repository does not claim an operator's live disaster-recovery acceptance.
 

@@ -44,12 +44,9 @@ async fn setup() -> (tempfile::TempDir, App, String, String) {
         .unwrap();
     for (user, token) in [(&a, "alice-token"), (&b, "bob-token")] {
         let hash = URL_SAFE_NO_PAD.encode(Sha256::digest(token.as_bytes()));
-        sqlx::query("INSERT INTO sessions(token_hash,user_id,csrf,expires_at) VALUES(?,?,?,?)")
-            .bind(hash)
-            .bind(user)
-            .bind("csrf-value")
-            .bind(4102444800_i64)
-            .execute(store.control())
+        store
+            .control_repository()
+            .create_session(&hash, user, "csrf-value", 4102444800)
             .await
             .unwrap();
     }

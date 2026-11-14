@@ -21,7 +21,10 @@ fn provider_id(identity: &p::Identity, a: &AuthorizedAccount) -> Result<String> 
             account_id,
             message_id,
         } if account_id == a.id() => Ok(format!("gmail:{message_id}")),
-        p::Identity::Graph { account_id, message_id } if account_id == a.id() => Ok(format!("graph:{message_id}")),
+        p::Identity::Graph {
+            account_id,
+            message_id,
+        } if account_id == a.id() => Ok(format!("graph:{message_id}")),
         p::Identity::Imap(r) if r.account_id == a.id() => serde_json::to_string(r)
             .map_err(Error::from)
             .map_err(Into::into),
@@ -310,6 +313,8 @@ impl MailRuntime {
             counts_exact: false,
             cache_preview: None,
             index_page: None,
+            search: None,
+            supplement: None,
         };
         if let Some(generation) = record_generation {
             let current = store

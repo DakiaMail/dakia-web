@@ -101,6 +101,8 @@ async fn initial_and_historical_mail_never_push_but_new_mail_deduplicates_and_wa
         counts_exact: false,
         cache_preview: None,
         index_page: None,
+        search: None,
+        supplement: None,
     };
     s.record_scan(&a, "INBOX", generation, &page).await.unwrap();
     assert!(s.next_push(&a).await.unwrap().is_none());

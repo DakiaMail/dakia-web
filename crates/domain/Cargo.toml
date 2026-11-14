@@ -6,5 +6,6 @@ license.workspace = true
 
 [dependencies]
 serde.workspace = true
-chrono.workspace = true
 ts-rs = { version = "11", features = ["serde-compat"] }
+
+chrono.workspace = true

@@ -1,6 +1,7 @@
 //! Bounded, explicitly provisional local positives. Provider continuation is
 //! authoritative and does not inherit preview IDs as already seen.
 use super::*;
+use futures_util::StreamExt;
 
 pub(super) async fn cached(
     app: &App,
@@ -18,62 +19,97 @@ pub(super) async fn cached(
     }
     let mut rows = vec![];
     let mut coverage = vec![];
-    for a in scopes {
-        let folders = match app.store.provider_document(a, "probe").await? {
-            Some(raw) => serde_json::from_str::<dakia_mail_provider::Probe>(&raw)
-                .ok()
-                .and_then(|p| {
-                    select_folders(
-                        p.folders.into_iter().filter(|f| f.selectable).collect(),
-                        wanted,
-                    )
-                    .ok()
-                }),
-            None => None,
-        };
-        // Never guess localized special-use roles or case-fold custom folders.
-        if wanted.is_some() && folders.is_none() {
-            coverage.push(AccountCoverage {
-                account_id: a.id().into(),
-                folder_ids: vec![],
-                state: CoverageState::Pending,
-                error: None,
-                inbox: None,
-            });
-            continue;
-        }
-        rows.extend(
-            app.store
-                .cached_search_rows(
-                    a,
-                    &dakia_storage::CachedSearchFilter {
-                        classification: r.classification(),
-                        from: query.from.as_deref(),
-                        to: query.to.as_deref(),
-                        subject: query.subject.as_deref(),
-                        text: query.text.as_deref(),
-                        seen: query.seen,
-                        starred: query.starred,
-                        folders: if wanted.is_some() {
-                            folders.as_deref()
-                        } else {
-                            None
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(20);
+    let accounts = futures_util::stream::iter(scopes.to_vec())
+        .map(|a| async move {
+            let result = tokio::time::timeout_at(deadline, async {
+                let folders = match app.store.provider_document(&a, "probe").await? {
+                    Some(raw) => serde_json::from_str::<dakia_mail_provider::Probe>(&raw)
+                        .ok()
+                        .and_then(|p| {
+                            select_folders(
+                                p.folders.into_iter().filter(|f| f.selectable).collect(),
+                                wanted,
+                            )
+                            .ok()
+                        }),
+                    None => None,
+                };
+                // Never guess localized special-use roles or case-fold custom folders.
+                if wanted.is_some() && folders.is_none() {
+                    return Ok((vec![], vec![]));
+                }
+                let found = app
+                    .store
+                    .cached_search_preview_rows(
+                        &a,
+                        &dakia_storage::CachedSearchFilter {
+                            classification: r.classification(),
+                            since: None,
+                            before: None,
+                            from: query.from.as_deref(),
+                            to: query.to.as_deref(),
+                            subject: query.subject.as_deref(),
+                            text: query.text.as_deref(),
+                            text_alternatives: None,
+                            text_units: None,
+                            seen: query.seen,
+                            starred: query.starred,
+                            folders: if wanted.is_some() {
+                                folders.as_deref()
+                            } else {
+                                None
+                            },
+                            category: r.category.as_deref(),
+                            snoozed_only: wants_snoozed(&r.q),
+                            hide_snoozed: wanted.is_some_and(|f| f.eq_ignore_ascii_case("INBOX")),
                         },
-                        category: r.category.as_deref(),
-                        snoozed_only: r.q.split_whitespace().any(|t| t == "is:snoozed"),
-                        hide_snoozed: wanted.is_some_and(|f| f.eq_ignore_ascii_case("INBOX")),
+                    )
+                    .await?;
+                Ok::<_, ApiFailure>((found, folders.unwrap_or_default()))
+            })
+            .await;
+            match result {
+                Ok(Ok((found, folders))) => (
+                    found,
+                    AccountCoverage {
+                        account_id: a.id().into(),
+                        folder_ids: folders,
+                        state: CoverageState::Pending,
+                        error: None,
+                        inbox: None,
                     },
-                )
-                .await?,
-        );
-        coverage.push(AccountCoverage {
-            account_id: a.id().into(),
-            folder_ids: folders.unwrap_or_default(),
-            state: CoverageState::Pending,
-            error: None,
-            inbox: None,
-        });
+                ),
+                Ok(Err(error)) => (
+                    vec![],
+                    AccountCoverage {
+                        account_id: a.id().into(),
+                        folder_ids: vec![],
+                        state: CoverageState::Error,
+                        error: Some(error.1.into()),
+                        inbox: None,
+                    },
+                ),
+                Err(_) => (
+                    vec![],
+                    AccountCoverage {
+                        account_id: a.id().into(),
+                        folder_ids: vec![],
+                        state: CoverageState::Pending,
+                        error: None,
+                        inbox: None,
+                    },
+                ),
+            }
+        })
+        .buffer_unordered(dakia_storage::SEARCH_ACCOUNT_CONCURRENCY)
+        .collect::<Vec<_>>()
+        .await;
+    for (found, status) in accounts {
+        rows.extend(found);
+        coverage.push(status);
     }
+    coverage.sort_by(|a, b| a.account_id.cmp(&b.account_id));
     if rows.is_empty() {
         return Ok(None);
     }
@@ -109,5 +145,7 @@ pub(super) async fn cached(
         counts_exact: false,
         cache_preview: Some(true),
         index_page: None,
+        search: None,
+        supplement: None,
     }))
 }

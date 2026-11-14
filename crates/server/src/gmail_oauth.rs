@@ -80,16 +80,22 @@ pub(super) async fn start(
     let state = random();
     let (challenge, verifier) = PkceCodeChallenge::new_random_sha256();
     let now = Utc::now().timestamp();
-    sqlx::query("DELETE FROM gmail_oauth_flows WHERE expires_at<=? OR session_hash=?")
-        .bind(now)
-        .bind(&id.token_hash)
-        .execute(app.store.control())
-        .await
-        .map_err(StorageError::from)?;
-    sqlx::query("INSERT INTO gmail_oauth_flows(state_hash,session_hash,user_id,verifier,email,display_name,account_id,expires_at) VALUES(?,?,?,?,?,?,?,?)")
-        .bind(hash(&state)).bind(&id.token_hash).bind(&id.user).bind(verifier.secret())
-        .bind(&input.email).bind(&input.display_name).bind(&input.account_id).bind(now+600)
-        .execute(app.store.control()).await.map_err(StorageError::from)?;
+    app.store
+        .control_repository()
+        .start_gmail_flow(
+            &dakia_storage::control_repository::MailOAuthFlow {
+                state_hash: hash(&state),
+                session_hash: id.token_hash.clone(),
+                user_id: id.user.clone(),
+                verifier: verifier.secret().to_owned(),
+                email: input.email.clone(),
+                display_name: input.display_name.clone(),
+                account_id: input.account_id.clone(),
+                expires_at: now + 600,
+            },
+            now,
+        )
+        .await?;
     let mut url = url::Url::parse("https://accounts.google.com/o/oauth2/v2/auth").unwrap();
     url.query_pairs_mut().extend_pairs([
         ("client_id", config.client_id.as_str()),
@@ -135,10 +141,20 @@ async fn complete(
 ) -> Result<Redirect> {
     let config = configured(&app)?;
     // Atomically consume only a flow belonging to this exact signed-in session.
-    let row = sqlx::query("DELETE FROM gmail_oauth_flows WHERE state_hash=? AND session_hash=? AND user_id=? AND expires_at>? RETURNING *")
-        .bind(hash(&input.state)).bind(&id.token_hash).bind(&id.user).bind(Utc::now().timestamp())
-        .fetch_optional(app.store.control()).await.map_err(StorageError::from)?
-        .ok_or(ApiFailure(StatusCode::BAD_REQUEST, "google_sign_in_expired"))?;
+    let row = app
+        .store
+        .control_repository()
+        .consume_gmail_flow(
+            &hash(&input.state),
+            &id.token_hash,
+            &id.user,
+            Utc::now().timestamp(),
+        )
+        .await?
+        .ok_or(ApiFailure(
+            StatusCode::BAD_REQUEST,
+            "google_sign_in_expired",
+        ))?;
     if input.error.is_some() {
         return Err(ApiFailure(
             StatusCode::BAD_REQUEST,
@@ -160,7 +176,7 @@ async fn complete(
                 "redirect_uri",
                 &format!("{}/api/accounts/gmail/callback", app.config.origin),
             ),
-            ("code_verifier", &row.get::<String, _>("verifier")),
+            ("code_verifier", &row.verifier),
         ])
         .send()
         .await
@@ -195,7 +211,7 @@ async fn complete(
         .json()
         .await
         .map_err(unavailable)?;
-    let email: String = row.get("email");
+    let email = row.email;
     if !profile.email_verified || !profile.email.eq_ignore_ascii_case(&email) {
         return Err(ApiFailure(
             StatusCode::BAD_REQUEST,
@@ -211,7 +227,7 @@ async fn complete(
         ))?;
     let connection = ConnectAccount {
         email,
-        display_name: row.get("display_name"),
+        display_name: row.display_name,
         provider: ProviderKind::Gmail,
         imap_host: "imap.gmail.com".into(),
         imap_port: 993,
@@ -227,7 +243,7 @@ async fn complete(
         }),
         microsoft_oauth: None,
     };
-    let account: Option<String> = row.get("account_id");
+    let account = row.account_id;
     let account = if let Some(account) = account {
         let a = app.store.authorize(&id.user, &account).await?;
         app.mail.reconnect(&app.store, &a, &connection).await?

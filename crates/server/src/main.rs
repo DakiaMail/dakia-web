@@ -60,17 +60,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .map(|value| value.parse::<u64>())
         .transpose()?
         .unwrap_or(1024 * 1024 * 1024);
-    let store = Store::open_with_attachment_budget(data, key, attachment_budget).await?;
+    let mut store = Store::open_with_database(
+        data,
+        key,
+        attachment_budget,
+        std::env::var("DAKIA_DATABASE_URL")
+            .ok()
+            .filter(|url| !url.is_empty())
+            .as_deref(),
+    )
+    .await?;
+    store.require_search_embeddings(&dakia_inference::embedding::search_model_revision())?;
+    store
+        .configure_search_database(
+            std::env::var("DAKIA_SEARCH_DATABASE_URL")
+                .ok()
+                .filter(|url| !url.is_empty())
+                .as_deref(),
+        )
+        .await?;
     if config.issuer.is_empty() {
         dakia_server::initialize_local_login(&store, &key_path).await?;
     }
     let state = App {
         store,
         config: Arc::new(config),
-        mail: dakia_server::mail::MailRuntime::default().with_gmail(gmail).with_microsoft(microsoft),
+        mail: dakia_server::mail::MailRuntime::default()
+            .with_gmail(gmail)
+            .with_microsoft(microsoft)
+            .with_search_model(
+                std::env::var("DAKIA_SEARCH_MODEL_DIR")
+                    .unwrap_or_else(|_| "crates/inference/assets/multilingual-e5-small".into())
+                    .into(),
+            ),
     };
     let executor = tokio::spawn(dakia_server::executor::run(state.clone()));
     let models = tokio::spawn(dakia_server::models::run(state.clone()));
+    let search_lexical = tokio::spawn(dakia_server::search_lexical::run(state.clone()));
+    let search_models = tokio::spawn(dakia_server::search_models::run(state.clone()));
     let push = tokio::spawn(dakia_server::push::run(state.clone()));
     let idle = tokio::spawn(dakia_server::idle::run(state.clone()));
     let (shutdown, _) = tokio::sync::watch::channel(false);
@@ -89,6 +116,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     diagnostic_heartbeat.abort();
     executor.abort();
     models.abort();
+    search_models.abort();
+    search_lexical.abort();
     push.abort();
     idle.abort();
     Ok(())

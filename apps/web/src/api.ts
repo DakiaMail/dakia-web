@@ -1,4 +1,5 @@
 import { optimisticClassification, type MailFilter } from "./classification";
+import type { IndexingStatus } from "@dakia/api-types";
 import { localTransport } from "./localTransport";
 import type {
   Account,
@@ -88,6 +89,7 @@ export const api = {
   createInvitation: () => request<{ id: string; expires_at: number; url: string }>("/invitations", { method: "POST" }),
   revokeInvitation: (id: string) => request<void>(`/invitations/${key(id)}`, { method: "DELETE" }),
   accounts: () => request<Account[]>("/accounts"),
+  indexingStatus: (id: string, signal?: AbortSignal) => request<IndexingStatus>(`${accountPath(id)}/indexing`, { signal }),
   syncActive: (id: string, signal?: AbortSignal) => request<boolean>(`${accountPath(id)}/sync-active`, { signal }),
   discover: (email: string, signal?: AbortSignal) => request<DiscoveredSettings | null>("/accounts/discover", { method: "POST", body: JSON.stringify({ email }), signal }),
   removeAccount: (id: string, confirmEmail: string) => request<void>(accountPath(id), { method: "DELETE", body: JSON.stringify({ confirm_email: confirmEmail }) }),

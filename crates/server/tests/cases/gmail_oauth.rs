@@ -60,7 +60,7 @@ async fn gmail_requires_configuration_login_and_csrf_and_uses_pkce_offline_mail_
     );
     assert!(!q.contains_key("client_secret"));
     let verifier: String = sqlx::query_scalar("SELECT verifier FROM gmail_oauth_flows")
-        .fetch_one(app.store.control())
+        .fetch_one(app.store.sqlite_control_for_test())
         .await
         .unwrap();
     assert_eq!(
@@ -87,7 +87,7 @@ async fn gmail_callback_is_session_bound_single_use_expiring_and_cancel_safe() {
         .unwrap();
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM gmail_oauth_flows")
-        .fetch_one(app.store.control())
+        .fetch_one(app.store.sqlite_control_for_test())
         .await
         .unwrap();
     assert_eq!(
@@ -115,7 +115,7 @@ async fn gmail_callback_is_session_bound_single_use_expiring_and_cancel_safe() {
         .into_owned();
     let path = format!("/api/accounts/gmail/callback?state={state}&error=access_denied");
     sqlx::query("UPDATE gmail_oauth_flows SET expires_at=0")
-        .execute(app.store.control())
+        .execute(app.store.sqlite_control_for_test())
         .await
         .unwrap();
     let response = router(app.clone())
@@ -168,7 +168,7 @@ async fn gmail_refresh_credentials_are_encrypted_and_not_accepted_through_passwo
     let account = app.store.connect(&alice, &input).await.unwrap();
     let encrypted: Vec<u8> = sqlx::query_scalar("SELECT credential FROM accounts WHERE id=?")
         .bind(&account.id)
-        .fetch_one(app.store.control())
+        .fetch_one(app.store.sqlite_control_for_test())
         .await
         .unwrap();
     assert!(!String::from_utf8_lossy(&encrypted).contains("private-refresh-fixture"));

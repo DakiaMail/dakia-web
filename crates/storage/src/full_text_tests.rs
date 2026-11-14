@@ -252,7 +252,7 @@ async fn full_text_epoch_gap_retry_and_partial_scans_never_claim_complete() {
     assert_eq!(store.text_coverage(&a).await.unwrap().gaps, 1);
     assert!(store.next_search_body(&a, false).await.unwrap().is_none());
     assert!(!store
-        .search_scans_fresh(&a, &["INBOX".into()])
+        .search_scans_complete(&a, &["INBOX".into()])
         .await
         .unwrap());
     let (generation, _) = store.scan_state(&a, "INBOX").await.unwrap().unwrap();
@@ -268,13 +268,15 @@ async fn full_text_epoch_gap_retry_and_partial_scans_never_claim_complete() {
         counts_exact: false,
         cache_preview: None,
         index_page: None,
+        search: None,
+        supplement: None,
     };
     store
         .record_scan(&a, "INBOX", generation, &page)
         .await
         .unwrap();
     assert!(!store
-        .search_scans_fresh(&a, &["INBOX".into()])
+        .search_scans_complete(&a, &["INBOX".into()])
         .await
         .unwrap());
     store.reset_scan(&a, "INBOX").await.unwrap();
@@ -291,11 +293,11 @@ async fn full_text_epoch_gap_retry_and_partial_scans_never_claim_complete() {
         .await
         .unwrap();
     assert!(store
-        .search_scans_fresh(&a, &["INBOX".into()])
+        .search_scans_complete(&a, &["INBOX".into()])
         .await
         .unwrap());
     assert!(!store
-        .search_scans_fresh(&a, &["INBOX".into(), "Sent".into()])
+        .search_scans_complete(&a, &["INBOX".into(), "Sent".into()])
         .await
         .unwrap());
 }
@@ -415,7 +417,7 @@ async fn full_text_authoritative_scale_benchmark() {
 }
 
 #[tokio::test]
-async fn full_text_quota_failed_commit_and_account_removal_preserve_boundaries() {
+async fn full_text_uncapped_failed_commit_and_account_removal_preserve_boundaries() {
     let (dir, store, user, a, input) = fixture().await;
     let m = store
         .upsert_message(&a, message(&a, "quota"))
@@ -432,8 +434,8 @@ async fn full_text_quota_failed_commit_and_account_removal_preserve_boundaries()
         .put_search_body(&a, &m, "over budget", "ready")
         .await
         .unwrap();
-    assert_eq!(store.text_coverage(&a).await.unwrap().gaps, 1);
-    assert!(ids(&store, &a, "over budget").await.is_empty());
+    assert_eq!(store.text_coverage(&a).await.unwrap().gaps, 0);
+    assert_eq!(ids(&store, &a, "over budget").await.len(), 1);
     sqlx::query("UPDATE search_totals SET body_bytes=0")
         .execute(&db)
         .await
@@ -445,7 +447,7 @@ async fn full_text_quota_failed_commit_and_account_removal_preserve_boundaries()
         .await
         .is_err());
     assert!(ids(&store, &a, "uncommitted").await.is_empty());
-    assert_eq!(store.text_coverage(&a).await.unwrap().gaps, 1);
+    assert_eq!(store.text_coverage(&a).await.unwrap().gaps, 0);
     sqlx::query("DROP TRIGGER search_fault")
         .execute(&db)
         .await
@@ -510,7 +512,7 @@ async fn full_text_restore_discards_derived_text_and_requires_new_reconciliation
         .await
         .is_empty());
     assert!(!restored
-        .search_scans_fresh(&scope, &["INBOX".into()])
+        .search_scans_complete(&scope, &["INBOX".into()])
         .await
         .unwrap());
     #[cfg(unix)]
@@ -574,7 +576,7 @@ async fn permanent_search_gaps_do_not_retry_after_time_or_restart_but_changed_so
 }
 
 #[tokio::test]
-async fn quota_gap_waits_for_capacity_then_becomes_eligible_without_identity_change() {
+async fn legacy_quota_gap_retries_without_capacity_or_identity_change() {
     let (_dir, store, _user, a, _) = fixture().await;
     let m = store
         .upsert_message(&a, message(&a, "quota-recovery"))
@@ -587,7 +589,10 @@ async fn quota_gap_waits_for_capacity_then_becomes_eligible_without_identity_cha
         .execute(&db)
         .await
         .unwrap();
-    assert!(store.next_search_body(&a, false).await.unwrap().is_none());
+    assert_eq!(
+        store.next_search_body(&a, false).await.unwrap().unwrap().id,
+        m.id
+    );
     sqlx::query("UPDATE search_totals SET body_bytes=511*1024*1024 WHERE id=1")
         .execute(&db)
         .await
@@ -676,7 +681,7 @@ async fn full_text_body_batch_rejects_cross_account_and_guards_changed_or_remove
     assert_eq!(store.text_coverage(&a).await.unwrap().bodies, 1);
 }
 #[tokio::test]
-async fn full_text_body_batch_accounts_for_quota_between_rows_in_one_transaction() {
+async fn full_text_body_batch_is_not_capped_by_aggregate_bytes() {
     let (_dir, store, _user, a, _) = fixture().await;
     let rows = store
         .ingest_messages(&a, vec![message(&a, "first"), message(&a, "second")], &[])
@@ -706,13 +711,13 @@ async fn full_text_body_batch_accounts_for_quota_between_rows_in_one_transaction
         states,
         vec![
             ("first".into(), "ready".into()),
-            ("second".into(), "quota".into())
+            ("second".into(), "ready".into())
         ]
     );
     let total: i64 = sqlx::query_scalar("SELECT body_bytes FROM search_totals WHERE id=1")
         .fetch_one(&db)
         .await
         .unwrap();
-    assert_eq!(total, budget - 2);
+    assert_eq!(total, budget + 1);
     assert!(store.next_search_bodies(&a, true, 201).await.is_err());
 }

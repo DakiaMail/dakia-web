@@ -28,9 +28,15 @@ async fn opaque_search_cursor_is_owner_bound_expiring_and_survives_restart() {
         restarted.load_search_cursor(&owner, &token).await.unwrap(),
         document
     );
+    let control = sqlx::SqlitePool::connect(&format!(
+        "sqlite:{}",
+        dir.path().join("control.sqlite").display()
+    ))
+    .await
+    .unwrap();
     sqlx::query("UPDATE search_cursors SET expires_at=0 WHERE id=?")
         .bind(&token)
-        .execute(store.control())
+        .execute(&control)
         .await
         .unwrap();
     assert!(matches!(
@@ -40,7 +46,7 @@ async fn opaque_search_cursor_is_owner_bound_expiring_and_survives_restart() {
     store.save_search_cursor(&owner, "{}").await.unwrap();
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM search_cursors WHERE id=?")
         .bind(&token)
-        .fetch_one(store.control())
+        .fetch_one(&control)
         .await
         .unwrap();
     assert_eq!(count, 0);

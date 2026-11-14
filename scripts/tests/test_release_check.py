@@ -74,7 +74,7 @@ class RunnerTests(unittest.TestCase):
 
     def test_full_profile_includes_real_backend_and_provider_checks(self):
         names = {stage.name for stage in release.stages("full", "1.98.0")}
-        self.assertTrue({"rust", "web-unit", "web-build", "browser", "browser-backend", "browser-keyboard", "pwa", "pwa-lifecycle", "workers", "clippy", "format", "dovecot", "translation-models", "browser-full-text", "browser-translation", "browser-images", "browser-unsubscribe"} <= names)
+        self.assertTrue({"rust", "web-unit", "web-build", "browser", "browser-backend", "browser-keyboard", "pwa", "pwa-lifecycle", "workers", "clippy", "format", "search-model", "search-model-worker", "dovecot", "translation-models", "browser-full-text", "browser-translation", "browser-images", "browser-unsubscribe"} <= names)
         self.assertNotIn("dovecot", {stage.name for stage in release.stages("core", "1.98.0")})
 
     def test_remote_fixture_choice_only_changes_dovecot_stage(self):

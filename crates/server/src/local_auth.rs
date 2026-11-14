@@ -36,12 +36,8 @@ pub async fn initialize_local_login(
     store: &Store,
     key_path: &str,
 ) -> std::result::Result<(), Box<dyn std::error::Error>> {
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
-        .fetch_one(store.control())
-        .await?;
-    let local: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM local_login")
-        .fetch_one(store.control())
-        .await?;
+    let counts = store.control_repository().auth_counts().await?;
+    let (count, local) = (counts.users, counts.logins);
     if count > 0 && local == 0 {
         return Err(
             "existing OIDC users require OIDC configuration; local login cannot claim their data"
@@ -62,8 +58,10 @@ pub async fn initialize_local_login(
         if token.len() < 32 {
             return Err("invalid setup token file".into());
         }
-        sqlx::query("INSERT INTO settings(key,value) VALUES('local_setup_token',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
-            .bind(hash(&token)).execute(store.control()).await?;
+        store
+            .control_repository()
+            .put_setting("local_setup_token", &hash(&token))
+            .await?;
         tracing::info!("Local setup awaits the private setup-token file beside the credential key");
     }
     Ok(())
@@ -94,10 +92,7 @@ async fn render(
     } else {
         format!("<p role=\"alert\">{}</p>", escape_html(error))
     };
-    let ready: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM local_login")
-        .fetch_one(app.store.control())
-        .await
-        .map_err(StorageError::from)?;
+    let ready = app.store.control_repository().auth_counts().await?.logins;
     let title = if joining {
         "Create your Dakia account"
     } else if ready == 0 {
@@ -184,16 +179,15 @@ async fn verify_password(password: String, encoded: Option<String>) -> Result<bo
 }
 async fn throttle(app: &App, username: &str) -> Result<()> {
     let now = Utc::now().timestamp();
-    sqlx::query("DELETE FROM auth_attempts WHERE window_start<?")
-        .bind(now - 120)
-        .execute(app.store.control())
-        .await
-        .map_err(StorageError::from)?;
     for (bucket, limit) in [
         ("global".to_string(), 100),
         (format!("user:{}", hash(username)), 10),
     ] {
-        let attempts: i64 = sqlx::query_scalar("INSERT INTO auth_attempts(bucket,window_start,attempts) VALUES(?,?,1) ON CONFLICT(bucket) DO UPDATE SET attempts=CASE WHEN window_start <= excluded.window_start-60 THEN 1 ELSE attempts+1 END,window_start=CASE WHEN window_start <= excluded.window_start-60 THEN excluded.window_start ELSE window_start END RETURNING attempts").bind(bucket).bind(now).fetch_one(app.store.control()).await.map_err(StorageError::from)?;
+        let attempts = app
+            .store
+            .control_repository()
+            .record_login_attempt(&bucket, now)
+            .await?;
         if attempts > limit {
             return Err(ApiFailure(StatusCode::TOO_MANY_REQUESTS, "try_again_later"));
         }
@@ -279,59 +273,49 @@ async fn process(
         return Err(ApiFailure(StatusCode::BAD_REQUEST, "invalid_credentials"));
     }
     throttle(&app, &input.username).await?;
-    let initialized: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM local_login)")
-        .fetch_one(app.store.control())
-        .await
-        .map_err(StorageError::from)?;
+    let initialized = app.store.control_repository().auth_counts().await?.logins > 0;
     let user = if joining {
         crate::local_users::accept(&app, &input.username, input.password, &input.code).await?
     } else if initialized {
-        let row = sqlx::query("SELECT user_id,password_hash FROM local_login WHERE username=?")
-            .bind(&input.username)
-            .fetch_optional(app.store.control())
-            .await
-            .map_err(StorageError::from)?;
-        let valid =
-            verify_password(input.password, row.as_ref().map(|r| r.get("password_hash"))).await?;
+        let row = app
+            .store
+            .control_repository()
+            .login(&input.username)
+            .await?;
+        let valid = verify_password(
+            input.password,
+            row.as_ref().map(|r| r.password_hash.clone()),
+        )
+        .await?;
         if !valid || row.is_none() {
             return Err(ApiFailure(StatusCode::UNAUTHORIZED, "invalid_credentials"));
         }
-        row.unwrap().get::<String, _>("user_id")
+        row.unwrap().user_id
     } else {
-        let expected: Option<String> =
-            sqlx::query_scalar("SELECT value FROM settings WHERE key='local_setup_token'")
-                .fetch_optional(app.store.control())
-                .await
-                .map_err(StorageError::from)?;
+        let expected = app
+            .store
+            .control_repository()
+            .setting("local_setup_token")
+            .await?;
         if expected.as_deref() != Some(hash(&input.code).as_str()) {
             return Err(ApiFailure(StatusCode::UNAUTHORIZED, "invalid_setup_code"));
         }
         let encoded = password_hash(input.password).await?;
         let user = uuid::Uuid::new_v4().to_string();
-        let mut tx = app
+        match app
             .store
-            .control()
-            .begin()
-            .await
-            .map_err(StorageError::from)?;
-        let inserted = sqlx::query("INSERT INTO users(id,issuer,subject) SELECT ?,'dakia:local',? WHERE NOT EXISTS(SELECT 1 FROM users)").bind(&user).bind(&input.username).execute(&mut *tx).await.map_err(StorageError::from)?;
-        if inserted.rows_affected() != 1 {
-            return Err(ApiFailure(StatusCode::CONFLICT, "setup_already_complete"));
+            .control_repository()
+            .claim_owner(&user, &input.username, &encoded, &hash(&input.code))
+            .await?
+        {
+            dakia_storage::control_repository::OwnerClaim::Created => {}
+            dakia_storage::control_repository::OwnerClaim::AlreadyConfigured => {
+                return Err(ApiFailure(StatusCode::CONFLICT, "setup_already_complete"))
+            }
+            dakia_storage::control_repository::OwnerClaim::InvalidCode => {
+                return Err(ApiFailure(StatusCode::UNAUTHORIZED, "invalid_setup_code"))
+            }
         }
-        sqlx::query(
-            "INSERT INTO local_login(id,user_id,username,password_hash,is_owner) VALUES(1,?,?,?,1)",
-        )
-        .bind(&user)
-        .bind(input.username)
-        .bind(encoded)
-        .execute(&mut *tx)
-        .await
-        .map_err(StorageError::from)?;
-        sqlx::query("DELETE FROM settings WHERE key='local_setup_token'")
-            .execute(&mut *tx)
-            .await
-            .map_err(StorageError::from)?;
-        tx.commit().await.map_err(StorageError::from)?;
         user
     };
     finish_login(&app, user).await
@@ -339,14 +323,10 @@ async fn process(
 pub(super) async fn finish_login(app: &App, user: String) -> Result<Response> {
     let now = Utc::now().timestamp();
     let token = random();
-    sqlx::query("INSERT INTO sessions(token_hash,user_id,csrf,expires_at) VALUES(?,?,?,?)")
-        .bind(hash(&token))
-        .bind(user)
-        .bind(random())
-        .bind(now + 86400 * 7)
-        .execute(app.store.control())
-        .await
-        .map_err(StorageError::from)?;
+    app.store
+        .control_repository()
+        .create_session(&hash(&token), &user, &random(), now + 86400 * 7)
+        .await?;
     Ok((
         [(header::SET_COOKIE, session_cookie(&token, 86400 * 7))],
         Redirect::to("/"),
@@ -408,7 +388,7 @@ mod tests {
         let response = auth_json(&app, &cookie, "GET", "/api/releases", false).await;
         assert_eq!(response.status(), StatusCode::OK);
         sqlx::query("UPDATE local_login SET is_owner=0")
-            .execute(app.store.control())
+            .execute(app.store.sqlite_control_for_test())
             .await
             .unwrap();
         assert_eq!(
@@ -418,7 +398,7 @@ mod tests {
             StatusCode::FORBIDDEN
         );
         sqlx::query("UPDATE local_login SET is_owner=1")
-            .execute(app.store.control())
+            .execute(app.store.sqlite_control_for_test())
             .await
             .unwrap();
         let mut oidc = app.clone();
@@ -489,13 +469,13 @@ mod tests {
             .unwrap();
         assert_eq!(session.status(), StatusCode::OK);
         let stored: String = sqlx::query_scalar("SELECT password_hash FROM local_login")
-            .fetch_one(app.store.control())
+            .fetch_one(app.store.sqlite_control_for_test())
             .await
             .unwrap();
         assert!(stored.starts_with("$argon2id$"));
         let token: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM settings WHERE key='local_setup_token'")
-                .fetch_one(app.store.control())
+                .fetch_one(app.store.sqlite_control_for_test())
                 .await
                 .unwrap();
         assert_eq!(token, 0);
@@ -652,7 +632,7 @@ mod tests {
             .nth(1)
             .unwrap();
         let stored: String = sqlx::query_scalar("SELECT token_hash FROM local_invitations")
-            .fetch_one(app.store.control())
+            .fetch_one(app.store.sqlite_control_for_test())
             .await
             .unwrap();
         assert_ne!(stored, code);
@@ -773,7 +753,7 @@ mod tests {
                 );
             } else {
                 sqlx::query("UPDATE local_invitations SET expires_at=0")
-                    .execute(app.store.control())
+                    .execute(app.store.sqlite_control_for_test())
                     .await
                     .unwrap();
             }
@@ -797,7 +777,7 @@ mod tests {
             .await
             .unwrap();
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM local_invitations")
-            .fetch_one(restored.control())
+            .fetch_one(restored.sqlite_control_for_test())
             .await
             .unwrap();
         assert_eq!(count, 0);
@@ -822,7 +802,7 @@ mod tests {
         statuses.sort();
         assert_eq!(statuses, vec![303, 401]);
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM local_login")
-            .fetch_one(app.store.control())
+            .fetch_one(app.store.sqlite_control_for_test())
             .await
             .unwrap();
         assert_eq!(count, 2);

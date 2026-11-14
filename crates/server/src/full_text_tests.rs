@@ -12,6 +12,160 @@ async fn run(
 ) -> crate::Result<SearchPage> {
     Ok(crate::search::search(State(app.clone()),Extension(crate::Identity{user:user.into(),csrf:"fixture".into(),token_hash:"fixture".into()}),Query(serde_json::from_value(serde_json::json!({"q":q,"accounts":accounts,"cache_first":true,"continuation":token})).unwrap())).await?.0)
 }
+#[tokio::test]
+async fn indexing_status_waits_for_semantics_and_keeps_local_work_active_through_reconnect() {
+    let (_dir, mut app, user, a, _provider) = controlled().await;
+    let revision = "status-semantic-fixture";
+    app.store.require_search_embeddings(revision).unwrap();
+    app.store.configure_search_database(None).await.unwrap();
+    app.store.maintain_search_vectors(false).await.unwrap();
+    app.store
+        .account_state(&a, AccountState::Ready)
+        .await
+        .unwrap();
+    let message:Message=serde_json::from_value(serde_json::json!({"id":"status-message","account_id":a.id(),"thread_id":"status-thread","provider_id":"status-source","folder_ids":["INBOX"],"sender":{"email":"synthetic@example.invalid","name":null},"to":[],"subject":"Status","preview":"","received_at":"2020-01-01T00:00:00.000Z","unread":false,"starred":false,"category":null,"category_status":"pending","revision":1})).unwrap();
+    let message = app.store.upsert_message(&a, message).await.unwrap();
+    app.store.index_search_headers(&a).await.unwrap();
+    app.store
+        .put_search_body(&a, &message, "", "encrypted")
+        .await
+        .unwrap();
+    app.store.flush_search_index(&a).await.unwrap();
+    app.store.put_provider_document(&a,"sync:folders",&serde_json::json!({"folders":[{"name":"INBOX","selectable":true,"attributes":[]}],"index":0,"refreshed":chrono::Utc::now().timestamp()}).to_string()).await.unwrap();
+    let (generation, _) = app.store.scan_state(&a, "INBOX").await.unwrap().unwrap();
+    let scan:SearchPage=serde_json::from_value(serde_json::json!({"rows":[message],"continuation":null,"coverage":[{"account_id":a.id(),"folder_ids":["INBOX"],"state":"complete","error":null}],"classification":{"classified":0,"total":1},"pending":false,"counts_exact":false})).unwrap();
+    app.store
+        .record_scan(&a, "INBOX", generation, &scan)
+        .await
+        .unwrap();
+    let status = || {
+        crate::search_status::status(
+            State(app.clone()),
+            Extension(crate::Identity {
+                user: user.clone(),
+                csrf: "fixture".into(),
+                token_hash: "fixture".into(),
+            }),
+            axum::extract::Path(a.id().to_owned()),
+        )
+    };
+    let initial = status().await.unwrap().0;
+    assert_eq!(initial.state, IndexingState::Paused);
+    assert_eq!(
+        (initial.processed, initial.eligible, initial.backlog),
+        (0, 1, 1)
+    );
+    app.store
+        .prepare_embeddings(&a, revision, true)
+        .await
+        .unwrap();
+    app.store.discover_embeddings(&a, revision).await.unwrap();
+    app.store
+        .account_state(&a, AccountState::Reconnect)
+        .await
+        .unwrap();
+    assert_eq!(status().await.unwrap().0.state, IndexingState::Indexing);
+    let turn = app
+        .store
+        .claim_embedding(&a, revision, true)
+        .await
+        .unwrap()
+        .unwrap();
+    app.store
+        .defer_embedding(&a, &turn, "model_failed")
+        .await
+        .unwrap();
+    assert_eq!(status().await.unwrap().0.state, IndexingState::Error);
+    // Retry recovery is checked by storage contracts. Expire only this synthetic
+    // fixture lease's backoff so the endpoint can exercise final completion.
+    let db = sqlx::SqlitePool::connect(&format!(
+        "sqlite:{}",
+        _dir.path().join("search/index.sqlite").display()
+    ))
+    .await
+    .unwrap();
+    sqlx::query("UPDATE embedding_jobs SET retry_at=0 WHERE account_id=?")
+        .bind(a.id())
+        .execute(&db)
+        .await
+        .unwrap();
+    let turn = app
+        .store
+        .claim_embedding(&a, revision, true)
+        .await
+        .unwrap()
+        .unwrap();
+    let mut vector = vec![0.; 384];
+    vector[0] = 1.;
+    let passage = dakia_storage::EmbeddedPassage {
+        text: turn.text.clone(),
+        byte_end: turn.text.len(),
+        next_offset: turn.text.len(),
+        vector: Some(vector),
+    };
+    app.store
+        .commit_embedding(&a, &turn, &passage)
+        .await
+        .unwrap();
+    assert_eq!(status().await.unwrap().0.processed, 0);
+    while app.store.advance_search_lexical(&a, true).await.unwrap() {}
+    app.store.flush_embedding_receipts(&a).await.unwrap();
+    // Saved embeddings are not searchable until the account's vector replay catches up.
+    app.store
+        .control_repository()
+        .put_setting("jobs_enabled", "false")
+        .await
+        .unwrap();
+    let finishing = status().await.unwrap().0;
+    assert_eq!(finishing.state, IndexingState::Indexing);
+    assert_eq!((finishing.processed, finishing.backlog), (1, 1));
+    while app.store.maintain_search_vectors(true).await.unwrap() {}
+    app.store
+        .control_repository()
+        .put_setting("jobs_enabled", "true")
+        .await
+        .unwrap();
+    let complete = status().await.unwrap().0;
+    assert_eq!(complete.state, IndexingState::Complete);
+    assert_eq!(
+        (complete.processed, complete.backlog, complete.gaps),
+        (1, 0, 1)
+    );
+    // Retained completion receipts do not hide a newly unavailable model or
+    // failed publication. Terminal content gaps still permit final completion.
+    app.store
+        .prepare_embeddings(&a, revision, false)
+        .await
+        .unwrap();
+    let unavailable = status().await.unwrap().0;
+    assert_eq!(unavailable.state, IndexingState::Error);
+    assert_eq!((unavailable.processed, unavailable.backlog), (1, 0));
+    app.store
+        .prepare_embeddings(&a, revision, true)
+        .await
+        .unwrap();
+    assert_eq!(status().await.unwrap().0.state, IndexingState::Complete);
+    app.store
+        .put_provider_document(&a, "search:delivery_error", "indexing_failed")
+        .await
+        .unwrap();
+    assert_eq!(status().await.unwrap().0.state, IndexingState::Error);
+    app.store
+        .put_provider_document(&a, "search:delivery_error", "")
+        .await
+        .unwrap();
+    assert_eq!(status().await.unwrap().0.state, IndexingState::Complete);
+    // The old completed generation cannot hide discovery after an epoch change,
+    // even when all retained content receipts are already credited.
+    app.store
+        .put_provider_document(&a, "thread:epoch:INBOX", "2")
+        .await
+        .unwrap();
+    let changed = status().await.unwrap().0;
+    assert!(!changed.discovery_complete);
+    assert_ne!(changed.state, IndexingState::Complete);
+    db.close().await;
+}
 #[test]
 fn full_text_mime_decodes_both_alternatives_unicode_and_declares_gaps() {
     let raw=b"From: f@example.invalid\r\nMIME-Version: 1.0\r\nContent-Type: multipart/alternative; boundary=x\r\n\r\n--x\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\nplain caf=C3=A9\r\n--x\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<p>html-only &amp; other</p>\r\n--x--\r\n";
@@ -69,7 +223,9 @@ async fn full_text_backfill_fetches_read_only_resumes_and_does_not_cache_attachm
 }
 #[tokio::test]
 async fn full_text_federated_pages_are_ordered_complete_is_verified_and_fallback_is_bound() {
-    let (_dir, app, user, a, provider) = controlled().await;
+    let (_dir, mut app, user, a, provider) = controlled().await;
+    app.store.configure_search_database(None).await.unwrap();
+    app.store.maintain_search_vectors(false).await.unwrap();
     let input = app.store.credential(&a).await.unwrap();
     let second = app.store.connect(&user, &input).await.unwrap();
     let b = app.store.authorize(&user, &second.id).await.unwrap();
@@ -88,6 +244,12 @@ async fn full_text_federated_pages_are_ordered_complete_is_verified_and_fallback
                 .put_search_body(scope, m, "body-only 東京 café", "ready")
                 .await
                 .unwrap();
+        }
+        app.store.flush_search_index(scope).await.unwrap();
+        for _ in 0..10 {
+            if !app.store.advance_search_lexical(scope, true).await.unwrap() {
+                break;
+            }
         }
         app.store.put_provider_document(scope,"sync:folders",&serde_json::json!({"folders":[{"name":"INBOX","selectable":true,"attributes":[]}],"index":0,"refreshed":chrono::Utc::now().timestamp()}).to_string()).await.unwrap();
         let (generation, _) = app.store.scan_state(scope, "INBOX").await.unwrap().unwrap();
@@ -109,6 +271,8 @@ async fn full_text_federated_pages_are_ordered_complete_is_verified_and_fallback
             counts_exact: false,
             cache_preview: None,
             index_page: None,
+            search: None,
+            supplement: None,
         };
         app.store
             .record_scan(scope, "INBOX", generation, &scan)
@@ -521,3 +685,262 @@ async fn gmail_bounded_identity_discovery_rearms_same_message_without_unpruning_
     assert_eq!(app.store.text_coverage(&a).await.unwrap().bodies, 1);
     assert_eq!(provider.recovery_calls.load(Ordering::SeqCst), 1);
 }
+
+#[test]
+fn anydoc_attachment_text_and_all_available_participants_are_extracted_locally() {
+    let raw = b"From: Sender <sender@example.invalid>\r\nTo: recipient@example.invalid\r\nCc: Carbon Person <carbon@example.invalid>\r\nBcc: hidden@example.invalid\r\nReply-To: replies@example.invalid\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=boundary\r\n\r\n--boundary\r\nContent-Type: text/plain\r\n\r\nordinary message\r\n--boundary\r\nContent-Type: application/rtf\r\nContent-Disposition: attachment; filename=report.rtf\r\n\r\n{\\rtf1\\ansi confidential funding figures}\r\n--boundary\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=unknown.bin\r\n\r\nnot a document\r\n--boundary--\r\n";
+    let extracted = crate::sync::full_text::extract_content(raw);
+    assert_eq!(extracted.state, "partial");
+    assert!(extracted.text.contains("ordinary message"));
+    assert!(
+        extracted
+            .attachments
+            .contains("confidential funding figures"),
+        "{}",
+        extracted.attachments
+    );
+    for value in [
+        "sender@example.invalid",
+        "recipient@example.invalid",
+        "carbon@example.invalid",
+        "hidden@example.invalid",
+        "replies@example.invalid",
+    ] {
+        assert!(extracted.participants.contains(value), "{value}");
+    }
+    assert!(extracted.recipients.contains("carbon@example.invalid"));
+    let details: serde_json::Value = serde_json::from_str(&extracted.details).unwrap();
+    assert_eq!(details[0]["state"], "ready");
+    assert_eq!(details[1]["state"], "unsupported");
+}
+
+#[test]
+fn content_gaps_preserve_readable_headers_and_attachment_names() {
+    let encrypted = b"From: Sender <sender@example.invalid>\r\nCc: Carbon <carbon@example.invalid>\r\nReply-To: replies@example.invalid\r\nContent-Type: multipart/encrypted; boundary=e\r\n\r\n--e\r\nContent-Type: application/pgp-encrypted\r\nContent-Disposition: attachment; filename=secret.pgp\r\n\r\nciphertext must not be indexed\r\n--e--\r\n";
+    let content = crate::sync::full_text::extract_content(encrypted);
+    assert_eq!(content.state, "encrypted");
+    assert!(content.text.is_empty());
+    assert!(content.participants.contains("replies@example.invalid"));
+    assert!(content.recipients.contains("carbon@example.invalid"));
+    assert!(content.attachments.contains("secret.pgp"));
+    assert!(!content.attachments.contains("ciphertext"));
+    let details: serde_json::Value = serde_json::from_str(&content.details).unwrap();
+    assert_eq!(details[0]["state"], "encrypted");
+
+    let raw = format!("From: sender@example.invalid\r\nBcc: hidden@example.invalid\r\nContent-Type: multipart/mixed; boundary=b\r\n\r\n--b\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n{}\r\n--b\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Disposition: attachment; filename=retained.txt\r\n\r\nattachment survives a large body\r\n--b--\r\n", "ü".repeat(600_000));
+    let content = crate::sync::full_text::extract_content(raw.as_bytes());
+    assert_eq!(content.state, "oversized");
+    assert!(content.text.len() <= 1024 * 1024);
+    assert!(content.participants.contains("sender@example.invalid"));
+    assert!(content.recipients.contains("hidden@example.invalid"));
+    assert!(content
+        .attachments
+        .contains("attachment survives a large body"));
+}
+
+#[test]
+fn an_encrypted_part_does_not_hide_readable_sibling_content() {
+    let raw = b"From: sender@example.invalid\r\nContent-Type: multipart/mixed; boundary=b\r\n\r\n--b\r\nContent-Type: text/plain\r\n\r\nreadable sibling message\r\n--b\r\nContent-Type: multipart/encrypted; boundary=e\r\n\r\n--e\r\nContent-Type: text/plain\r\n\r\nsecret ciphertext marker\r\n--e--\r\n--b\r\nContent-Type: text/plain\r\nContent-Disposition: attachment; filename=readable.txt\r\n\r\nreadable sibling attachment\r\n--b--\r\n";
+    let content = crate::sync::full_text::extract_content(raw);
+    assert_eq!(content.state, "partial");
+    assert!(content.text.contains("readable sibling message"));
+    assert!(content.attachments.contains("readable sibling attachment"));
+    assert!(!content.text.contains("secret ciphertext marker"));
+    assert!(!content.attachments.contains("secret ciphertext marker"));
+}
+
+#[test]
+fn attachment_spans_use_normalized_utf8_byte_offsets() {
+    let raw = "Content-Type: multipart/mixed; boundary=b\r\n\r\n--b\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Disposition: attachment; filename=first.txt\r\n\r\nİSTANBUL e\u{301}\r\n--b\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Disposition: attachment; filename=second.txt\r\n\r\nSECOND VALUE\r\n--b--\r\n";
+    let content = crate::sync::full_text::extract_content(raw.as_bytes());
+    assert_eq!(content.state, "ready");
+    assert_eq!(
+        content.attachments,
+        dakia_storage::normalize_search(&content.attachments)
+    );
+    let details: serde_json::Value = serde_json::from_str(&content.details).unwrap();
+    let mut offset = 0;
+    for part in details.as_array().unwrap() {
+        let start = part["byte_start"].as_u64().unwrap() as usize;
+        let end = part["byte_end"].as_u64().unwrap() as usize;
+        assert_eq!(start, offset);
+        let text = &content.attachments[start..end];
+        assert!(text.starts_with(part["filename"].as_str().unwrap()));
+        assert!(text.contains(if start == 0 {
+            "i\u{307}stanbul é"
+        } else {
+            "second value"
+        }));
+        offset = end;
+    }
+    assert_eq!(offset, content.attachments.len());
+}
+
+#[test]
+fn quoted_index_terms_preserve_phrases_and_exclude_only_known_filters() {
+    assert_eq!(
+        crate::search::index_units(
+            r#"from:"Maya Person" "quarterly report" budget is:unread https://example.invalid"#
+        ),
+        vec!["quarterly report", "budget", "https://example.invalid"]
+    );
+}
+
+#[tokio::test]
+async fn broken_independent_index_keeps_provider_search_available() {
+    let (dir, mut app, user, a, provider) = controlled().await;
+    app.store.configure_search_database(None).await.unwrap();
+    app.store.maintain_search_vectors(false).await.unwrap();
+    app.mail.probe(&app.store, &a).await.unwrap();
+    app.mail
+        .page(&app.store, &a, "INBOX", p::Search::default(), None)
+        .await
+        .unwrap();
+    *provider.raw.lock().await = b"Content-Type: text/plain\r\n\r\nunique body token".to_vec();
+    crate::sync::full_text::tick(&app, &a).await.unwrap();
+    let index = sqlx::SqlitePool::connect_with(
+        sqlx::sqlite::SqliteConnectOptions::new().filename(dir.path().join("search/index.sqlite")),
+    )
+    .await
+    .unwrap();
+    sqlx::query("DROP TABLE lexical_terms")
+        .execute(&index)
+        .await
+        .unwrap();
+    let before = provider.base.scans.load(Ordering::SeqCst);
+    let found = run(&app, &user, "unique body token", a.id(), None)
+        .await
+        .unwrap();
+    assert_eq!(
+        provider.base.scans.load(Ordering::SeqCst),
+        before,
+        "index failure must return without waiting for provider I/O"
+    );
+    let supplement = found.supplement.unwrap().remove(0);
+    let found = run(
+        &app,
+        &user,
+        "unique body token",
+        a.id(),
+        Some(supplement.continuation),
+    )
+    .await
+    .unwrap();
+    assert!(provider.base.scans.load(Ordering::SeqCst) > before);
+    assert!(!found.rows.is_empty());
+    assert!(found
+        .search
+        .unwrap()
+        .degradation
+        .iter()
+        .any(|d| d.code == "provider_literal_only"));
+    assert!(provider.mutations.lock().await.is_empty());
+}
+
+#[tokio::test]
+async fn independent_sqlite_index_returns_body_results_without_waiting_for_provider() {
+    let (_dir, mut app, user, a, provider) = controlled().await;
+    app.store.configure_search_database(None).await.unwrap();
+    app.store.maintain_search_vectors(false).await.unwrap();
+    app.mail.probe(&app.store, &a).await.unwrap();
+    app.mail
+        .page(&app.store, &a, "INBOX", p::Search::default(), None)
+        .await
+        .unwrap();
+    *provider.raw.lock().await =
+        b"Content-Type: text/plain\r\n\r\nuniquebody project report".to_vec();
+    crate::sync::full_text::tick(&app, &a).await.unwrap();
+    let before = provider.base.scans.load(Ordering::SeqCst);
+    let found = run(&app, &user, "uniquebody report", a.id(), None)
+        .await
+        .unwrap();
+    assert_eq!(found.rows.len(), 2);
+    assert_eq!(provider.base.scans.load(Ordering::SeqCst), before);
+    assert_eq!(
+        app.store.text_coverage(&a).await.unwrap().delivery_pending,
+        0
+    );
+}
+
+#[tokio::test]
+async fn unavailable_search_store_pauses_acquisition_reports_status_and_recovers() {
+    let (dir, mut app, user, a, provider) = controlled().await;
+    let directory = dir.path().join("unavailable-search");
+    let url = format!("sqlite:{}", directory.join("index.sqlite").display());
+    tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        app.store.configure_search_database(Some(&url)),
+    )
+    .await
+    .expect("search startup must not block mail")
+    .unwrap();
+    app.mail.probe(&app.store, &a).await.unwrap();
+    app.mail
+        .page(&app.store, &a, "INBOX", p::Search::default(), None)
+        .await
+        .unwrap();
+    let fetched = provider.fetch_calls.load(Ordering::SeqCst);
+    assert!(!crate::sync::full_text::tick(&app, &a).await.unwrap());
+    assert_eq!(
+        provider.fetch_calls.load(Ordering::SeqCst),
+        fetched,
+        "do not keep acquiring bodies into staging during a search outage"
+    );
+    let status = crate::search_status::status(
+        State(app.clone()),
+        Extension(crate::Identity {
+            user: user.clone(),
+            csrf: "fixture".into(),
+            token_hash: "fixture".into(),
+        }),
+        axum::extract::Path(a.id().to_owned()),
+    )
+    .await
+    .unwrap()
+    .0;
+    assert_eq!(status.state, IndexingState::Error);
+    assert_eq!(status.processed, 0);
+    assert!(status.backlog > 0);
+    let before = provider.base.scans.load(Ordering::SeqCst);
+    let first = run(&app, &user, "provider fallback", a.id(), None)
+        .await
+        .unwrap();
+    let token = first.supplement.unwrap().remove(0).continuation;
+    assert!(!run(&app, &user, "provider fallback", a.id(), Some(token))
+        .await
+        .unwrap()
+        .rows
+        .is_empty());
+    assert!(provider.base.scans.load(Ordering::SeqCst) > before);
+    tokio::fs::create_dir_all(&directory).await.unwrap();
+    *provider.raw.lock().await = b"Content-Type: text/plain\r\n\r\nrecoveredbody token".to_vec();
+    let recovery_deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        crate::sync::full_text::tick(&app, &a).await.unwrap();
+        if provider.fetch_calls.load(Ordering::SeqCst) > fetched {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < recovery_deadline,
+            "search acquisition did not resume after reconnection"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+    let before = provider.base.scans.load(Ordering::SeqCst);
+    assert_eq!(
+        run(&app, &user, "recoveredbody", a.id(), None)
+            .await
+            .unwrap()
+            .rows
+            .len(),
+        2
+    );
+    assert_eq!(provider.base.scans.load(Ordering::SeqCst), before);
+    assert!(provider.mutations.lock().await.is_empty());
+}
+
+#[path = "hybrid_search_tests.rs"]
+mod hybrid_search_tests;
+
+#[path = "search_scale_tests.rs"]
+mod search_scale_tests;

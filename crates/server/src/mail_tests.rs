@@ -114,6 +114,19 @@ fn arrival_uses_provider_date_and_normalizes_timezone() {
         "2000-01-01T05:00:00.000Z"
     );
     assert!(arrival_time("invalid").is_err());
+    assert_eq!(
+        arrival_date("31-Dec-2025 23:30:00 -0500").unwrap(),
+        "2025-12-31"
+    );
+    assert_eq!(
+        arrival_time("31-Dec-2025 23:30:00 -0500").unwrap(),
+        "2026-01-01T04:30:00.000Z"
+    );
+    assert_eq!(
+        arrival_date("1-Jan-2026 00:30:00 +1400").unwrap(),
+        "2026-01-01"
+    );
+    assert!(arrival_date("invalid").is_err());
 }
 use async_trait::async_trait;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -250,6 +263,16 @@ async fn sent_learning_arrival_and_forward_pin_use_authorized_provider() {
         .unwrap();
     let id = &page.rows[0].id;
     assert_eq!(page.rows[0].received_at, "2026-10-28T18:30:00.000Z");
+    assert_eq!(page.rows[0].received_date.as_deref(), Some("2026-10-28"));
+    assert_eq!(
+        store
+            .message(&a, id)
+            .await
+            .unwrap()
+            .received_date
+            .as_deref(),
+        Some("2026-10-28")
+    );
     assert!(store
         .recipient_suggestions(&a, "")
         .await
@@ -386,7 +409,7 @@ async fn gmail_setup_http_probe_failure_reconnect_and_recovery() {
         .bind(&user)
         .bind("setup-csrf")
         .bind(4102444800_i64)
-        .execute(store.control())
+        .execute(store.sqlite_control_for_test())
         .await
         .unwrap();
     let app = crate::App {

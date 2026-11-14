@@ -226,6 +226,10 @@ export class DemoMailbox {
       return json([...threads.values()]);
     }
     if (resource === "sync-active" && get) return json(false);
+    if (resource === "indexing" && get) {
+      const eligible = Object.values(s.contents).filter(c => c.message.account_id === account && !c.message.folder_ids.some(f => ["Trash", "Spam"].includes(f))).length;
+      return json({ account_id: account, state: "complete", discovery_complete: true, eligible, processed: eligible, backlog: 0, gaps: 0 });
+    }
     if (resource === "folders" && get) return json([...new Set([...folders, ...Object.values(s.settings[account] || {}).filter((v): v is string => typeof v === "string")])]);
     if (resource === "recipients" && get) {
       const q = (url.searchParams.get("q") || "").toLowerCase();

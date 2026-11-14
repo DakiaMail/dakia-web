@@ -30,7 +30,7 @@ COPY LICENSE THIRD_PARTY_NOTICES.md /app/licenses/
 COPY crates/inference/assets/licenses/ /app/licenses/
 COPY workers/translation/DESKTOP_THIRD_PARTY_NOTICES.md /app/licenses/
 COPY --from=web /src/node_modules/@fontsource/inter/LICENSE /app/licenses/Inter-OFL-1.1.txt
-ENV LD_LIBRARY_PATH=/app DAKIA_DATA_DIR=/data DAKIA_CREDENTIAL_KEY_FILE=/secrets/credential-key DAKIA_WEB_ROOT=/app/web DAKIA_WORKERS=/app/workers DAKIA_SEARCH_MODEL_DIR=/app/search-model DAKIA_MODEL_CACHE=/data/models DAKIA_LISTEN=0.0.0.0:3025
+ENV LD_LIBRARY_PATH=/app DAKIA_DATA_DIR=/data SQLITE_TMPDIR=/data DAKIA_CREDENTIAL_KEY_FILE=/secrets/credential-key DAKIA_WEB_ROOT=/app/web DAKIA_WORKERS=/app/workers DAKIA_SEARCH_MODEL_DIR=/app/search-model DAKIA_MODEL_CACHE=/data/models DAKIA_LISTEN=0.0.0.0:3025
 USER 1000:1000
 RUN node /app/workers/translation/smoke.mjs && /app/dakia-classifier-check && /app/dakia-search-model-check
 EXPOSE 3025

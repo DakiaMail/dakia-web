@@ -12,6 +12,7 @@ The root image already supplies the data, key, web, worker, and model paths. For
 | --- | --- |
 | `DAKIA_ORIGIN` | Required external HTTPS origin, without a path or trailing slash |
 | `DAKIA_DATA_DIR` | `/data`; persistent local data, SQLite account files and blobs |
+| `SQLITE_TMPDIR` | `/data`; disk-backed SQLite temporary files for large upgrades and queries |
 | `DAKIA_DATABASE_URL` | Optional application backend; unset/empty keeps SQLite; PostgreSQL uses native control/account schemas |
 | `DAKIA_SEARCH_DATABASE_URL` | Optional independent search backend; unset/empty follows application storage |
 | `DAKIA_CREDENTIAL_KEY_FILE` | `/secrets/credential-key`; exactly 32 raw bytes, generated on a fresh installation if absent |

@@ -345,7 +345,13 @@ impl Store {
         tokio::spawn(async move {
             let db = pool(&store.root.join("accounts").join(format!("{}.sqlite", a.id))).await?;
             search_legacy::prepare(&db, store.search_database.is_some()).await?;
-            sqlx::migrate!("./migrations/account").run(&db).await?;
+            sqlx::migrate!("./migrations/account")
+                .run(&db)
+                .await
+                .map_err(|error| {
+                    tracing::warn!(target: "dakia_server::diagnostics", operation = "account_migration", error = ?error, "account migration failed");
+                    error
+                })?;
             search_legacy::configure(&db, store.search_database.is_some()).await?;
             let retained = account_repository::AccountRepository::sqlite(db.clone(), &a)
                 .cache_blobs()

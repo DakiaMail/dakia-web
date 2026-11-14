@@ -1677,13 +1677,11 @@ body {
 .mail-search-toolbar > .mail-search-refinements { grid-column: 1 / -1; grid-row: 2; }
 .mail-search-refinements { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; min-width: 0; padding-top: 3px; }
 .mail-search-refinements .dakia-button { min-height: 28px; font-size: 12px; padding: 3px 6px; }
-.mail-search-filter-form { display: flex; flex-direction: column; gap: 14px; }
-.mail-search-filter-form > header { display: flex; align-items: center; justify-content: space-between; }
-.mail-search-filter-form label { display: flex; flex-direction: column; gap: 6px; color: var(--color-secondary); font-size: 12px; }
+.mail-search-filter-form { display: flex; flex-direction: column; gap: 16px; padding: 8px; }
+.mail-search-filter-form > header { display: flex; align-items: center; justify-content: space-between; margin: -4px -4px 0; }
+.mail-search-filter-back { padding: 6px 4px; color: var(--color-secondary); font-size: 13px; }
+.mail-search-filter-form label { display: flex; flex-direction: column; gap: 8px; color: var(--color-secondary); font-size: 12px; }
 .mail-search-filter-form input, .mail-search-filter-form select { min-height: 38px; width: 100%; font-size: 13px; }
-.mail-search-filter-fields { display: flex; flex-wrap: wrap; gap: 5px; }
-.mail-search-filter-fields button { border: 1px solid var(--color-border); font-size: 12px; min-height: 30px; }
-.mail-search-filter-fields button[aria-pressed="true"] { background: var(--color-selected); color: var(--color-accent); border-color: var(--color-accent); }
 .mail-search-filter-form > .dakia-button { align-self: flex-end; }
 @container mailbox (max-width: 550px) {
   .mailbox > .mail-search-toolbar > select { max-width: 100px; }
@@ -1705,7 +1703,8 @@ body {
   .mailbox .view-toolbar { position: static; height: 48px; min-height: 48px; padding: 0 14px; border-bottom: 1px solid var(--color-border); }
   .mailbox .view-toolbar:empty { display: none; }
   .mailbox .view-toolbar [role="tablist"] { display: flex; }
-  .mail-search-refinements .dakia-button, .mail-search-filter-fields button { min-height: 38px; }
+  .mail-search-refinements .dakia-button { min-height: 38px; }
+  .mail-search-back .mantine-Button-label > span { display: none; }
 }
 
 @media (min-width: 601px) and (max-width: 900px) {

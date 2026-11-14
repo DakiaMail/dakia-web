@@ -5,7 +5,7 @@ import { accounts, content, page as mail } from "./fixtures";
 async function fixture(page: Page, theme = "light") {
   const searches: string[] = [], suggestions: string[] = [], writes: string[] = [];
   await page.addInitScript(theme => !localStorage.getItem("dakia-theme") && localStorage.setItem("dakia-theme", theme), theme);
-  const rows = mail.rows.slice(0, 5).map(row => ({ ...row, unread: false }));
+  const rows = mail.rows.slice(0, 5).map((row, index) => ({ ...row, unread: false, subject: index === 2 ? "Launch checklist" : row.subject }));
   await page.route("**/api/**", route => {
     const request = route.request(), url = new URL(request.url()), path = url.pathname;
     if (request.method() !== "GET") writes.push(path);
@@ -16,7 +16,11 @@ async function fixture(page: Page, theme = "light") {
     if (path.endsWith("/conversation")) return respond({ rows: [rows[0]], continuation: null, complete: true });
     if (path.includes("/messages/") && !path.endsWith("/messages")) return respond({ ...content, message: rows[0] });
     if (path === "/api/search" || path.endsWith("/messages")) {
-      if (url.searchParams.get("suggest")) suggestions.push(url.searchParams.get("q") || "");
+      if (url.searchParams.get("suggest")) {
+        const query = url.searchParams.get("q") || ""; suggestions.push(query);
+        const term = query.split(" ")[0].toLocaleLowerCase();
+        return respond({ ...mail, rows: rows.filter(row => `${row.subject} ${row.sender.name} ${row.sender.email}`.toLocaleLowerCase().includes(term)), continuation: null, pending: false });
+      }
       else searches.push(url.searchParams.get("q") || "");
       return respond({ ...mail, rows, continuation: null, pending: false });
     }
@@ -62,7 +66,8 @@ for (const theme of ["light", "dark"]) for (const width of [1480, 900, 390, 320]
     await expect(dialog).toHaveCSS("opacity", "1");
     await expect(dialog.getByRole("textbox", { name: "Find a filter" })).toBeFocused();
     await dialog.getByRole("textbox", { name: "Find a filter" }).fill("status");
-    await page.keyboard.press("Tab"); await page.keyboard.press("Enter");
+    await page.keyboard.press("ArrowDown"); await page.keyboard.press("Enter");
+    await page.screenshot({ animations: "disabled", path: `artifacts/search-toolbar/editor-${theme}-${width}.png` });
     await dialog.getByRole("combobox", { name: "Status" }).focus();
     await dialog.getByRole("combobox", { name: "Status" }).selectOption("unread");
     await expect(dialog.getByRole("combobox", { name: "Status" })).toBeFocused();
@@ -120,6 +125,7 @@ for (const theme of ["light", "dark"]) test(`filter edits and short viewport ${t
   await expect(dialog.getByRole("textbox", { name: "Find a filter" })).toBeFocused();
   const bounds = (await dialog.boundingBox())!;
   expect(bounds.y).toBeGreaterThanOrEqual(0); expect(bounds.y + bounds.height).toBeLessThanOrEqual(400);
+  await dialog.getByRole("button", { name: "From", exact: true }).click();
   await dialog.getByRole("textbox", { name: "From", exact: true }).fill("sender@example.org");
   await dialog.getByRole("button", { name: "Apply filter" }).click();
   await expect.poll(() => requests.searches.includes("from:sender@example.org")).toBe(true);
@@ -140,4 +146,25 @@ for (const theme of ["light", "dark"]) test(`filter edits and short viewport ${t
   await expect(page.getByRole("button", { name: "Edit Subject Second phrase filter" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Edit Subject First phrase filter" })).toHaveCount(0);
   expect(requests.writes).toEqual([]);
+});
+
+test("autocomplete reserves people for matching names and filter selection returns to its value", async ({ page }) => {
+  await fixture(page);
+  const input = page.getByRole("combobox", { name: "Search all mail" });
+  await input.fill("launch");
+  await expect(page.getByRole("option", { name: /A few thoughts on the launch/ })).toBeVisible();
+  await expect(page.getByText("People", { exact: true })).toHaveCount(0);
+  await input.fill("Maya");
+  const person = page.getByRole("option", { name: /^Maya Chen, sender0@example.org$/ });
+  await expect(person).toBeVisible();
+  await input.press("Escape");
+  await page.getByRole("button", { name: "Search filters", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Search filters", exact: true });
+  await dialog.getByRole("textbox", { name: "Find a filter" }).fill("subject");
+  await page.keyboard.press("ArrowDown"); await page.keyboard.press("Enter");
+  await expect(dialog.getByRole("textbox", { name: "Subject", exact: true })).toBeFocused();
+  await dialog.getByRole("button", { name: "Back to filter types" }).click();
+  await expect(dialog.getByRole("textbox", { name: "Find a filter" })).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "Search filters", exact: true })).toBeFocused();
 });

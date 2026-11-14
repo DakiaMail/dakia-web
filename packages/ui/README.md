@@ -98,3 +98,5 @@ Enter/Space and Up/Down open menus. Up/Down, Home/End and typeahead navigate ena
 `FilterPopover` positions a filter editor, contains its Tab navigation and restores focus on close. Its child form owns field validation and application. Use `data-autofocus` on the initial field and include a named close button. `FilterChip` provides separate, named edit and remove actions. After removing a chip, the caller restores focus to a stable control.
 
 Search surfaces, focus, motion and both themes use the shared tokens, including `--ui-search-height`. The UI gallery includes all three components with working sample interactions.
+
+`FilterList` is the reusable searchable property picker inside a `FilterPopover`. It shows quiet icon/label rows with optional current-value details. Up/Down move between properties, Enter chooses a filtered match, and Home/End move to the first/last focused row. Native Tab and modified/IME keys keep their behavior. A supplied close control stays reachable in the search row. Pick a property before showing its value editor; do not crowd both stages into one form.

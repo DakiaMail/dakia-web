@@ -1,8 +1,8 @@
 // Separate Vite development entry. This is not included in the production build.
 import { StrictMode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Button, ConfirmationButton, DateTimeSelector, DakiaProvider, IconButton, DropdownMenu, DropdownMenuItem, DropdownSubmenu, DropdownMenuDivider, MailActionButton, SearchField, FilterChip, FilterPopover, useDakiaColorScheme } from "@dakia/ui";
-import { Archive, Plus, Search, SlidersHorizontal, SunMoon, X } from "lucide-react";
+import { Button, ConfirmationButton, DateTimeSelector, DakiaProvider, IconButton, DropdownMenu, DropdownMenuItem, DropdownSubmenu, DropdownMenuDivider, MailActionButton, SearchField, FilterChip, FilterList, FilterPopover, useDakiaColorScheme } from "@dakia/ui";
+import { Archive, ChevronRight, Mail, Plus, Search, SlidersHorizontal, SunMoon, X } from "lucide-react";
 import "@fontsource/inter/400.css";
 import "@fontsource/inter/500.css";
 import "@fontsource/inter/600.css";
@@ -31,7 +31,7 @@ function Gallery() {
       <SearchField label="Search example mail" value={query} onChange={setQuery} onSearch={() => setMenuResult(`Searching for ${query}`)} icon={<Search size={17} />} clearIcon={<X size={15} />}
         options={query ? [{ id: "launch", label: "A few thoughts on the launch", description: "Maya Chen · Work", group: "Messages", icon: <Archive size={16} />, onSelect: () => setMenuResult("Opened launch message") }] : []} />
       <FilterPopover opened={filtersOpen} onChange={setFiltersOpen} label="Example filters" trigger={<Button variant="secondary" aria-expanded={filtersOpen} onClick={() => setFiltersOpen(!filtersOpen)} leftSection={<SlidersHorizontal size={16} />}>Filters</Button>}>
-        <Button data-autofocus variant="tertiary" onClick={() => { setUnread(true); setFiltersOpen(false); }}>Unread</Button>
+        <FilterList label="Example filter" searchLabel="Find an example filter" searchIcon={<Search size={15} />} trailingIcon={<ChevronRight size={14} />} closeControl={<IconButton label="Close example filters" onClick={() => setFiltersOpen(false)}><X size={15} /></IconButton>} items={[{ value: "unread", label: "Unread", icon: <Mail size={15} /> }]} onSelect={() => { setUnread(true); setFiltersOpen(false); }} />
       </FilterPopover>
     </div>
     {unread && <div style={{ marginTop: 12 }}><FilterChip label="Unread" removeIcon={<X size={12} />} onEdit={() => setFiltersOpen(true)} onRemove={() => setUnread(false)} /></div>}

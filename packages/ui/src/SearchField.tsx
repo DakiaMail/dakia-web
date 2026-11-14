@@ -87,7 +87,7 @@ export const SearchField = forwardRef<HTMLInputElement, SearchFieldProps>(functi
           </div>
         </div>)}
       </div>
-      <div className="dakia-search-footer" role="status">{loading ? "Searching…" : status || "↑ ↓ Navigate · Enter Open · Esc Close"}</div>
+      <div className="dakia-search-footer" role="status">{loading ? "Searching…" : status || `↑ ↓ Navigate · Enter ${active >= 0 ? "Open" : "Search"} · Esc Close`}</div>
     </div>}
   </form>;
 });

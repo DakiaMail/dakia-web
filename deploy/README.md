@@ -1,8 +1,159 @@
-# Deployment and operations
+# Operate Dakia
 
-For new installations, start with [hosting](../docs/hosting.md) and the root Compose package. The root Dockerfile targets Linux AMD64 and ARM64. The legacy bundle packaging below targets Linux x86_64/glibc 2.39 (Ubuntu 24.04). It produces a local runtime image, not a hosted service or an automatic deployment workflow. Use an HTTPS reverse proxy. Existing installations can continue using an operator-controlled OIDC provider; new installations can use built-in local login. Keep the application private until access, provider behavior and backups have been validated for your environment.
+Start with [hosting](../docs/hosting.md) if you haven't installed Dakia. These commands assume the user-owned directory from that guide and standard Linux Docker permissions:
 
-Three files support unattended installation: [`install.sh`](../scripts/install.sh) prepares a directory and starts the stack on a fresh server, [`compose.caddy.yaml`](../compose.caddy.yaml) with [`Caddyfile`](Caddyfile) adds HTTPS in the same project, and [`cloud-init.yaml`](cloud-init.yaml) runs the installer from a server's user data. A Caddy installation upgrades the same way; the upgrade command targets the `dakia` service and leaves Caddy running.
+```sh
+cd ~/dakia
+```
+
+If your Docker installation works without sudo, omit `sudo` from Docker commands. If you used the root installer, use `sudo -i` and `cd /opt/dakia` instead. Keep the same directory, project name, `.env`, and Compose overrides for every operation. Plain Compose commands load `compose.override.yaml` automatically.
+
+## Check status and logs
+
+```sh
+sudo docker compose ps
+sudo docker compose logs --tail 100 dakia
+sudo docker compose logs --tail 100 caddy
+```
+
+The last command applies only when Caddy is in your stack. Dakia should show `healthy`. Caddy has no supplied health check; confirm the actual HTTPS address in your browser. From a computer allowed through your firewall:
+
+```sh
+curl -fsS https://mail.example.com/healthz
+```
+
+Replace the example address. The result should identify `dakia-web` with status `ok`. A valid certificate, successful login, and mailbox access are separate checks. Logs and resolved configuration can contain private information; inspect them locally before sharing.
+
+## Change configuration
+
+Edit `.env` or your existing `compose.override.yaml`, then apply it:
+
+```sh
+sudo docker compose config --quiet
+sudo docker compose up -d --wait
+```
+
+A restart alone doesn't apply changed environment variables. Don't replace your whole override with a provider example: merge its `dakia` settings alongside existing services and mounts. Keep `.env` mode 600 and its directory private. See [configuration reference](#configuration).
+
+## Backup and restore
+
+Back up regularly, not only when upgrading. A backup contains private mail and credentials. Keep an encrypted copy off the host, retain the matching image, and test restoration. Never copy a live SQLite directory as your only backup, and never use `docker compose down -v` on an installation you want to keep.
+
+The following procedure is for the supplied `/data` and `/secrets` mounts. If you added OIDC, provider secret-file mounts, private VAPID configuration, or other extra bind mounts, save those original files privately too. Don't print them or commit them to Git. Keep backup storage outside the repository.
+
+### Make a backup
+
+Run from your installation directory in one shell. Stop if any command fails. First identify the **running** image, rather than assuming the Compose file still selects it:
+
+```sh
+container=$(sudo docker compose ps -q dakia)
+test -n "$container"
+image=$(sudo docker inspect --format '{{.Image}}' "$container")
+mkdir -p -m 700 "$HOME/dakia-backups"
+backup="$HOME/dakia-backups/$(date -u +%Y%m%dT%H%M%SZ)"
+mkdir -m 700 "$backup"
+printf '%s\n' "$image" > "$backup/image-id"
+cp .env compose.yaml "$backup/"
+if [ -f compose.override.yaml ]; then cp compose.override.yaml "$backup/"; fi
+mkdir -m 700 "$backup/deploy"
+cp deploy/Caddyfile "$backup/deploy/"
+sudo docker image tag "$image" "dakia-backup:$(basename "$backup")"
+```
+
+The private `image-id` file and backup tag identify the matching local image. Retain it or export it for off-host recovery; an image ID isn't a downloadable registry reference. The saved Compose files and `.env` retain the configured registry pin.
+
+Stop only Dakia. Caddy can keep running. Prepare private key and snapshot directories, then use that same image's offline backup tool:
+
+```sh
+sudo docker compose stop dakia
+sudo docker run --rm --network none --read-only --tmpfs /tmp --user 0 \
+  --volumes-from "$container":ro \
+  --mount "type=bind,src=$backup,dst=/backup" \
+  --entrypoint /bin/sh "$image" -c \
+  'mkdir -m 700 /backup/secrets /backup/store && cp -a /secrets/. /backup/secrets/ && chown 1000:1000 /backup/store'
+sudo docker run --rm --network none --read-only --tmpfs /tmp --user 1000:1000 \
+  --volumes-from "$container" \
+  --mount "type=bind,src=$backup/store,dst=/backup" \
+  --entrypoint /app/dakia-admin "$image" \
+  backup /data /backup/snapshot /secrets/credential-key
+sudo docker compose start --wait dakia
+```
+
+Look for **Backup completed** before treating the backup as usable. The app data mount is writable because the offline tool takes a lock and may checkpoint SQLite. The server must be stopped for this entire operation. Root inside the first container copies only the explicitly mounted files; no Docker socket is mounted.
+
+If backup fails, retain its files and inspect the error. Restart the unchanged app with `sudo docker compose start --wait dakia` when ready; don't change image versions as part of recovering a failed backup. Some snapshot files are owned by UID 1000, so use administrator access when copying the whole backup to encrypted off-host storage. Verify that copy includes `store/snapshot/manifest.json`, `secrets`, deployment files, and any extra secret files.
+
+### Test a restore without replacing your mail
+
+Set `backup` to the completed backup's absolute path if you're in a new shell. Use a fresh output directory for each attempt:
+
+```sh
+image=$(cat "$backup/image-id")
+mkdir -p -m 700 "$HOME/dakia-restores"
+restore="$HOME/dakia-restores/$(basename "$backup")"
+mkdir -m 700 "$restore"
+sudo docker run --rm --network none --read-only --tmpfs /tmp --user 0 \
+  --mount "type=bind,src=$backup,dst=/backup,readonly" \
+  --mount "type=bind,src=$restore,dst=/restore" \
+  --entrypoint /bin/sh "$image" -c \
+  '/app/dakia-admin restore /backup/store/snapshot /restore/data /backup/secrets/credential-key && cp -a /backup/secrets /restore/secrets && chown -R 1000:1000 /restore/data /restore/secrets'
+```
+
+Look for **Restore completed with jobs disabled**. Restored files live outside the completed backup so the backup stays separate from future app writes. This test doesn't stop or replace your running installation, doesn't contact providers, and doesn't start the restored app. If it fails, retain the output and choose another new directory after investigating.
+
+### Activate restored data
+
+For actual recovery, stop Dakia first. Preserve the failed data. In your installation directory, create `compose.restore.yaml` using the matching image from `image-id` and the absolute restore paths:
+
+```yaml
+services:
+  dakia:
+    image: "REPLACE_WITH_CONTENTS_OF_IMAGE_ID"
+    pull_policy: never
+    volumes:
+      - /absolute/path/to/restored/data:/data
+      - /absolute/path/to/restored/secrets:/secrets
+```
+
+For the standard Caddy setup, validate and start with all three files:
+
+```sh
+sudo docker compose stop dakia
+sudo docker compose -f compose.yaml -f compose.override.yaml -f compose.restore.yaml config --quiet
+sudo docker compose -f compose.yaml -f compose.override.yaml -f compose.restore.yaml up -d --wait --pull never
+```
+
+If you don't have `compose.override.yaml`, omit that `-f` pair. Include any other overrides you normally use. Keep the original origin and identity-provider settings. Use this exact file selection for later commands until you have deliberately made these recovery mounts and image your normal configuration. A plain `docker compose up` would select the old mounts again.
+
+Sign in again and inspect the restored accounts and mail. Restores invalidate sessions and invitations, leave background jobs disabled, and mark interrupted submissions as delivery-unknown. Reconcile uncertain sends with the provider before enabling jobs; a failed Sent filing isn't a reason to resend. Restore cannot undo mail actions already performed at the provider.
+
+After reconciliation, stop the restored app and explicitly enable jobs with its matching image and mounts:
+
+```sh
+sudo docker compose -f compose.yaml -f compose.override.yaml -f compose.restore.yaml stop dakia
+sudo docker compose -f compose.yaml -f compose.override.yaml -f compose.restore.yaml run --rm --no-deps \
+  --entrypoint /app/dakia-admin dakia enable-jobs /data /secrets/credential-key --reconciled
+sudo docker compose -f compose.yaml -f compose.override.yaml -f compose.restore.yaml up -d --wait --pull never
+```
+
+Again omit or add override files to match your installation. Never start an older image on newer, migrated data. Keep the original data and backup until recovery is accepted.
+
+## Upgrades
+
+See [upgrade and recovery](../docs/upgrading.md). Keep the previous image and a matching backup. Published image identity and maintainer builds are documented in [building and publishing](building.md).
+
+## Troubleshooting
+
+| Symptom | Next step |
+| --- | --- |
+| Docker says permission denied | Use the documented `sudo docker` commands. Don't make the Docker socket world-writable. |
+| Port 80 or 443 is already in use | Keep your existing proxy and use the existing-proxy path. Don't stop unrelated services. |
+| App is healthy but HTTPS fails | Check Caddy logs, DNS A/AAAA records, provider firewall rules, and certificate issuance. Don't disable certificate checks. |
+| Sign-in returns to the login page | Use the exact `DAKIA_ORIGIN`, including any nonstandard port. Preserve Origin through the proxy. |
+| Provider settings aren't applied | Merge the settings into the loaded override, then run `config --quiet` and `up -d --wait`. A restart alone isn't enough. |
+| A mailbox needs reconnection | Check its provider credentials and permissions in Workspace. For IMAP/SMTP, check outbound connectivity; Microsoft uses outbound HTTPS. |
+| Upgrade helper finds no published release | It doesn't offer arbitrary main-branch images. Keep your current installation or follow the reviewed manual image procedure. |
+| Data appears empty after recreation | Stop and inspect the Compose project name and `/data` and `/secrets` mounts before creating another owner. Don't delete volumes or regenerate keys. |
 
 ## Configuration
 
@@ -19,7 +170,9 @@ The root image already supplies the data, key, web, worker, and model paths. For
 
 A standalone server outside the supplied image needs explicit data and key paths. On first start, the key's parent directory must exist and be writable. Missing keys on an existing installation fail startup instead of being replaced.
 
-The root Compose file passes `DAKIA_ORIGIN` to the container. Other runtime settings need explicit `environment` entries and any required mounts; simply adding them to `.env` does not pass them through automatically. For OIDC, save the following as `compose.override.yaml` beside `compose.yaml` and set its issuer, client ID, and host secret-file path in `.env`. Compose loads this override automatically:
+Compose passes only the variables declared in its configuration. The supplied file already forwards origin, provider OAuth credentials, release checks, and administrator IDs. Other runtime settings need explicit `environment` entries and any mounts. Adding a value to `.env` alone doesn't forward it.
+
+For OIDC, merge the following `dakia` service settings into `compose.override.yaml`, retaining any existing Caddy service. Set the issuer, client ID, and host secret-file path in `.env`. Put `dakia` under the existing top-level `services`, alongside `caddy`; keep the top-level `volumes` section separate. Use one `services` key. Plain Compose commands load the override automatically; explicit `-f` commands must name it too:
 
 ```yaml
 services:
@@ -43,7 +196,7 @@ Optional/runtime settings:
 | Variable | Default or purpose |
 | --- | --- |
 | `DAKIA_LISTEN` | Image: `0.0.0.0:3025`; standalone: `127.0.0.1:3025`. Compose publishes only host loopback by default |
-| `DAKIA_WEB_ROOT` | `apps/web/dist`; set `/app/web` in the packaged image |
+| `DAKIA_WEB_ROOT` | Image: `/app/web`; standalone: `apps/web/dist` |
 | `DAKIA_DURABLE_ATTACHMENT_BUDGET_BYTES` | 1073741824 per account; positive integer |
 | `DAKIA_WORKERS` | Node worker source/dependency directory |
 | `DAKIA_NODE` | Node executable, default `node` |
@@ -54,94 +207,14 @@ Preserve key bytes across upgrades. Restrict secret directory/file permissions. 
 
 ## Local users
 
-The first local login is the owner. Workspace provides owner-only invitation creation and revocation. Invitations are single-use, expire after 24 hours, and allow a recipient to choose their own credentials and connect separate mailboxes. Existing local owners retain their ID, password hash, mailbox ownership, and sessions through the invitation migration. See the [user guide](../docs/getting-started.md).
+The first login owns the installation. Workspace provides owner-only invitation creation and revocation. Invitations work once and expire after 24 hours. See [getting started](../docs/getting-started.md) for connecting mailboxes and joining by invitation.
 
-## Published images
+## Translation administration
 
-GitHub Actions builds application source changes on `main` for Linux AMD64 and ARM64. Source images use `ghcr.io/dakiamail/dakia-web:sha-<source-commit>` and carry the source commit in the `org.opencontainers.image.revision` label. Semantic version tags publish versioned images, then a GitHub release with a digest manifest and the paired upgrade scripts after packaged-runtime checks pass. Stable releases take priority over previews for update discovery. Manual workflow runs can build a chosen source revision.
+The owner chooses the translation location in Workspace → Translation. OIDC operators can nominate stable Dakia user IDs with `DAKIA_ADMIN_USERS`. Server translation is the default; on-device mode downloads language packs to each browser when requested. See [translation settings](../docs/on-device-translation.md).
 
-Each native image must pass packaged classifier, translation-worker, health, Gmail OAuth, and restart checks before the multi-platform image is published. The classification check verifies the deterministic policy on synthetic messages as the normal app user. The OAuth checks use synthetic credentials with networking disabled. `edge` tracks a successful `main` build; the Compose default uses an explicitly verified digest. Documentation and Compose-pin-only changes do not rebuild unchanged application code.
+## Diagnostics
 
-Use the source-revision label and immutable digest to identify an image. Keep operator credentials and mail data in runtime configuration and persistent volumes, outside the image.
+Private bounded mail diagnostics live under `DAKIA_DATA_DIR/diagnostics`. Keep Docker stdout rotation bounded too. Preserve logs privately before replacing a failing container. Don't post raw mail, tokens, or credentials in public issues.
 
-## Build
-
-Install the requirements and run the checks in the root README. To build the legacy runtime bundle:
-
-```sh
-sh deploy/build-bundle.sh
-```
-
-The builder installs locked npm dependencies, builds/tests the UI, tests the workers and Rust workspace, builds release binaries, and creates `deploy/bundle/runtime.tar.gz`. It packages copied binaries, web assets, workers and classification policy, excluding account data and operator secrets. Build on Linux x86_64 using Node 24 LTS and the pinned Rust toolchain. Classification requires no model files or runtime downloads.
-
-Extract the archive into a new build directory and build the included Dockerfile with an explicit local tag. It expects `bin/`, `web/`, `workers/` beside it. The image runs as UID/GID 1000. Mount persistent storage at `/data`, set the required environment and mount private configuration files at their configured paths. Configure `DAKIA_WEB_ROOT=/app/web`; the image already sets the worker and translation model-cache paths. A private VAPID file is needed for push, not embedded in the image.
-
-Use a read-only root filesystem, no new privileges, dropped capabilities and suitable resource limits. Networking must permit OIDC discovery/backchannel, mail provider TLS, selected model downloads and supported push endpoints. Do not bypass TLS verification to resolve routing failures. Ensure `/sw.js` serves JavaScript rather than the SPA fallback.
-
-## Upgrade and verification
-
-For supported Compose installations, use `sh scripts/upgrade.sh`. See [upgrading and recovery](../docs/upgrading.md) for release selection, backup locations, failure handling, and manual platform instructions. Automatic owner release checks can be disabled with `DAKIA_RELEASE_CHECKS=false`.
-
-Keep the previous image and a matching backup before replacing the application. Retain the existing data and secret mounts, identity-provider state and proxy configuration. Never apply an old full proxy/compose file over unrelated operator changes.
-
-Preserve incident stdout privately before replacement. Mail diagnostics are also retained in a bounded private ring under `DAKIA_DATA_DIR/diagnostics`, on the existing persistent mount. Keep Docker stdout rotation separately bounded. See the private diagnostics directory for correlation, uncertainty semantics, limits and privacy rules.
-
-IMAP connection failures use an account-wide cooldown shared by command and IDLE lanes: 5 seconds initially, doubling to at most 5 minutes. Clean commands reset it; replacing account credentials creates a fresh provider. Cancelled handshakes also retain the cooldown. Diagnostics distinguish `connection_attempt` stage/outcome and safe transport reason, `connection_backoff` suppressed attempts, and `provider_backoff` cached/suppressed caller work. These are separate from checked wire commands. A successful authenticated connection alone does not prove a mail operation succeeded. The daily analyzer reports connection attempts and suppressions separately, without logging endpoints, credentials or reply content.
-
-
-Worker updates must include their locked production dependencies. A healthy Rust
-server does not establish that a Node subprocess can start. Run
-`node /app/workers/translation/smoke.mjs` inside the final image with networking
-disabled and no application data mounts before activation. This loads the HTML
-parser, sanitizer and WASM engine. The supplied Dockerfile runs it as the service
-user during the build. For translation acceptance, also run the smoke with
-`--models` and `DAKIA_MODEL_CACHE` pointing at an isolated copy of verified public
-Estonian models. This exercises real HTML translation without mail or credentials.
-
-Verify the exact running image and application assets, health (`GET /healthz` identifies `dakia-web`), anonymous API rejection, owner login and safe read-only navigation. A healthy container alone does not prove provider, submission or backup acceptance. Test mail mutations only with deliberately disposable accounts/messages. Reconcile uncertain send outcomes before retrying. Sent filing failures must retry filing only, not SMTP delivery.
-
-The local healthcheck binary can be used as:
-
-```sh
-/app/dakia-healthcheck
-```
-
-## Backup and restore
-
-Stop the server before invoking the offline operator with its matching binary and key. Do not run it against a concurrently active store. The container includes `/app/dakia-admin`; override the image entrypoint when using it in a separate stopped-data operator container, and mount a backup directory writable by UID 1000. The commands below describe the binary arguments, not commands to run inside a live server container.
-
-```sh
-dakia-admin backup DATA_DIR NEW_BACKUP_DIR KEY_FILE
-dakia-admin restore BACKUP_DIR NEW_DATA_DIR KEY_FILE
-```
-
-Backup coordinates SQLite snapshots and durable blobs and writes a manifest last. Received cache and public models are excluded. Restore requires a new directory, clears authentication sessions/login flows and pending invitation links, disables jobs and changes in-flight submissions to `delivery_unknown`. Inspect and reconcile before enabling jobs. Protect completed backups and separately back up encryption, identity-provider and VAPID keys. Encrypt off-host archives using operator-controlled tooling and test restore into an isolated directory.
-
-Do not run an older binary directly against migrated data. Roll back using a matching restored snapshot and retain the newer data until reconciliation is complete. Local backup/restore behavior is covered by storage tests; this repository does not claim an operator's live disaster-recovery acceptance.
-
-### Native backend release builder
-
-Use `Dockerfile.build` when compiling Linux binaries in a container. It combines
-Rust 1.98 with the Ubuntu 24.04 C runtime used by the production image. Building
-against Debian Bookworm's older glibc can fail on `__isoc23_strtol` symbols from
-native dependencies. Do not change runtime security or inference
-features to work around a mismatched build environment.
-
-Build the image using only its Dockerfile as context:
-
-```sh
-docker build -t dakia-release-builder - < deploy/Dockerfile.build
-docker run --rm -v "$PWD:/source" -w /source dakia-release-builder \
-  cargo build --release --locked -p dakia-server
-```
-
-Run this on a native Linux amd64 host. Mount a source checkout and optional
-isolated Cargo/target caches only. Never mount production data or credentials
-into the builder. Package all three binaries without classifier model or runtime assets,
-and run the release gate before activation. Back up the stopped app before
-changing the production image, retain its previous tag, and verify database
-integrity, mounts, health and unchanged account/submission counts afterwards.
-
-### Translation administration
-
-The local owner can choose translation location in Workspace → Translation. OIDC operators can nominate stable Dakia user IDs with `DAKIA_ADMIN_USERS` (comma-separated). Existing installations default to host translation. Public browser language packs use the existing writable `DAKIA_MODEL_CACHE`; mode changes persist in the control database. See [translation operations](../docs/on-device-translation.md).
+IMAP failures back off per account, initially for five seconds and up to five minutes. A successful connection doesn't establish that a mail operation succeeded. Inspect diagnostics and provider state before retrying uncertain writes. Worker checks and image smoke commands belong to the [maintainer build guide](building.md).

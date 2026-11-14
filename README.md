@@ -1,84 +1,108 @@
 <p align="center"><img src="apps/web/public/dakia-icon-512.png" alt="Dakia logo" width="64"></p>
 <h1 align="center">Dakia</h1>
-<p align="center">Your mail, on your own server.</p>
+<p align="center">People first. The rest, organized.</p>
+<p align="center"><a href="https://demo.dakiamail.com">Try the demo</a> · <a href="docs/hosting.md">Self-host Dakia</a> · <a href="docs/features.md">Explore the features</a></p>
 
-Dakia is a free, open-source, self-hosted email client, not a mail server. Keep your existing email providers and bring your IMAP/SMTP mailboxes together on desktop and mobile.
+Dakia is a free, open-source email client you run on your own server. Bring your existing mailboxes together, keep personal conversations in focus, and translate emails on your device.
 
-![Dakia's unified inbox and open message, with fictional Work and Personal mailboxes](docs/images/inbox-desktop.webp)
+![Personal inbox across Work and Personal accounts, with a conversation and attachment open](docs/images/personal.webp)
 
-- Bring multiple mailboxes into one inbox without moving your email to a new provider.
-- Read conversations, find Personal and Automated mail, and classify or translate mail on your own server.
-- Use the same responsive app in your desktop browser or on your phone, with PWA installation available.
+## An inbox that starts with people
 
-[Website](https://dakiamail.com) · [Features](docs/features.md) · [Setup guide](docs/getting-started.md)
+**Personal** keeps correspondence together. **Automated** gives receipts, newsletters, notifications, and other generated mail their own space. **All** shows everything together. Reading a message doesn't move it out of its tab.
+
+Within Automated, narrow the list to **Transactions**, **Orders**, **Shipping**, **Invitations**, **Codes**, **Flights**, **Newsletters**, **Offers**, or **Security alerts**. Transactions brings receipts and invoices together. A message can belong to more than one filter.
+
+![Automated inbox with its type filters, a receipt, and the extracted total](docs/images/automated.webp)
+
+If Dakia gets something wrong, correct the message or remember a sender's preference for that mailbox. Uncertain mail stays in Personal so it remains easy to find.
+
+## Important mail still gets through
+
+Verification codes, flight changes, and other mail that needs attention appear above the inbox tabs and in **Needs attention**. Copy a detected code straight from the list. Reading doesn't dismiss an attention item; dismiss it when you're done, or snooze it for later.
+
+![Needs attention with a copyable verification code and a cancelled flight](docs/images/attention.webp)
+
+## Translate on your device
+
+Read an email in another language and choose **Translate to English**. With on-device translation enabled, the translation runs in your browser without sending the text to a translation service. Download a language pack once, reuse it for later messages, and switch back to the original whenever you want.
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/translation-original.webp" alt="Original Estonian email with Translate to English available"></td>
+    <td width="50%"><img src="docs/images/translation.webp" alt="The same email translated to English on the device, with Show original available"></td>
+  </tr>
+  <tr>
+    <td>The original email.</td>
+    <td>English, translated on your device.</td>
+  </tr>
+</table>
+
+The installation owner chooses on-device translation, on-device with server fallback, or server translation in **Workspace → Translation**. Server translation is the default. [Translation settings and saved languages](docs/on-device-translation.md).
+
+## The rest of your mail, too
+
+Bring Gmail, Outlook.com, Microsoft 365, and other IMAP/SMTP mailboxes into one inbox. Search across your accounts, follow conversations, reply with attachments, or save a draft for later.
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/transactions.webp" alt="Transactions filter showing monthly receipts and a receipt attachment"></td>
+    <td width="50%"><img src="docs/images/compose.webp" alt="New message with the send-later date and time picker open"></td>
+  </tr>
+  <tr>
+    <td>Find receipts and invoices together.</td>
+    <td>Write now and choose when to send.</td>
+  </tr>
+</table>
+
+Archive, star, snooze, move, or clean up mail in bulk. Unsubscribe from supported mailing lists and block unwanted senders. Keyboard shortcuts and optional shortcut hints keep everyday actions close at hand.
+
+## At your desk or on your phone
+
+Use the responsive web app or install it as a PWA. Sign in with the same Dakia login to use your mailboxes on another device. Recent mail is saved in your browser for faster reopening.
+
+<p align="center">
+  <img src="docs/images/inbox-mobile.webp" alt="Personal inbox on a mobile browser with attention items above the tabs" width="320">
+  &nbsp;&nbsp;
+  <img src="docs/images/reader-mobile.webp" alt="Mobile conversation reader in dark theme with an attachment and reply controls" width="320">
+</p>
+
+Invite others to your installation with single-use links. Each person gets their own login, mailbox connections, search, and drafts. [Features and everyday use](docs/features.md).
+
+All screenshots show the running app with fictional mail. [Capture details](docs/images/README.md).
 
 ## Get started
 
+Dakia connects to your email provider. You don't need to run a mail server or change MX records.
+
 Dakia is under active development. Back up your installation and try a disposable mailbox before relying on it for important mail.
 
-You need Docker Compose and an HTTPS address through your reverse proxy or Tailscale Serve.
+On a fresh Debian or Ubuntu server, point your domain at it and run:
 
 ```sh
-git clone https://github.com/DakiaMail/dakia-web.git
-cd dakia-web
-cp .env.example .env
-# Set DAKIA_ORIGIN to your HTTPS address, without a trailing slash.
-docker compose up -d
+curl -fsSL -o dakia-install.sh https://raw.githubusercontent.com/DakiaMail/dakia-web/main/scripts/install.sh && sudo sh dakia-install.sh --domain mail.example.com
 ```
 
-Open your HTTPS address and choose **Sign in**. Read your private setup code from the host:
+The installer sets up Docker and automatic HTTPS in `/opt/dakia`. Ports 80 and 443 must be reachable. For an existing Docker host, NAS, or private network, follow the [hosting guide](docs/hosting.md).
 
-```sh
-docker compose exec dakia cat /secrets/setup-token
-```
+Open your HTTPS address and choose **Sign in**. Create your username and a password with at least 12 characters, then connect a mailbox. The first login owns the installation, so create it before sharing the address. Your Dakia password is separate from your email provider's password.
 
-Create your username and a password with at least 12 characters, then connect your first mailbox. Your Dakia password is separate from your email provider’s password.
+Gmail and Microsoft sign-in require the operator to register an application with the provider. Gmail app passwords and other IMAP/SMTP connections are also supported. Follow [getting started](docs/getting-started.md) for connection and invitation steps.
 
-For Gmail, choose **Continue with Google** when Google sign-in is configured for your installation. Each operator supplies their own Google OAuth client. Dakia keeps the refresh token encrypted on your server and renews access automatically. App passwords remain available.
+## Updates and documentation
 
-Follow the [Gmail setup guide](docs/gmail-oauth.md) to register your client and configure its ID and secret. The pinned image includes Gmail sign-in. For development, use a separate Google Cloud project and Dakia data directory.
+Run `sh scripts/upgrade.sh` from your installation directory to review a release, make a backup, and upgrade. Use `--check` to check without changing the installation. Keep both persistent volumes, including the credential encryption key. [Upgrade and recovery guide](docs/upgrading.md).
 
-For Outlook.com, Hotmail, and Microsoft 365, choose **Microsoft (Outlook / Microsoft 365)** and **Continue with Microsoft**. Dakia uses Microsoft Graph, not legacy IMAP/SMTP. Your operator must first configure an Entra application: [Microsoft setup guide](docs/microsoft-oauth.md).
-
-To add another person, open **Workspace → Invite someone → Create invitation** and share the link privately. They choose their own login and connect their own mailboxes. Links expire after 24 hours and work once.
-
-[Follow the setup, invitation, and sign-in guide](docs/getting-started.md). Keep both persistent volumes: losing the credential key means losing access to stored credentials.
-
-Compose pulls a verified preview image for Linux AMD64 or ARM64. It is pinned by digest so an upstream rebuild cannot silently change your installation. Platform-specific NAS and Proxmox walkthroughs are still being validated.
-
-## Keep Dakia updated
-
-Run `sh scripts/upgrade.sh` from your installation directory. It checks published releases, makes a backup, and verifies the upgraded server. Use `--check` to review a release first. The local owner also sees a quiet notice when a release is available. [Upgrade and recovery guide](docs/upgrading.md).
-
-## A quick look
-
-![Nine-second tour: desktop inbox, open message, mobile inbox, then the same message on mobile](docs/images/inbox-tour.gif)
-
-
-## What you can do
-
-- Invite other people to create separate logins and private mailbox connections.
-- Connect Gmail with Google sign-in, Microsoft accounts with Microsoft Graph, or other IMAP/SMTP accounts, and use a unified inbox.
-- Read conversations, search mail, and filter Personal and Automated mail.
-- Compose rich-text messages with attachments, drafts, and scheduled sending.
-- Archive, snooze, star, move, and clean up messages in bulk.
-- Block unwanted senders across your mailboxes, with optional cleanup of older emails.
-- Classify mail on your server and translate on your device or server.
-- Use the responsive web app or install it as a PWA.
-
-[Features and screenshots](docs/features.md)
-
-## Documentation
-
-- [Getting started](docs/getting-started.md): owner setup, joining by invitation, connecting mail, and signing in.
-- [Gmail sign-in](docs/gmail-oauth.md): operator-owned Google credentials, connection, reconnection, and development testing.
-- [Microsoft accounts](docs/microsoft-oauth.md): operator-owned Entra registration, Graph mail, reconnection, and current limits.
-- [Hosting and deployment](docs/hosting.md): Docker, Proxmox, Mac mini, Synology, TrueNAS, Unraid, and Portainer.
-- [Security](docs/security.md): login, encryption, isolation, backups, and reporting vulnerabilities.
-- [Privacy](docs/privacy.md): where mail is processed and which services Dakia contacts.
-- [Operations](deploy/README.md): existing OIDC installations, configuration, and backup commands.
-
-If Dakia looks useful, [give the repository a star](https://github.com/DakiaMail/dakia-web) to help others find it.
+| Guide | What you'll find |
+| --- | --- |
+| [Getting started](docs/getting-started.md) | First login, mailbox connection, invitations, and everyday use |
+| [Features](docs/features.md) | Inbox filters, translation, search, sending, and cleanup |
+| [Gmail](docs/gmail-oauth.md) / [Microsoft](docs/microsoft-oauth.md) | Provider sign-in setup and reconnection |
+| [Hosting](docs/hosting.md) / [Operations](deploy/README.md) | Installation, configuration, backups, and recovery |
+| [Privacy](docs/privacy.md) / [Security](docs/security.md) | Where mail is processed and how to protect it |
+| [Translation](docs/on-device-translation.md) | Translation location and saved language packs |
+| [Browser cache](docs/persistent-local-cache.md) | Saved mail, retention, and offline limits |
+| [Demo](docs/demo.md) | Run the fictional mailbox locally |
 
 ## Development
 
@@ -95,37 +119,10 @@ cargo test --workspace --locked
 
 To build your own container image, run `docker build -t dakia:local .` and set `DAKIA_IMAGE=dakia:local`.
 
-Mail classification uses deterministic local rules and needs no model download. Translation models are downloaded and verified when needed.
+Classification uses local rules and needs no model download. Translation language packs are downloaded and verified when needed. See the [classification reference](docs/personal-first-classification.md) for detection and correction behavior.
 
 Contributions are welcome through pull requests. Keep changes focused and include relevant checks. Never include mailbox data, credentials, or private captures in an issue or pull request.
-
 
 ## License
 
 Dakia is licensed under [MPL 2.0](LICENSE). Dependencies and model artifacts retain their own licenses. See [third-party notices](THIRD_PARTY_NOTICES.md).
-
-Recent mail is saved in a bounded, user-scoped browser cache for faster reopening
-and folder switching. Cached views appear after a fresh session and account check
-then refresh in the background. All messages intersecting the mail-list viewport
-are prefetched serially without marking them read or loading external images.
-Signing out or removing an account clears saved mail in this browser and other
-updated tabs. See [persistent local caching](docs/persistent-local-cache.md) for
-limits, authorization, retention and offline behavior.
-
-## Try Dakia
-
-Explore the app at [demo.dakiamail.com](https://demo.dakiamail.com). For the sandbox build, checks, and deployment, see [the demo guide](docs/demo.md).
-
-## Inbox classification
-
-Personal is the default inbox tab. Automated and All are one click away. Read mail stays in its tab, and uncertain or unavailable classification stays visible in Personal. Needs attention appears above every inbox tab and is independent of the main distinction.
-
-Detectors recognize overlapping receipts, invoices, orders, shipping, invitations, verification codes, flights, newsletters, offers, and security alerts. English text patterns and structural metadata provide best-effort detection. Missing a type never removes a message from its tab. Row shortcuts copy supported values or open a labelled destination; they never send calendar responses or make payments.
-
-Use More actions to correct Personal/Automated, remember or forget an exact sender for the current account, edit detected types, or change attention. Message corrections win over sender preferences and detector output. Reading does not dismiss attention. Codes stop highlighting at their stated expiry, or after 15 minutes without one. This cutoff does not determine whether a code is valid.
-
-Notifications are for Personal and active attention items, subject to blocking and snooze. Inbox history is progressively reprocessed without replaying notifications. Other messages are requested for classification when their folder results or reader are opened. User corrections and detected details survive body-cache eviction.
-
-Legacy category fields and operations remain available for one compatibility release. Migration preserves old manual choices and keeps their original value. It does not invent detailed types from those choices. Before upgrading, take the normal data and credential backup; restore that backup when reverting to an older image with the previous database schema.
-
-Keyboard: Tab reaches inbox tabs, filters, facts, and actions. Left/Right changes inbox tabs; arrow keys navigate menus and Right/Left opens/closes submenus. Escape restores focus to the triggering control. Existing mail shortcuts remain unchanged.

@@ -108,6 +108,7 @@ type Nav =
   | "Sent"
   | "Drafts"
   | "Trash"
+  | "Spam"
   | "Scheduled";
 const automatedFilters = [
   { value: "transactions", label: "Transactions", icon: ReceiptText },
@@ -129,7 +130,10 @@ const navs = [
   { id: "Drafts", label: "Drafts", icon: FileText },
   { id: "Scheduled", label: "Scheduled", icon: Clock },
   { id: "Trash", label: "Trash", icon: Trash2 },
+  { id: "Spam", label: "Spam", icon: ShieldAlert },
 ] as const;
+// Spam views query the \Junk special-use attribute / Graph's Junk folder, not a literal "Spam" name.
+const folderForNav = (nav: Nav) => (nav === "Needs attention" ? "INBOX" : nav === "Spam" ? "Junk" : nav);
 const identity = (m: Message) => `${m.account_id}/${m.id}`;
 const failureSummary = (failures: string[]) => new Error(failures.length > 1
   ? `${failures[0]} ${failures.length - 1} other messages also need checking.` : failures[0]);
@@ -367,7 +371,7 @@ export function App() {
             ? "is:starred"
             : nav === "Snoozed"
               ? "is:snoozed"
-              : `folder:${nav === "Needs attention" ? "INBOX" : nav}`,
+              : `folder:${folderForNav(nav)}`,
           ids,
           pageParam,
           undefined,
@@ -918,7 +922,7 @@ export function App() {
   const selectionControls = <MatchingSelection key={`${matchingScope}/${selectionReset}`}
           visible={virtual.getVirtualItems().filter(v => v.end > (listRef.current?.scrollTop || 0) && v.start < (listRef.current?.scrollTop || 0) + (listRef.current?.clientHeight || 0)).map(v => items[v.index].message)}
           actions={checked.size ? messageActions : null} clear={clearSelection} checked={checked} expanded={allMatching} accounts={ids} busy={matchingBusy} setBusy={setMatchingBusy}
-          fetchPage={(token, signal) => api.search(q || (nav === "Starred" ? "is:starred" : nav === "Snoozed" ? "is:snoozed" : `folder:${nav === "Needs attention" ? "INBOX" : nav}`), ids, token, undefined, signal, false, false, false, inboxFilter)}
+          fetchPage={(token, signal) => api.search(q || (nav === "Starred" ? "is:starred" : nav === "Snoozed" ? "is:snoozed" : `folder:${folderForNav(nav)}`), ids, token, undefined, signal, false, false, false, inboxFilter)}
           select={(messages, expanded) => { setMatching(expanded ? { scope: matchingScope, rows: messages } : undefined); setSelection({ scope: selectionScope, view, checked: new Set(messages.map(identity)), anchor: null }); }} />;
   const coverage = mail.data?.pages.at(-1);
   const inboxCoverage = !q && nav === "INBOX" ? coverage : undefined;

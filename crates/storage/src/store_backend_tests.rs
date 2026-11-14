@@ -28,13 +28,9 @@ async fn contract(
     let setup_owner = if application.is_none() {
         let owner = Uuid::new_v4().to_string();
         let control = store.control_repository();
-        control
-            .put_setting("local_setup_token", "fixture-setup")
-            .await
-            .unwrap();
         assert_eq!(
             control
-                .claim_owner(&owner, "fixture-owner", "fixture-hash", "fixture-setup")
+                .claim_owner(&owner, "fixture-owner", "fixture-hash")
                 .await
                 .unwrap(),
             crate::control_repository::OwnerClaim::Created

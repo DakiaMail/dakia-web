@@ -2,19 +2,6 @@ use super::*;
 
 async fn contract(repository: ControlRepository) {
     assert_eq!(repository.auth_counts().await.unwrap().users, 0);
-    repository
-        .put_setting("local_setup_token", "setup-hash")
-        .await
-        .unwrap();
-    assert_eq!(
-        repository
-            .claim_owner("invalid", "invalid", "encoded", "wrong")
-            .await
-            .unwrap(),
-        OwnerClaim::InvalidCode
-    );
-    assert_eq!(repository.auth_counts().await.unwrap().users, 0);
-
     // Both engines must serialize the first-owner decision, not just enforce a
     // unique username after creating several user records.
     let mut claims = tokio::task::JoinSet::new();
@@ -23,7 +10,7 @@ async fn contract(repository: ControlRepository) {
         claims.spawn(async move {
             let user = format!("owner-{n}");
             let outcome = repository
-                .claim_owner(&user, &user, "encoded-password", "setup-hash")
+                .claim_owner(&user, &user, "encoded-password")
                 .await
                 .unwrap();
             (user, outcome)

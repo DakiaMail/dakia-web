@@ -2,6 +2,8 @@
 
 For new installations, start with [hosting](../docs/hosting.md) and the root Compose package. The root Dockerfile targets Linux AMD64 and ARM64. The legacy bundle packaging below targets Linux x86_64/glibc 2.39 (Ubuntu 24.04). It produces a local runtime image, not a hosted service or an automatic deployment workflow. Use an HTTPS reverse proxy. Existing installations can continue using an operator-controlled OIDC provider; new installations can use built-in local login. Keep the application private until access, provider behavior and backups have been validated for your environment.
 
+Three files support unattended installation: [`install.sh`](../scripts/install.sh) prepares a directory and starts the stack on a fresh server, [`compose.caddy.yaml`](../compose.caddy.yaml) with [`Caddyfile`](Caddyfile) adds HTTPS in the same project, and [`cloud-init.yaml`](cloud-init.yaml) runs the installer from a server's user data. A Caddy installation upgrades the same way; the upgrade command targets the `dakia` service and leaves Caddy running.
+
 ## Configuration
 
 The root image already supplies the data, key, web, worker, and model paths. For the supplied Compose package, set `DAKIA_ORIGIN` in `.env`; `DAKIA_PORT` optionally changes the host port. Neither setting is a password.
@@ -50,7 +52,7 @@ Optional/runtime settings:
 | `DAKIA_MODEL_CACHE` | Writable cache for public translation models |
 | `DAKIA_VAPID_FILE` | Private VAPID JSON file for Web Push; see `workers/README.md` |
 
-Preserve key bytes across upgrades. Restrict secret directory/file permissions. New local setup needs writable `/secrets` to create its key and setup-code file. Existing provisioned secret files, such as an OIDC client secret, can be mounted read-only. Never put credentials in command arguments, public URLs, Git or logs. Treat database connection URLs and populated environment files as secrets. Give the service UID access to its data/model cache, not other application stores. Keep live SQLite on a local filesystem, not a network share. Run only one server/operator against a data directory; an exclusive lock enforces this.
+Preserve key bytes across upgrades. Restrict secret directory/file permissions. New local setup needs writable `/secrets` to create its key. Existing provisioned secret files, such as an OIDC client secret, can be mounted read-only. Never put credentials in command arguments, public URLs, Git or logs. Treat database connection URLs and populated environment files as secrets. Give the service UID access to its data/model cache, not other application stores. Keep live SQLite on a local filesystem, not a network share. Run only one server/operator against a data directory; an exclusive lock enforces this.
 
 ## Local users
 
@@ -66,7 +68,7 @@ Use the source-revision label and immutable digest to identify an image. Keep op
 
 ## Build
 
-Install the requirements and run the checks in the root README. Retrieve the oversized model first:
+Install the requirements and run the checks in the root README. To build the legacy runtime bundle:
 
 ```sh
 python3 scripts/fetch-search-model.py
@@ -150,7 +152,7 @@ Do not run an older binary directly against migrated data. Roll back using a mat
 Use `Dockerfile.build` when compiling Linux binaries in a container. It combines
 Rust 1.98 with the Ubuntu 24.04 C runtime used by the production image. Building
 against Debian Bookworm's older glibc can fail on `__isoc23_strtol` symbols from
-the pinned inference library. Do not change runtime security or inference
+native dependencies. Do not change runtime security or inference
 features to work around a mismatched build environment.
 
 Build the image using only its Dockerfile as context:

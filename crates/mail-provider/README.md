@@ -1,6 +1,6 @@
 # Mail provider
 
-Account-scoped IMAP/SMTP adapters. Source includes scripted TLS fixtures and a disposable Dovecot runner, not live account credentials or mailbox data.
+Account-scoped Microsoft Graph and IMAP/SMTP adapters. Source includes scripted TLS fixtures and a disposable Dovecot runner, not live account credentials or mailbox data.
 
 ## Integration boundaries
 
@@ -11,6 +11,10 @@ Account-scoped IMAP/SMTP adapters. Source includes scripted TLS fixtures and a d
 Scans use bounded metadata PEEK, account/folder/query/UIDVALIDITY-scoped continuations and full paged reconciliation to refresh flags and discover removals. A failed/incomplete scan must not prune memberships. Dedicated IDLE is a rescan hint with polling fallback, not a claim of CONDSTORE/QRESYNC support. Gmail identity merges use account plus X-GM-MSGID and preserve labels and X-GM-THRID. Generic IMAP identities remain scoped by account/folder/UIDVALIDITY/UID; RFC Message-ID alone is not a deduplication key.
 
 Seen/star are desired-state STORE operations. Gmail archive removes Inbox membership. Generic move uses MOVE or COPY plus targeted UID EXPUNGE with UIDPLUS. Unsupported cleanup fails before modification where possible; partial/uncertain operations require reconciliation instead of duplicate COPY retries. There is no global EXPUNGE/CLOSE or permanent-delete API.
+
+## Microsoft Graph
+
+Microsoft accounts use `GraphProvider` for mail, folder discovery, delta sync, attachments, and sending. They don't need IMAP or SMTP access. Graph subscriptions provide arrival hints when the installation is publicly reachable, with polling as a fallback. See [Microsoft setup and current limits](../../docs/microsoft-oauth.md).
 
 ## Sending and Sent
 

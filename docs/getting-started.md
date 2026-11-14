@@ -4,17 +4,11 @@
 
 ## Create the first login
 
-The first person to set up a new installation becomes its owner. On the host, run this from the directory containing your Compose file:
+The first person to set up a new installation becomes its owner. Open Dakia and choose **Sign in**, then choose a username and a password with at least 12 characters.
 
-```sh
-docker compose exec dakia cat /secrets/setup-token
-```
+No setup code or host command is needed. A new installation accepts its first login from whoever reaches it, so create your login immediately after starting Dakia and keep the address private until you have. If your sign-in page still asks for a setup code, the image predates this change: read it with `docker compose exec dakia cat /secrets/setup-token`.
 
-Open Dakia and choose **Sign in**. Enter that setup code, choose a username, and create a password with at least 12 characters. Keep the setup code private. It is for claiming a new installation, not for resetting a password or inviting someone else.
-
-Your Dakia login is separate from your email provider's login. Once owner setup is complete, the setup-code field disappears.
-
-If the host uses a custom Compose project name, use that same name with every command, for example `docker compose -p my-mail exec dakia cat /secrets/setup-token`.
+Your Dakia login is separate from your email provider's login. Once owner setup is complete, the sign-in page asks only for your username and password.
 
 ## Connect an email account
 
@@ -66,7 +60,17 @@ Local password reset, user removal, and ownership transfer do not currently have
 
 Open the same HTTPS address and sign in with your existing Dakia username and password. You do not need another invitation or another mailbox setup. The host must remain running for syncing and scheduled sending.
 
-You can install the web app through your browser's installation controls. Installation does not provide an offline mailbox. Notification setup requires the host's optional push configuration and browser permission; see [operations](../deploy/README.md) and [worker configuration](../workers/README.md).
+You can install the web app through your browser's installation controls. Installation does not download a complete offline mailbox. Recent mail can be available within an already-authorized session; a fresh startup needs online session checks. See [saved mail](persistent-local-cache.md). Notification setup requires the host's optional push configuration and browser permission; see [operations](../deploy/README.md) and [worker configuration](../workers/README.md).
+
+## Find and organize mail
+
+Your inbox opens on **Personal** and remembers your last tab. **Automated** groups generated mail and offers filters such as Transactions, Orders, Shipping, and Newsletters. **All** shows both. **Needs attention** surfaces important items across those tabs. Use **More actions** in a message to correct a classification or remember a sender's preference for that mailbox.
+
+Choose **Translate to English** while reading a supported message. The installation owner chooses whether translation runs on devices, on the server, or on devices with server fallback in **Workspace → Translation**. The first on-device use downloads a language pack. See [translation settings](on-device-translation.md).
+
+Snooze removes a message from Inbox until your chosen time. **Snoozed** shows return times and lets you choose **Move back to Inbox** to bring one back sooner. Use **Send later** in the composer to schedule a message. Keep the host running for these background actions.
+
+For more, see [features](features.md). Press **?** outside an editing field to open the keyboard shortcut reference. Workspace lets you switch shortcuts and hints on or off.
 
 ## Troubleshooting
 
@@ -80,5 +84,3 @@ You can install the web app through your browser's installation controls. Instal
 | A mailbox needs attention | Use Reconnect in Workspace. Check provider credentials/app passwords, IMAP access, server settings, and outbound IMAP/SMTP connectivity. |
 
 If sign-in uses an external identity provider, follow that provider's login and account-access process. Local invitations are disabled in OIDC mode, and local and OIDC identities are not automatically linked.
-
-Snooze removes an email from Inbox until the time you choose. Snoozed shows the email count and each email's return time. Choose **Move back to Inbox** to bring an email back sooner. Both actions show a confirmation after they succeed.

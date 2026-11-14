@@ -5,7 +5,7 @@ import shutil
 import sys
 from PIL import Image
 
-EXPECTED = "1b003fd4d98cffeb70f3b45606e974227a8028c29f8398a9136c6da083c5c8c2"
+EXPECTED = "858152786f948c3147874f7aed4c86a77e90ef4f1c0eb96fcf22759f77196998"
 public = Path(__file__).resolve().parents[1] / "public"
 source = Path(sys.argv[1]) if len(sys.argv) > 1 else public / "dakia-icon-512.png"
 if hashlib.sha256(source.read_bytes()).hexdigest() != EXPECTED:

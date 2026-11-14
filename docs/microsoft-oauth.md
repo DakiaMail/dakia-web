@@ -1,8 +1,8 @@
 # Microsoft accounts
 
-Dakia connects Outlook.com, Hotmail and Microsoft 365 mailboxes using **Microsoft Graph**, like pl_mail. It does not use IMAP/SMTP OAuth, so it does not require disabling Microsoft 365 Security Defaults or enabling SMTP AUTH. This is mailbox authorization, not signing into Dakia.
+Dakia connects Outlook.com, Hotmail and Microsoft 365 mailboxes using **Microsoft Graph**. It does not use IMAP/SMTP OAuth, so it does not require disabling Microsoft 365 Security Defaults or enabling SMTP AUTH. This is mailbox authorization, not signing into Dakia.
 
-Use a build containing Microsoft support; if your pinned image predates it, build this checkout with `docker build -t dakia:local .` and set `DAKIA_IMAGE=dakia:local`.
+If your installation predates Microsoft support, follow the [upgrade guide](upgrading.md) before connecting a mailbox.
 
 ## Operator setup
 
@@ -39,9 +39,9 @@ These Graph subscriptions are separate from browser Web Push notification prefer
 - Sent copies are filed by Microsoft, never appended a second time. Bcc recipients are preserved when sending.
 - Initial import uses newest-first Graph delta enumeration, with independent arrival checks while history is still importing. Subsequent rounds fetch only additions, updates and removals. Opaque cursors are durable; expired cursors and changed folder bindings restart enumeration without deleting saved mail. Only completed delta enumeration, never ordinary list/search pages, can authorize snapshot pruning.
 - Message metadata, MIME bodies, and bulk mail changes use Graph batches of at most 20 requests. Partial responses retain per-message outcomes; throttled requests back off without replaying uncertain writes. Provider-side text searches may still retrieve MIME bodies; normal search uses Dakia’s local index.
-- Sending uses the single-request MIME endpoint with the same **4 MiB raw-MIME limit** as pl_mail (including attachments, MIME encoding overhead and Bcc headers, before Graph base64 encoding). Larger messages fail explicitly; neither this path nor pl_mail implements resumable attachment uploads. Reading retains Dakia’s existing content limits.
+- Sending uses the single-request MIME endpoint with a **4 MiB raw-MIME limit** (including attachments, MIME encoding overhead and Bcc headers, before Graph base64 encoding). Larger messages fail explicitly; this path does not implement resumable attachment uploads. Reading retains Dakia’s existing content limits.
 - Definitive throttling/service refusals and pre-connection failures are deferred durably with a bounded retry budget, keeping the same MIME and Message-ID. A timeout or lost gateway acknowledgement stays delivery-unknown: a positive, read-only Sent Items lookup can confirm it later, but a negative lookup never causes an automatic resend.
 - Immutable IDs are requested on every Graph call and support is probed and recorded. Dakia links returned IDs for its own moves. For provider-side moves without immutable-ID support, it preserves the local identity only when RFC Message-ID and header evidence identify one old candidate and Graph proves its old locator is gone. Live copies and ambiguous matches stay separate rather than being silently merged.
 - This adds mail only, not Outlook calendars, contacts, categories, shared mailboxes, OneDrive, or Microsoft login to Dakia.
 
-Registration reference: [pl_mail Microsoft provider](https://github.com/karatektus/pl_mail/blob/main/docs/providers/microsoft.md). Protocol reference: [Microsoft Graph mail API](https://learn.microsoft.com/en-us/graph/api/resources/mail-api-overview).
+Protocol reference: [Microsoft Graph mail API](https://learn.microsoft.com/en-us/graph/api/resources/mail-api-overview).

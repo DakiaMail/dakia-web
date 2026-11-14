@@ -48,7 +48,6 @@ pub struct InvitationRecord {
 pub enum OwnerClaim {
     Created,
     AlreadyConfigured,
-    InvalidCode,
 }
 #[derive(Debug, PartialEq, Eq)]
 pub enum InvitationClaim {
@@ -196,7 +195,6 @@ impl ControlRepository {
         user: &str,
         username: &str,
         password_hash: &str,
-        setup_hash: &str,
     ) -> Result<OwnerClaim> {
         transaction!(self, tx, sqlite, {
             sqlx::query("UPDATE control_locks SET revision=revision+1 WHERE name='auth'")
@@ -207,13 +205,6 @@ impl ControlRepository {
                 .await?;
             if occupied {
                 return Ok(OwnerClaim::AlreadyConfigured);
-            }
-            let expected: Option<String> =
-                sqlx::query_scalar("SELECT value FROM settings WHERE key='local_setup_token'")
-                    .fetch_optional(&mut *tx)
-                    .await?;
-            if expected.as_deref() != Some(setup_hash) {
-                return Ok(OwnerClaim::InvalidCode);
             }
             sqlx::query(statement!(
                 sqlite,

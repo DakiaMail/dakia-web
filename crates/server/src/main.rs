@@ -80,7 +80,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .await?;
     if config.issuer.is_empty() {
-        dakia_server::initialize_local_login(&store, &key_path).await?;
+        dakia_server::initialize_local_login(&store).await?;
     }
     let state = App {
         store,

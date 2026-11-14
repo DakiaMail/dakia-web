@@ -710,3 +710,69 @@ async fn readable_gap_upgrade_requeues_once_without_dropping_other_content() {
     assert_eq!(pending.len(), 1);
     assert_eq!(pending[0].id, "old-large");
 }
+
+#[tokio::test]
+async fn external_upgrade_does_not_depend_on_legacy_fts_integrity() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = pool(&dir.path().join("old-account.sqlite")).await.unwrap();
+    let mut old = sqlx::migrate!("./migrations/account");
+    old.migrations.to_mut().retain(|m| m.version <= 23);
+    old.run(&db).await.unwrap();
+    for (id, folder) in [("kept", "INBOX"), ("excluded", "Trash")] {
+        let doc = serde_json::json!({"id":id,"folder_ids":[folder],"provider_id":"fixture","received_at":"2026-01-01T00:00:00Z"});
+        sqlx::query("INSERT INTO messages(id,revision,document) VALUES(?,1,?)")
+            .bind(id)
+            .bind(doc.to_string())
+            .execute(&db)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO search_documents(message_id,source,sender,recipients,subject,body,body_state) VALUES(?,'fixture','sender','recipient','booking','retained source text','ready')")
+            .bind(id).execute(&db).await.unwrap();
+    }
+    assert!(
+        sqlx::query("UPDATE search_fts_data SET block=x'00' WHERE id>10")
+            .execute(&db)
+            .await
+            .unwrap()
+            .rows_affected()
+            > 0
+    );
+    search_legacy::prepare(&db, true).await.unwrap();
+    sqlx::migrate!("./migrations/account")
+        .run(&db)
+        .await
+        .unwrap();
+    search_legacy::configure(&db, true).await.unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM messages")
+            .fetch_one(&db)
+            .await
+            .unwrap(),
+        2
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, String>(
+            "SELECT body FROM search_documents WHERE message_id='kept'"
+        )
+        .fetch_one(&db)
+        .await
+        .unwrap(),
+        "retained source text"
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM search_documents WHERE message_id='excluded'"
+        )
+        .fetch_one(&db)
+        .await
+        .unwrap(),
+        0
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT body_bytes FROM search_totals")
+            .fetch_one(&db)
+            .await
+            .unwrap(),
+        20
+    );
+}

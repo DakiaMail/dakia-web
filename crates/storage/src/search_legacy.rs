@@ -5,6 +5,19 @@ use super::*;
 pub(super) async fn prepare(db: &SqlitePool, external: bool) -> Result<()> {
     sqlx::query("CREATE TABLE IF NOT EXISTS search_runtime_mode(id INTEGER PRIMARY KEY CHECK(id=1),external INTEGER NOT NULL DEFAULT 0,legacy_ready INTEGER NOT NULL DEFAULT 0)").execute(db).await?;
     sqlx::query("INSERT INTO search_runtime_mode(id,external) VALUES(1,?) ON CONFLICT(id) DO UPDATE SET external=excluded.external WHERE external<>excluded.external").bind(external).execute(db).await?;
+    if external {
+        let old: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM sqlite_schema WHERE type='trigger' AND name='search_delete') AND NOT EXISTS(SELECT 1 FROM pragma_table_info('search_documents') WHERE name='attachment_text')")
+            .fetch_one(db).await?;
+        if old {
+            // Migration 24 removes excluded text before migration 26 replaces the old index.
+            let mut tx = db.begin().await?;
+            sqlx::Executor::execute(&mut *tx, "DROP TRIGGER search_delete;
+                CREATE TRIGGER search_delete AFTER DELETE ON search_documents BEGIN
+                    UPDATE search_totals SET body_bytes=body_bytes-length(CAST(old.body AS BLOB)) WHERE id=1;
+                END;").await?;
+            tx.commit().await?;
+        }
+    }
     Ok(())
 }
 

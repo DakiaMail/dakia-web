@@ -77,13 +77,9 @@ Dakia connects to your email provider. You don't need to run a mail server or ch
 
 Dakia is under active development. Back up your installation and try a disposable mailbox before relying on it for important mail.
 
-On a fresh Debian or Ubuntu server, point your domain at it and run:
+Follow the [hosting guide](docs/hosting.md) to install Docker through its official packages, review the Compose files, and start the pinned image. The recommended setup doesn't run a Dakia installer as root. Choose public HTTPS with Caddy, your existing proxy, or private Tailscale access.
 
-```sh
-curl -fsSL -o dakia-install.sh https://raw.githubusercontent.com/DakiaMail/dakia-web/main/scripts/install.sh && sudo sh dakia-install.sh --domain mail.example.com
-```
-
-The installer sets up Docker and automatic HTTPS in `/opt/dakia`. Ports 80 and 443 must be reachable. For an existing Docker host, NAS, or private network, follow the [hosting guide](docs/hosting.md).
+Restrict access before the first start, then create the owner login before opening the installation to others.
 
 Open your HTTPS address and choose **Sign in**. Create your username and a password with at least 12 characters, then connect a mailbox. The first login owns the installation, so create it before sharing the address. Your Dakia password is separate from your email provider's password.
 
@@ -91,7 +87,7 @@ Gmail and Microsoft sign-in require the operator to register an application with
 
 ## Updates and documentation
 
-Run `sh scripts/upgrade.sh` from your installation directory to review a release, make a backup, and upgrade. Use `--check` to check without changing the installation. Keep both persistent volumes, including the credential encryption key. [Upgrade and recovery guide](docs/upgrading.md).
+Keep both persistent volumes, including the credential encryption key, and take regular backups. The upgrade guide covers reviewed image changes and an optional backup-and-upgrade helper. [Upgrade and recovery guide](docs/upgrading.md).
 
 | Guide | What you'll find |
 | --- | --- |

@@ -23,7 +23,7 @@ DAKIA_GMAIL_CLIENT_SECRET=your-client-secret
 
 Recreate the container with your normal Compose options. Both settings are required together; partial configuration fails startup.
 
-To use a secret file instead, omit the environment secret and add a private `compose.override.yaml`:
+To use a secret file instead, omit the environment secret and merge these settings into the existing private `compose.override.yaml`. Put `dakia` under `services`, alongside any `caddy` service, and retain the top-level volumes. If no override exists, create it:
 
 ```yaml
 services:

@@ -1,12 +1,14 @@
 # Getting started
 
-[Install Dakia](hosting.md), then open its HTTPS address. You can use one installation by yourself or share it with other people through invitations.
+Setting up your own installation? Start with [hosting](hosting.md), then [create the owner login](#create-the-first-login).
+
+Joining someone else's installation? Open their invitation link and follow [Join an installation](#join-an-installation). You don't need Docker or access to their server.
 
 ## Create the first login
 
-The first person to set up a new installation becomes its owner. Open Dakia and choose **Sign in**, then choose a username and a password with at least 12 characters.
+The first person to set up a new installation becomes its owner. Open Dakia and choose **Sign in**, enter a username and a password with at least 12 characters, then choose **Continue**.
 
-No setup code or host command is needed. A new installation accepts its first login from whoever reaches it, so create your login immediately after starting Dakia and keep the address private until you have. If your sign-in page still asks for a setup code, the image predates this change: read it with `docker compose exec dakia cat /secrets/setup-token`.
+The current image needs no setup code. Keep the network restrictions from the hosting guide in place until you have created the login. The first person who reaches an unclaimed installation can become its owner.
 
 Your Dakia login is separate from your email provider's login. Once owner setup is complete, the sign-in page asks only for your username and password.
 
@@ -14,17 +16,39 @@ Your Dakia login is separate from your email provider's login. Once owner setup 
 
 1. Choose **Connect account** in the welcome screen or Workspace.
 2. Give the mailbox a name, such as Personal or Work, and enter its email address.
-3. Choose Gmail, **Microsoft (Outlook / Microsoft 365)**, or Automatic for another IMAP/SMTP provider. Microsoft mail uses Graph and requires the operator's [Microsoft application setup](microsoft-oauth.md); choose **Continue with Microsoft** and authorize the same mailbox. If automatic discovery cannot find settings, enter the provider's IMAP and SMTP hostnames, ports, username, and encryption settings manually.
-4. For Gmail, if the operator has [configured Gmail sign-in](gmail-oauth.md), choose **Continue with Google**, sign in to that same email account, and allow mail access. For password-based IMAP/SMTP connections, enter the mailbox password or app password and choose **Connect account**. This is separate from your Dakia password. To use an app password when Google sign-in is available, select **Use an app password**.
-5. Dakia saves the account and checks its connection. If the check fails, use the error and your provider's settings to correct the connection and retry.
+3. Choose the connection method for your provider:
 
-For IMAP/SMTP accounts, use TLS or required STARTTLS as specified by your provider. Your host must be able to reach both the incoming IMAP server and outgoing SMTP server. Microsoft accounts instead need outbound HTTPS access to Microsoft sign-in and Graph; no legacy protocol access is required. Dakia uses your existing provider; you do not need to change MX records or run an incoming mail server.
+| Mailbox | How to connect |
+| --- | --- |
+| Gmail | Choose **Continue with Google** if the operator has [configured Google sign-in](gmail-oauth.md). Sign in to the same Gmail address and allow mail access. Choose **Use an app password** instead if your account supports one. |
+| Outlook.com, Hotmail, or Microsoft 365 | Choose **Microsoft (Outlook / Microsoft 365)**, then **Continue with Microsoft**. The operator must first [configure Microsoft sign-in](microsoft-oauth.md). |
+| Another IMAP/SMTP provider | Use Automatic discovery. If it cannot find the settings, enter the provider's incoming and outgoing hostnames, ports, username, and encryption settings manually. Use its app password when required. |
+
+For password-based connections, enter the mailbox or app password and choose **Connect account**. This is separate from your Dakia password. Dakia saves the connection and checks it; if the check fails, correct the settings shown in the form and retry.
+
+For IMAP/SMTP, match your provider's TLS or required STARTTLS settings. The host needs outbound access to both mail servers. Microsoft connections use outbound HTTPS to Microsoft sign-in and Graph instead. You don't need MX changes or an incoming mail server.
 
 Repeat this for additional mailboxes. **Unified inbox** shows your connected accounts together, and the account list lets you open one mailbox at a time. Workspace provides mailbox settings, reconnection, and removal controls.
 
+## Check your first mailbox
+
+Mail can appear before the full history has finished syncing. Keep the server running; older messages and search results may still be incomplete during import. The syncing indicator shows when an account is working. Repeated connection errors need attention in Workspace.
+
+Open a message and check its attachments. Send a short test message to an address you control and confirm it arrives. If sending reports an uncertain result, check the recipient and provider's Sent folder before trying again.
+
+## Find and organize mail
+
+Your inbox opens on **Personal** and remembers your last tab. **Automated** groups generated mail and offers filters such as Transactions, Orders, Shipping, and Newsletters. **All** shows both. **Needs attention** surfaces important items across those tabs. Use **More actions** in a message to correct a classification or remember a sender's preference for that mailbox.
+
+Choose **Translate to English** while reading a supported message. The installation owner chooses whether translation runs on devices, on the server, or on devices with server fallback in **Workspace → Translation**. The first on-device use downloads a language pack. See [translation settings](on-device-translation.md).
+
+Snooze removes a message from Inbox until your chosen time. **Snoozed** shows return times and lets you choose **Move back to Inbox** to bring one back sooner. Use **Send later** in the composer to schedule a message. Keep the host running for these background actions.
+
+For more, see [features](features.md). Press **?** outside an editing field to open the keyboard shortcut reference. Workspace lets you switch shortcuts and hints on or off.
+
 ## Invite another person
 
-Only the local owner sees invitation controls.
+Inviting others is optional. Only the local owner sees invitation controls.
 
 1. Open **Workspace** using the sidebar. On mobile, open navigation first.
 2. Find **Invite someone** and choose **Create invitation**.
@@ -62,16 +86,6 @@ Open the same HTTPS address and sign in with your existing Dakia username and pa
 
 You can install the web app through your browser's installation controls. Installation does not download a complete offline mailbox. Recent mail can be available within an already-authorized session; a fresh startup needs online session checks. See [saved mail](persistent-local-cache.md). Notification setup requires the host's optional push configuration and browser permission; see [operations](../deploy/README.md) and [worker configuration](../workers/README.md).
 
-## Find and organize mail
-
-Your inbox opens on **Personal** and remembers your last tab. **Automated** groups generated mail and offers filters such as Transactions, Orders, Shipping, and Newsletters. **All** shows both. **Needs attention** surfaces important items across those tabs. Use **More actions** in a message to correct a classification or remember a sender's preference for that mailbox.
-
-Choose **Translate to English** while reading a supported message. The installation owner chooses whether translation runs on devices, on the server, or on devices with server fallback in **Workspace → Translation**. The first on-device use downloads a language pack. See [translation settings](on-device-translation.md).
-
-Snooze removes a message from Inbox until your chosen time. **Snoozed** shows return times and lets you choose **Move back to Inbox** to bring one back sooner. Use **Send later** in the composer to schedule a message. Keep the host running for these background actions.
-
-For more, see [features](features.md). Press **?** outside an editing field to open the keyboard shortcut reference. Workspace lets you switch shortcuts and hints on or off.
-
 ## Troubleshooting
 
 | Problem | What to check |
@@ -82,5 +96,7 @@ For more, see [features](features.md). Press **?** outside an editing field to o
 | The invitation is invalid or used | Ask the owner for a fresh link. Used links cannot create a second account. |
 | No invitation controls appear | They are available only to the local owner. In OIDC mode, users are managed through the identity provider. |
 | A mailbox needs attention | Use Reconnect in Workspace. Check provider credentials/app passwords, IMAP access, server settings, and outbound IMAP/SMTP connectivity. |
+
+If the setup page asks for a setup code, you're running an older image. The operator can read it privately with `sudo docker compose exec -T dakia cat /secrets/setup-token` from the installation directory. Don't post the code in an issue. Follow [upgrading](upgrading.md) when ready to move to a newer image.
 
 If sign-in uses an external identity provider, follow that provider's login and account-access process. Local invitations are disabled in OIDC mode, and local and OIDC identities are not automatically linked.

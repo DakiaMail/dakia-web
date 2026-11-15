@@ -1,24 +1,54 @@
 # Upgrade Dakia
 
-Run upgrades on the Docker host, from the same directory you used to install Dakia. Keep the project name, `.env`, Compose overrides, and persistent volumes. The command needs Docker Compose and a POSIX shell. 
+Use the same installation directory, Compose project, `.env`, overrides, and persistent volumes. Take a [backup and test a restore](../deploy/README.md#backup-and-restore) first. Never start an older image against data already migrated by a newer one.
+
+The supplied Compose file pins a published image by digest. That image can be newer than the latest tagged release. The helper below offers only published GitHub releases; it won't upgrade to an arbitrary source image.
+
+## Change the image yourself
+
+This path uses Docker commands without running a Dakia host script.
+
+1. Choose a published image from the repository's [container packages](https://github.com/DakiaMail/dakia-web/pkgs/container/dakia-web). Check its source revision and successful native AMD64/ARM64 image workflow before choosing the immutable `ghcr.io/dakiamail/dakia-web@sha256:…` reference. If using a tagged release, its `dakia-release.json` asset supplies the image reference.
+2. Back up with the currently running image as described in operations. Retain that image and backup together.
+3. Set `DAKIA_IMAGE` in the existing private `.env` to the full immutable image reference you chose. Don't replace the file or change the origin, project name, keys, mounts, or provider settings.
+4. Validate, pull, and recreate:
 
 ```sh
-sh scripts/upgrade.sh --check
-sh scripts/upgrade.sh
+sudo docker compose config --quiet
+sudo docker compose pull dakia
+sudo docker compose up -d --wait
+sudo docker compose ps
 ```
 
-The command shows the release notes and asks before proceeding. It downloads the release, briefly stops Dakia, backs up data and secrets, saves the new image digest in `.env`, and checks startup. An unchanged image is a successful no-op. Your owner login, mailbox connections, drafts, and credential key remain in the existing volumes.
+Open the HTTPS address, sign in, and check mailbox access. If the new version fails after opening the data, stop it and [restore the matching backup into fresh storage](../deploy/README.md#activate-restored-data). Changing the image pin back alone is not a safe rollback.
 
-Only published GitHub releases are offered. Stable releases take priority; previews are offered while no stable release exists. 
+For image provenance, see [building and publishing](../deploy/building.md#published-images). You don't need to build an image yourself.
 
-For a particular published release, or after reviewing the release in advance:
+## Optional backup-and-upgrade helper
+
+The helper automates release selection, backup, activation, and health checks. Read `scripts/upgrade.sh` and `scripts/upgrade.mjs` before running it. On standard Linux Docker it needs administrator access to Docker and private backup files; choosing it means trusting that host script. The manual path above avoids it.
+
+From the user-owned installation directory:
 
 ```sh
-sh scripts/upgrade.sh --version v0.2.0
-sh scripts/upgrade.sh --yes
+sudo sh scripts/upgrade.sh --check
+sudo sh scripts/upgrade.sh
 ```
 
-## Backups and interrupted upgrades
+For Docker Desktop or another installation that works without sudo, omit `sudo`. For the root installer, use `sudo -i`, then `cd /opt/dakia` before running the commands. The helper uses plain Compose commands, so keep Caddy and custom settings in the automatic `compose.override.yaml`. Convert a Caddy-only `compose.caddy.yaml` installation by copying it to `compose.override.yaml` before adding other overrides. Don't replace an existing override.
+
+The helper requires a local Docker context. It rejects `COMPOSE_FILE`, `COMPOSE_ENV_FILES`, and `DOCKER_HOST` overrides and unsupported mounts before stopping the service. If your installation depends on custom file selection, use the manual path rather than unsetting variables to bypass these checks.
+
+It shows release notes and asks before proceeding. It downloads the chosen image, briefly stops Dakia, backs up data and secrets, saves the new image digest in `.env`, and verifies startup. An unchanged image is a successful no-op. No published release means no upgrade and no change to the installation; it doesn't mean your setup is broken. Stable releases take priority over previews.
+
+To select a particular published release or skip the confirmation after review:
+
+```sh
+sudo sh scripts/upgrade.sh --version v0.2.0
+sudo sh scripts/upgrade.sh --yes
+```
+
+## Backups and interrupted helper upgrades
 
 Backups are private directories under `.dakia-upgrades` in the installation directory. They include a completed data snapshot, credential secrets, supported external secret files, original deployment files, resolved configuration, image references, recovery instructions, and a progress record. These files contain private information. Keep them outside Git, restrict access, and make encrypted off-host copies with your own backup tooling. Nothing automatically deletes them. Ensure sufficient disk space for the snapshot and an additional restore before upgrading.
 
@@ -31,7 +61,7 @@ An interrupted or failed attempt leaves `.dakia-upgrades/active` pointing to its
 A failed startup stops the new container and prints the exact backup path. It keeps the failed data intact. First ensure the Dakia service is stopped, then run the generated recovery script:
 
 ```sh
-sh /absolute/path/to/backup/recover.sh
+sudo sh /absolute/path/to/backup/recover.sh
 ```
 
 The script restores with the previous image into a new `restored/data` directory. It never replaces the failed data or starts the application. If restore fails, inspect the new directory before retrying; never merge partial restores. The script prints the exact Compose command for activating the restored directory, saved secrets, and previous image. Review it before running it.
@@ -40,13 +70,7 @@ Use that printed command for all subsequent Compose operations on the recovered 
 
 Restores invalidate sessions and invitations and disable background jobs. Sign in again, inspect mailbox state, and reconcile uncertain sends with the provider before enabling jobs. Never retry SMTP delivery just because Sent filing failed. Restore cannot undo actions already performed at your mail provider.
 
-With the restored service stopped, use its matching operator image and mounts to explicitly enable jobs after reconciliation:
-
-```sh
-docker compose <the printed recovery Compose options> run --rm --no-deps \
-  --entrypoint /app/dakia-admin dakia \
-  enable-jobs /data /secrets/credential-key --reconciled
-```
+To enable jobs after reconciliation, keep the complete Compose prefix printed by `recover.sh`, including its project, environment file, and every `-f` option. First replace the printed command's `up -d --no-deps --pull never dakia` suffix with `stop dakia`. Then use the same prefix with `run --rm --no-deps --entrypoint /app/dakia-admin dakia enable-jobs /data /secrets/credential-key --reconciled`. Finally run the original printed startup command. The [manual recovery example](../deploy/README.md#activate-restored-data) shows these operations with a complete file selection.
 
 Then restart using the recovery Compose options. Early preview images may not include `enable-jobs`; keep jobs disabled until a matching operator is available. Do not use a newer operator against the restored store merely to enable jobs, because it can migrate the data. Restore preparation and read-only inspection remain available with those images.
 

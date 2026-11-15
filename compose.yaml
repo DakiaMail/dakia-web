@@ -1,7 +1,7 @@
 name: dakia
 services:
   dakia:
-    image: ${DAKIA_IMAGE:-ghcr.io/dakiamail/dakia-web@sha256:bfdd4d142556471160efd8c294c1e0e781806de85ae46902dd1e3ae71c025bf7}
+    image: ${DAKIA_IMAGE:-ghcr.io/dakiamail/dakia-web@sha256:359c8bfa84ad67278e0715afd9565d06560c2fd4262af090c5d1d8d863f2a5e8}
     restart: unless-stopped
     environment:
       DAKIA_ADMIN_USERS: ${DAKIA_ADMIN_USERS:-}

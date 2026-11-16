@@ -118,8 +118,8 @@ impl Resources {
                     } else {
                         "memory.limit_in_bytes"
                     };
-                    if let Ok(value) = std::fs::read_to_string(path.join(file)) {
-                        match value.trim() {
+                    match std::fs::read_to_string(path.join(file)) {
+                        Ok(value) => match value.trim() {
                             "max" => {}
                             value => match value.parse::<u64>() {
                                 Ok(limit) => {
@@ -127,9 +127,10 @@ impl Resources {
                                 }
                                 Err(_) => self.memory_bytes = None,
                             },
-                        }
-                    } else if path != mount {
-                        self.memory_bytes = None;
+                        },
+                        Err(error)
+                            if path == mount && error.kind() == std::io::ErrorKind::NotFound => {}
+                        Err(_) => self.memory_bytes = None,
                     }
                 }
                 if cpu {
@@ -147,8 +148,9 @@ impl Resources {
                             Ok(None) => {}
                             Err(()) => self.cpus = None,
                         },
-                        Err(_) if path != mount => self.cpus = None,
-                        Err(_) => {}
+                        Err(error)
+                            if path == mount && error.kind() == std::io::ErrorKind::NotFound => {}
+                        Err(_) => self.cpus = None,
                     }
                 }
                 if path == mount || !path.pop() {
@@ -243,6 +245,23 @@ mod tests {
         assert_eq!(r.memory_bytes, Some(2_000_000_000));
         assert_eq!(r.cpus, Some(3.5));
         r.apply_cgroups("0::/unmapped", "");
+        assert_eq!(r.memory_bytes, None);
+        assert_eq!(r.cpus, None);
+        assert!(!r.permits_semantic());
+    }
+    #[test]
+    fn unreadable_root_limits_are_unknown() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("memory.max")).unwrap();
+        std::fs::create_dir(dir.path().join("cpu.max")).unwrap();
+        let mut r = Resources {
+            memory_bytes: Some(16_000_000_000),
+            cpus: Some(8.),
+        };
+        r.apply_cgroups(
+            "0::/",
+            &format!("1 0 0:1 / {} rw - cgroup2 cgroup rw", dir.path().display()),
+        );
         assert_eq!(r.memory_bytes, None);
         assert_eq!(r.cpus, None);
         assert!(!r.permits_semantic());

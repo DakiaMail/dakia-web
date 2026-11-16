@@ -187,6 +187,20 @@ impl QueryModel {
         Self::start(move || Ok(Box::new(Fixed(vector))), Duration::from_secs(30))
     }
     #[cfg(test)]
+    pub(crate) fn failing_fixture() -> Self {
+        struct Failing(bool);
+        impl Embedder for Failing {
+            fn query(&mut self, _: &str) -> Result<Embedding, QueryModelUnavailable> {
+                if std::mem::replace(&mut self.0, false) {
+                    Ok([0.; 384])
+                } else {
+                    Err(QueryModelUnavailable)
+                }
+            }
+        }
+        Self::start(|| Ok(Box::new(Failing(true))), Duration::from_secs(30))
+    }
+    #[cfg(test)]
     pub(crate) fn uncached(mut self) -> Self {
         self.cache_queries = false;
         self

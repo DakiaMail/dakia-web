@@ -922,6 +922,26 @@ async fn keyword_search_and_pagination_survive_disabled_or_missing_semantics() {
 }
 
 #[tokio::test]
+async fn inference_failure_on_the_current_request_falls_back_to_complete_keywords() {
+    let (_dir, mut app, user, a, _) = fixture_backend(3, false, None, None).await;
+    app.mail.search_queries = crate::search_query_model::QueryModel::failing_fixture();
+    for _ in 0..100 {
+        if app.mail.search_queries.state() == crate::search_query_model::QueryModelState::Ready {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let page = run(&app, &user, "archive", a.id(), None).await.unwrap();
+    assert_eq!(page.rows.len(), 3);
+    assert!(!page.pending);
+    assert!(page.search.unwrap().degradation.is_empty());
+    assert_eq!(
+        app.mail.search_queries.state(),
+        crate::search_query_model::QueryModelState::Unavailable
+    );
+}
+
+#[tokio::test]
 async fn unloading_vectors_preserves_the_durable_index_for_reenable() {
     let (_dir, app, _user, a, _) = fixture_backend(3, false, None, None).await;
     let revision = dakia_inference::embedding::search_model_revision();

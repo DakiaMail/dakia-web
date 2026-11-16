@@ -702,6 +702,9 @@ impl ControlRepository {
         execute!(self,"INSERT INTO push_endpoints(id,user_id,document) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET user_id=excluded.user_id,document=excluded.document","INSERT INTO push_endpoints(id,user_id,document) VALUES($1,$2,$3) ON CONFLICT(id) DO UPDATE SET user_id=excluded.user_id,document=excluded.document",[id,user,document]);
         Ok(())
     }
+    pub(crate) async fn push_subscription_enabled(&self, user: &str, id: &str) -> Result<bool> {
+        Ok(optional!(self,"SELECT id FROM push_endpoints WHERE id=? AND user_id=?","SELECT id FROM push_endpoints WHERE id=$1 AND user_id=$2",[id,user],r=>r.get::<String,_>("id")).is_some())
+    }
     pub(crate) async fn subscriptions(&self, user: &str) -> Result<Vec<serde_json::Value>> {
         let rows: Vec<String> = match &self.backend {
             Backend::Sqlite(db) => {

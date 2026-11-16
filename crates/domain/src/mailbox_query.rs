@@ -17,6 +17,8 @@ pub struct MailboxQuery {
     pub before: Option<String>,
     pub seen: Option<bool>,
     pub starred: Option<bool>,
+    #[serde(default)]
+    pub has_attachment: bool,
     pub snoozed: bool,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -76,6 +78,7 @@ impl MailboxQuery {
                 Some(("is", "read")) => result.seen = Some(true),
                 Some(("is", "unread")) => result.seen = Some(false),
                 Some(("is", "starred")) => result.starred = Some(true),
+                Some(("has", "attachment")) => result.has_attachment = true,
                 Some(("is", "snoozed")) => result.snoozed = true,
                 _ => result.text.push(TextUnit { text, phrase }),
             }

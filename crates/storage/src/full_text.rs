@@ -46,11 +46,14 @@ pub struct TextCoverage {
     pub semantic_retrying: i64,
     #[serde(default)]
     pub backlog: i64,
+    #[serde(default)]
+    pub attachment_pending: i64,
 }
 use serde::{Deserialize, Serialize};
 
 /// One source-guarded extraction commit. Raw attachment bytes are never retained.
 pub struct SearchContent<'a> {
+    pub has_attachment: Option<bool>,
     pub message: &'a Message,
     pub text: &'a str,
     pub state: &'a str,
@@ -75,7 +78,10 @@ impl Store {
     ) -> Result<(TextCoverage, Option<String>)> {
         let repository = self.account_repository(a).await?;
         let (mut coverage, identity) = repository
-            .source_coverage(self.expected_search_model.as_deref())
+            .source_coverage(
+                self.expected_search_model.as_deref(),
+                self.search_embeddings_enabled(),
+            )
             .await?;
         if self.search_database.is_none() {
             coverage.processed = coverage.bodies + coverage.gaps - coverage.retrying;
@@ -190,26 +196,33 @@ impl Store {
         m: &Message,
         text: &str,
         state: &str,
+        has_attachment: Option<bool>,
     ) -> Result<()> {
-        self.put_search_bodies(a, &[(m, text, state)]).await
+        self.put_search_bodies(a, &[(m, text, state, has_attachment)])
+            .await
     }
     /// One atomic bounded body-index commit, retaining per-message identity,
     /// membership checks inside the writer transaction.
     pub async fn put_search_bodies(
         &self,
         a: &AuthorizedAccount,
-        rows: &[(&Message, &str, &str)],
+        rows: &[(&Message, &str, &str, Option<bool>)],
     ) -> Result<()> {
         let records: Vec<_> = rows
             .iter()
-            .map(|(message, text, state)| SearchContent {
+            .map(|(message, text, state, has_attachment)| SearchContent {
+                has_attachment: *has_attachment,
                 message,
                 text,
                 state,
                 participants: "",
                 recipients: "",
                 attachments: "",
-                attachment_details: "[]",
+                attachment_details: if *has_attachment == Some(true) {
+                    "[{}]"
+                } else {
+                    "[]"
+                },
             })
             .collect();
         self.put_search_records(a, &records).await
@@ -333,6 +346,9 @@ impl Store {
                     .push(operator)
                     .push_bind(day);
             }
+        }
+        if filter.has_attachment {
+            q.push(" AND d.has_attachment=1");
         }
         if let Some(value) = filter.seen {
             q.push(" AND json_extract(m.document,'$.unread')<>")

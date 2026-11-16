@@ -1,20 +1,22 @@
 // @vitest-environment jsdom
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { AccountIndexingProgress } from "./AccountIndexingProgress";
+import { DakiaProvider } from "@dakia/ui";
 import { api } from "./api";
 import type { Account, IndexingStatus } from "@dakia/api-types";
 
 const account: Account = { id: "work", display_name: "Work", email: "work@example.invalid", state: "ready", provider: "imap", revision: 1 };
 const initial: IndexingStatus = { account_id: "work", state: "discovering", discovery_complete: false, eligible: 10, processed: 2, backlog: 8, gaps: 0 };
+beforeEach(() => { vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }))); vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} }); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
 it("waits before showing work, distinguishes discovery, and disappears without shifting focus", async () => {
   vi.useFakeTimers();
   vi.spyOn(api, "indexingStatus").mockResolvedValue(initial);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(<QueryClientProvider client={client}><button>Work account</button><AccountIndexingProgress account={account} online /></QueryClientProvider>);
+  render(<DakiaProvider><QueryClientProvider client={client}><AccountIndexingProgress account={account} online><button>Work account</button></AccountIndexingProgress></QueryClientProvider></DakiaProvider>);
   const button = screen.getByRole("button");button.focus();
   await act(async () => { await vi.advanceTimersByTimeAsync(100); });
   expect(screen.queryByRole("progressbar")).toBeNull();
@@ -40,7 +42,7 @@ it("suppresses quick updates and preserves paused progress offline", async () =>
   vi.useFakeTimers();
   vi.spyOn(api,"indexingStatus").mockResolvedValue({ ...initial, state: "indexing", discovery_complete: true });
   const client = new QueryClient();
-  const ui = (online: boolean) => <QueryClientProvider client={client}><AccountIndexingProgress account={account} online={online} /></QueryClientProvider>;
+  const ui = (online: boolean) => <DakiaProvider><QueryClientProvider client={client}><AccountIndexingProgress account={account} online={online}><button>Work account</button></AccountIndexingProgress></QueryClientProvider></DakiaProvider>;
   const view=render(ui(true));
   await act(async () => { await vi.advanceTimersByTimeAsync(100); });
   act(() => client.setQueryData(["indexing", account.id], { ...initial, state: "complete" }));
@@ -57,7 +59,7 @@ it("keeps polling local progress through a provider reconnect and hides complete
   vi.useFakeTimers();
   const poll=vi.spyOn(api,"indexingStatus").mockResolvedValue({...initial,state:"indexing",discovery_complete:true});
   const client=new QueryClient();
-  render(<QueryClientProvider client={client}><button>Work account</button><AccountIndexingProgress account={{...account,state:"reconnect"}} online /></QueryClientProvider>);
+  render(<DakiaProvider><QueryClientProvider client={client}><AccountIndexingProgress account={{...account,state:"reconnect"}} online><button>Work account</button></AccountIndexingProgress></QueryClientProvider></DakiaProvider>);
   const button=screen.getByRole("button");button.focus();
   await act(async()=>{await vi.advanceTimersByTimeAsync(2100);});
   expect(screen.getByRole("progressbar").getAttribute("aria-valuetext")).toBe("20% indexed");

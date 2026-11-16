@@ -142,6 +142,7 @@ pub struct Store {
     default_search_url: Option<Arc<str>>,
     search_database: Option<Arc<search_backend::SearchConnection>>,
     expected_search_model: Option<Arc<str>>,
+    search_embeddings_enabled: Arc<std::sync::atomic::AtomicBool>,
     search_warm: Option<Arc<search_backend::SearchWarm>>,
     search_cleanup_done: Arc<std::sync::atomic::AtomicBool>,
 }
@@ -328,6 +329,7 @@ impl Store {
             default_search_url: None,
             search_database: None,
             expected_search_model: None,
+            search_embeddings_enabled: Arc::new(std::sync::atomic::AtomicBool::new(true)),
             search_warm: None,
             search_cleanup_done: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };

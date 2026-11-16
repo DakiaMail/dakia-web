@@ -122,6 +122,7 @@ async fn search_preview_preserves_filters_and_never_guesses_body_dates_or_folder
     for q in [
         "subject:not-present",
         "subject:Invoice is:read",
+        "subject:Invoice has:attachment",
         "body-only-not-in-headers",
         "subject:Invoice since:2026-01-01",
         "folder:unknown subject:Invoice",

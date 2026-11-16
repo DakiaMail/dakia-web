@@ -7,6 +7,7 @@ pub(crate) struct CandidateMetadata {
     pub recipients: String,
     pub subject: String,
     pub snoozed_until: Option<String>,
+    pub has_attachment: bool,
 }
 #[derive(Clone)]
 pub(crate) struct CandidateFilter {
@@ -17,6 +18,7 @@ pub(crate) struct CandidateFilter {
     pub before: Option<String>,
     pub seen: Option<bool>,
     pub starred: Option<bool>,
+    pub has_attachment: bool,
     pub folders: Option<Vec<String>>,
     pub category: Option<String>,
     pub classification: dakia_domain::ClassificationFilter,
@@ -34,6 +36,7 @@ impl From<&CachedSearchFilter<'_>> for CandidateFilter {
             before: f.before.map(str::to_owned),
             seen: f.seen,
             starred: f.starred,
+            has_attachment: f.has_attachment,
             folders: f.folders.map(<[String]>::to_vec),
             category: f.category.map(str::to_owned),
             classification: f.classification.clone(),
@@ -52,6 +55,7 @@ impl CandidateFilter {
             || self.before.is_some()
             || self.seen.is_some()
             || self.starred.is_some()
+            || self.has_attachment
             || self.folders.is_some()
             || self.category.is_some()
             || self.classification != dakia_domain::ClassificationFilter::default()
@@ -75,6 +79,7 @@ impl CandidateFilter {
             && self.classification.matches(row, &self.at)
             && self.seen.is_none_or(|seen| row.unread != seen)
             && self.starred.is_none_or(|starred| row.starred == starred)
+            && (!self.has_attachment || m.has_attachment)
             && self
                 .folders
                 .as_ref()

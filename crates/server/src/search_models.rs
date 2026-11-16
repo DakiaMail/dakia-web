@@ -19,7 +19,18 @@ pub async fn run(app: App) {
     let mut turns = 0u64;
     let mut account_cursor = 0usize;
     let mut next_snapshot = Instant::now();
+    let mut suspended = false;
     loop {
+        if !app.store.search_embeddings_enabled() {
+            model = None;
+            if !suspended {
+                suspended = app.store.unload_search_vectors().await.is_ok();
+            }
+            next_load = Instant::now();
+            tokio::time::sleep(Duration::from_millis(250)).await;
+            continue;
+        }
+        suspended = false;
         if model.is_none() && Instant::now() >= next_load {
             let path = path.clone();
             match tokio::task::spawn_blocking(move || LocalSearchEmbedder::from_dir(path)).await {
@@ -59,7 +70,9 @@ pub async fn run(app: App) {
             let start = if count > 0 { account_cursor % count } else { 0 };
             accounts.rotate_left(start);
             for (index, a) in accounts.into_iter().enumerate() {
-                if started.elapsed() >= Duration::from_secs(2) {
+                if !app.store.search_embeddings_enabled()
+                    || started.elapsed() >= Duration::from_secs(2)
+                {
                     break;
                 }
                 account_cursor = (start + index + 1) % count;
@@ -111,7 +124,9 @@ pub async fn run(app: App) {
                         tracing::warn!(target:"dakia_server::diagnostics",operation="search_completion",reason=%error.diagnostic_code(),outcome="failed",account_key=crate::diagnostics::correlation(a.id()),"search completion delivery will retry")
                     }
                 }
-                if started.elapsed() >= Duration::from_secs(2) {
+                if !app.store.search_embeddings_enabled()
+                    || started.elapsed() >= Duration::from_secs(2)
+                {
                     break;
                 }
             }
@@ -291,7 +306,7 @@ mod tests {
         store.index_search_headers(&a).await.unwrap();
         let text=format!("{} the parcel will arrive tomorrow. track the shipment using this delivery number. tailneedle", "garden plants need light and water. ".repeat(1000));
         store
-            .put_search_body(&a, &message, &text, "ready")
+            .put_search_body(&a, &message, &text, "ready", Some(false))
             .await
             .unwrap();
         store.flush_search_index(&a).await.unwrap();

@@ -44,9 +44,6 @@ fn http() -> reqwest::Client {
         .build()
         .expect("HTTP client")
 }
-fn unavailable(_: impl std::fmt::Display) -> ApiFailure {
-    ApiFailure(StatusCode::BAD_GATEWAY, "google_sign_in_unavailable")
-}
 pub(super) async fn status(State(app): State<App>) -> Json<serde_json::Value> {
     Json(serde_json::json!({"enabled": app.mail.gmail.is_some()}))
 }
@@ -139,7 +136,26 @@ async fn complete(
     Extension(id): Extension<Identity>,
     Query(input): Query<Callback>,
 ) -> Result<Redirect> {
-    let config = configured(&app)?;
+    let a = authorize(
+        &app,
+        &id,
+        input,
+        TOKEN_URL,
+        "https://openidconnect.googleapis.com/v1/userinfo",
+    )
+    .await?;
+    // Probe never sends a message. A failure leaves the saved account available to reconnect.
+    app.mail.probe(&app.store, &a).await?;
+    Ok(Redirect::to("/"))
+}
+async fn authorize(
+    app: &App,
+    id: &Identity,
+    input: Callback,
+    token_url: &str,
+    profile_url: &str,
+) -> Result<dakia_storage::AuthorizedAccount> {
+    let config = configured(app)?;
     // Atomically consume only a flow belonging to this exact signed-in session.
     let row = app
         .store
@@ -166,7 +182,7 @@ async fn complete(
         "google_sign_in_cancelled",
     ))?;
     let response = http()
-        .post(TOKEN_URL)
+        .post(token_url)
         .form(&[
             ("grant_type", "authorization_code"),
             ("code", &code),
@@ -180,10 +196,13 @@ async fn complete(
         ])
         .send()
         .await
-        .map_err(unavailable)?
+        .map_err(|_| ApiFailure(StatusCode::BAD_GATEWAY, "google_token_exchange_failed"))?
         .error_for_status()
-        .map_err(unavailable)?;
-    let tokens: Tokens = response.json().await.map_err(unavailable)?;
+        .map_err(|_| ApiFailure(StatusCode::BAD_GATEWAY, "google_token_exchange_failed"))?;
+    let tokens: Tokens = response
+        .json()
+        .await
+        .map_err(|_| ApiFailure(StatusCode::BAD_GATEWAY, "google_token_exchange_failed"))?;
     if !valid_tokens(&tokens)
         || !tokens
             .scope
@@ -201,16 +220,16 @@ async fn complete(
         email_verified: bool,
     }
     let profile: Profile = http()
-        .get("https://openidconnect.googleapis.com/v1/userinfo")
+        .get(profile_url)
         .bearer_auth(&tokens.access_token)
         .send()
         .await
-        .map_err(unavailable)?
+        .map_err(|_| ApiFailure(StatusCode::BAD_GATEWAY, "google_profile_failed"))?
         .error_for_status()
-        .map_err(unavailable)?
+        .map_err(|_| ApiFailure(StatusCode::BAD_GATEWAY, "google_profile_failed"))?
         .json()
         .await
-        .map_err(unavailable)?;
+        .map_err(|_| ApiFailure(StatusCode::BAD_GATEWAY, "google_profile_failed"))?;
     let email = row.email;
     if !profile.email_verified || !profile.email.eq_ignore_ascii_case(&email) {
         return Err(ApiFailure(
@@ -250,10 +269,7 @@ async fn complete(
     } else {
         app.store.connect(&id.user, &connection).await?
     };
-    let a = app.store.authorize(&id.user, &account.id).await?;
-    // Probe never sends a message. A failure leaves the saved account available to reconnect.
-    app.mail.probe(&app.store, &a).await?;
-    Ok(Redirect::to("/"))
+    Ok(app.store.authorize(&id.user, &account.id).await?)
 }
 
 pub(crate) struct GoogleToken {
@@ -298,6 +314,13 @@ impl AccessToken for GoogleToken {
                 error: String,
             }
             let failure = response.json::<Failure>().await.ok();
+            let reason = match failure.as_ref().map(|e| e.error.as_str()) {
+                Some("invalid_grant") => "invalid_grant",
+                Some("invalid_client") => "invalid_client",
+                Some("unauthorized_client") => "unauthorized_client",
+                _ => "unavailable",
+            };
+            tracing::warn!(reason, "Google token renewal failed");
             let kind = if failure.is_some_and(|e| {
                 matches!(
                     e.error.as_str(),
@@ -336,12 +359,19 @@ pub(super) async fn callback(
     match complete(state, id, query).await {
         Ok(redirect) => redirect,
         Err(error) => {
+            tracing::warn!(reason = error.1, "Google sign-in did not complete");
             let reason = match error.1 {
                 "google_sign_in_cancelled" => "cancelled",
                 "google_sign_in_expired" => "expired",
                 "google_account_mismatch" => "mismatch",
                 "gmail_permission_required" => "permission",
                 "google_offline_access_required" => "offline",
+                "google_token_exchange_failed" => "exchange",
+                "google_profile_failed" => "profile",
+                "imap_authentication_rejected"
+                | "smtp_authentication_rejected"
+                | "account_reconnect_required" => "authentication",
+                "provider_unavailable" => "connection",
                 _ => "failed",
             };
             Redirect::to(&format!("/?gmail_error={reason}"))
@@ -349,6 +379,9 @@ pub(super) async fn callback(
     }
 }
 
+#[cfg(test)]
+#[path = "gmail_reconnect_tests.rs"]
+mod reconnect_tests;
 #[cfg(test)]
 mod tests {
     use super::*;

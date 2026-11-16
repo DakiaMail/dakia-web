@@ -34,6 +34,7 @@ async fn contract(application: Option<&str>, url: Option<&str>) {
         .put_search_records(
             &a,
             &[SearchContent {
+                has_attachment: Some(!attachments.is_empty()),
                 message: &m,
                 text: &body,
                 state: "ready",

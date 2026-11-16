@@ -15,7 +15,7 @@ for (const theme of ["light", "dark"]) for (const viewport of [{width:1480,heigh
       if(path==="/api/session")return route.fulfill({json:{user_id:"indexing-fixture",csrf_token:"synthetic"}});
       if(path==="/api/accounts")return route.fulfill({json:accounts.map(account=>account.id==="work"?{...account,state:"reconnect"}:account)});
       if(path.endsWith("/events"))return route.fulfill({contentType:"text/event-stream",body:": ready\n\n"});
-      if(path.endsWith("/indexing"))return route.fulfill({json:{account_id:path.split("/")[3],state,discovery_complete:state!=="discovering",eligible:100,processed:state==="complete"||finishing?100:37,backlog:state==="complete"?0:finishing?1:63,gaps:0}});
+      if(path.endsWith("/indexing"))return route.fulfill({json:{account_id:path.split("/")[3],state,discovery_complete:state!=="discovering",eligible:100,processed:state==="complete"||finishing?100:37,backlog:state==="complete"?0:finishing?1:63,gaps:state==="complete"?2:0}});
       if(path.endsWith("/sync-active"))return route.fulfill({json:false});
       if(path==="/api/search" || path.endsWith("/messages"))return route.fulfill({json:mail});
       return route.fulfill({json:[]});
@@ -30,9 +30,24 @@ for (const theme of ["light", "dark"]) for (const viewport of [{width:1480,heigh
     await expect(bar).not.toHaveAttribute("aria-valuenow");
     if(reducedMotion) expect(await bar.locator("span").evaluate(element=>getComputedStyle(element).animationName)).toBe("none");
     await expect(work).toBeFocused();
+    const tooltip=page.getByRole("tooltip");
+    await expect(tooltip).toContainText("Preparing search. 37 of 100 emails indexed.");
+    await expect(work).not.toHaveAttribute("title");
+    await page.keyboard.press("Escape");
+    await expect(tooltip).toBeHidden();
+    await expect(work).toBeFocused();
+    await work.hover();
+    await expect(tooltip).toBeVisible();
+    const bounds=await tooltip.boundingBox();
+    expect(bounds!.x).toBeGreaterThanOrEqual(0);
+    expect(bounds!.x+bounds!.width).toBeLessThanOrEqual(viewport.width);
     state="indexing";
     await expect(bar).toHaveAttribute("aria-valuenow","37",{timeout:7000});
     await expect(work).toBeFocused();
+    await expect(tooltip).toContainText("37% indexed. 37 of 100 emails indexed.");
+    mkdirSync("artifacts/indexing",{recursive:true});
+    await page.screenshot({path:`artifacts/indexing/tooltip-${theme}-${viewport.width}.png`});
+    await page.mouse.move(viewport.width-1,0);
     await page.keyboard.press("Tab");
     await expect(page.getByRole("navigation",{name:"Accounts"}).getByRole("button",{name:/Personal/})).toBeFocused();
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
@@ -56,5 +71,6 @@ for (const theme of ["light", "dark"]) for (const viewport of [{width:1480,heigh
     await expect(bar).toHaveCount(0,{timeout:7000});
     await expect(work).toBeFocused();
     expect((await work.locator("..").boundingBox())!.height).toBeLessThan(before);
+    await expect(tooltip).toContainText("Search ready. 100 of 100 emails indexed. 2 messages have unreadable content.");
   });
 }

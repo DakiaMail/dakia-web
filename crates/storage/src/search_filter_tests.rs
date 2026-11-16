@@ -1,6 +1,86 @@
 use super::*;
 use crate::search_backend::SearchDatabase;
 const MODEL: &str = "filtered-fixture-v1";
+
+#[tokio::test]
+async fn attachment_filter_applies_to_keyword_vectors_and_metadata_updates() {
+    let (dir, mut store, _user, a, _) = fixture().await;
+    store.configure_search_database(None).await.unwrap();
+    store.maintain_search_vectors(false).await.unwrap();
+    let attached = store
+        .upsert_message(&a, message(&a, "attached"))
+        .await
+        .unwrap();
+    let plain = store
+        .upsert_message(&a, message(&a, "plain"))
+        .await
+        .unwrap();
+    store.index_search_headers(&a).await.unwrap();
+    store
+        .put_search_bodies(
+            &a,
+            &[
+                (&attached, "body", "ready", Some(true)),
+                (&plain, "body", "ready", Some(false)),
+            ],
+        )
+        .await
+        .unwrap();
+    while store.flush_search_index(&a).await.unwrap() {}
+    let SearchDatabase::Sqlite(db) = SearchDatabase::open(dir.path(), None).await.unwrap() else {
+        unreachable!()
+    };
+    let mut vector = vec![0f32; 384];
+    vector[0] = 1.;
+    let bytes = vector
+        .iter()
+        .flat_map(|v| v.to_le_bytes())
+        .collect::<Vec<_>>();
+    sqlx::query("INSERT INTO chunks(account_id,message_id,source,model_revision,ordinal,text,embedding,content_version,field) SELECT account_id,message_id,source,?,0,'body',?,content_version,1 FROM documents WHERE account_id=?")
+        .bind(MODEL).bind(bytes).bind(a.id()).execute(&db).await.unwrap();
+    drain(&store).await;
+    let filter = || CachedSearchFilter {
+        has_attachment: true,
+        ..Default::default()
+    };
+    check(&store, &a, filter(), &["attached"]).await;
+    let rows = store.full_text_rows(&a, &filter(), None).await.unwrap();
+    assert_eq!(
+        rows.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+        ["attached"]
+    );
+    store
+        .put_search_body(&a, &plain, "body", "ready", Some(true))
+        .await
+        .unwrap();
+    while store.flush_search_index(&a).await.unwrap() {}
+    drain(&store).await;
+    check(&store, &a, filter(), &["attached", "plain"]).await;
+    store
+        .put_search_body(&a, &attached, "body", "ready", Some(false))
+        .await
+        .unwrap();
+    while store.flush_search_index(&a).await.unwrap() {}
+    drain(&store).await;
+    check(&store, &a, filter(), &["plain"]).await;
+    let live = store
+        .current_indexed_search_rows(&a, &[attached.id, plain.id], &filter())
+        .await
+        .unwrap();
+    assert_eq!(
+        live.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
+        ["plain"]
+    );
+    assert_eq!(
+        store
+            .full_text_rows(&a, &filter(), None)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
 async fn drain(store: &Store) {
     for _ in 0..128 {
         if !store.maintain_search_vectors(true).await.unwrap() {
@@ -92,7 +172,7 @@ async fn contract(application: Option<&str>, search: Option<&str>) {
                 &a,
                 &batch
                     .iter()
-                    .map(|m| (m, "semantic passage", "ready"))
+                    .map(|m| (m, "semantic passage", "ready", Some(false)))
                     .collect::<Vec<_>>(),
             )
             .await
@@ -522,6 +602,7 @@ async fn attachment_provenance(application: Option<&str>, search: Option<&str>) 
         .put_search_records(
             &a,
             &[SearchContent {
+                has_attachment: Some(true),
                 message: &m,
                 text: "readable prefix",
                 state: "oversized",
@@ -625,7 +706,7 @@ async fn metadata_only_search_survives_loss_of_the_substring_accelerator() {
     let saved = store.upsert_message(&a, incoming).await.unwrap();
     store.index_search_headers(&a).await.unwrap();
     store
-        .put_search_body(&a, &saved, "readable body", "ready")
+        .put_search_body(&a, &saved, "readable body", "ready", Some(false))
         .await
         .unwrap();
     while store.flush_search_index(&a).await.unwrap() {}

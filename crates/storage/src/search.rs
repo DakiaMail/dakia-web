@@ -12,6 +12,7 @@ pub struct CachedSearchFilter<'a> {
     pub before: Option<&'a str>,
     pub seen: Option<bool>,
     pub starred: Option<bool>,
+    pub has_attachment: bool,
     pub folders: Option<&'a [String]>,
     pub classification: ClassificationFilter,
     pub category: Option<&'a str>,
@@ -35,6 +36,21 @@ impl CachedSearchFilter<'_> {
     }
 }
 impl Store {
+    pub fn search_embeddings_enabled(&self) -> bool {
+        self.search_embeddings_enabled
+            .load(std::sync::atomic::Ordering::Acquire)
+    }
+    pub fn set_search_embeddings_enabled(&self, enabled: bool) {
+        self.search_embeddings_enabled
+            .store(enabled, std::sync::atomic::Ordering::Release);
+    }
+    pub async fn unload_search_vectors(&self) -> Result<()> {
+        if let Some(db) = &self.search_database {
+            db.unload_vectors().await?;
+        }
+        Ok(())
+    }
+
     pub async fn search_dates_known(&self, a: &AuthorizedAccount) -> Result<bool> {
         let _guard = self.gate.read().await;
         self.account_repository(a).await?;

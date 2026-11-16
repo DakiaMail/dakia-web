@@ -12,6 +12,7 @@ pub(super) async fn page(
     r: &SearchRequest,
     scopes: &[dakia_storage::AuthorizedAccount],
     query: &Search,
+    _has_attachment: bool,
     wanted: Option<&str>,
     cursor: &mut Cursor,
 ) -> Result<Option<SearchPage>> {
@@ -24,11 +25,11 @@ pub(super) async fn page(
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(15);
     let plan = dakia_domain::mailbox_query::MailboxQuery::parse(&r.q).map_err(|_| invalid())?;
     let units = plan.text_units();
-    let fusion_initial = !r.suggest
+    let fusion_requested = !r.suggest
         && query.text.is_some()
         && cursor.fused.is_none()
-        && app.mail.search_queries.state() != crate::search_query_model::QueryModelState::Disabled;
-    let vector = if fusion_initial {
+        && app.mail.search_queries.state() == crate::search_query_model::QueryModelState::Ready;
+    let vector = if fusion_requested {
         app.mail
             .search_queries
             .embed(&plan.semantic_text())
@@ -37,6 +38,7 @@ pub(super) async fn page(
     } else {
         None
     };
+    let fusion_initial = vector.is_some();
     let head = if fusion_initial {
         hybrid::LEXICAL_HEAD
     } else {
@@ -313,6 +315,7 @@ async fn collect_account(
                     app,
                     a,
                     query,
+                    plan.has_attachment,
                     state.as_ref().is_some_and(|s| !s.folders.is_empty()),
                     known_folders.clone(),
                 )
@@ -372,6 +375,7 @@ async fn collect_account(
                 text_alternatives: Some(&alternatives),
                 seen: query.seen,
                 starred: query.starred,
+                has_attachment: plan.has_attachment,
                 folders: if wanted.is_some() {
                     folders.as_deref()
                 } else {

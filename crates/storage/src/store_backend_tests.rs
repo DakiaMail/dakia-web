@@ -90,6 +90,7 @@ async fn contract(
         .put_search_records(
             &a,
             &[SearchContent {
+                has_attachment: Some(true),
                 message: &m,
                 text: "matrix body token",
                 state: "ready",

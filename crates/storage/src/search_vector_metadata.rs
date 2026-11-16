@@ -19,6 +19,7 @@ pub(super) struct Row {
     pub subject: Option<String>,
     pub snoozed_until: Option<String>,
     pub version: Option<i64>,
+    pub has_attachment: Option<bool>,
     pub valid: bool,
     pub metadata_only: bool,
 }
@@ -28,7 +29,7 @@ pub(super) async fn rows(db: &sqlx::SqlitePool, cursor: i64, replay: bool) -> Re
     } else {
         "SELECT id AS cursor,id,account_id,model_revision,0 AS metadata_only FROM chunks WHERE id>? ORDER BY id LIMIT 256"
     };
-    let sql=format!("WITH base AS MATERIALIZED ({base}), sizes AS (SELECT b.*,COALESCE(length(c.embedding),0)+COALESCE(length(CAST(d.metadata AS BLOB)),0)+COALESCE(length(CAST(d.sender AS BLOB)),0)+COALESCE(length(CAST(d.recipients AS BLOB)),0)+COALESCE(length(CAST(d.subject AS BLOB)),0) AS bytes_count FROM base b LEFT JOIN chunks c ON c.id=b.id AND c.account_id=b.account_id AND c.model_revision=b.model_revision LEFT JOIN documents d ON d.account_id=c.account_id AND d.message_id=c.message_id), budget AS (SELECT *,sum(bytes_count) OVER(ORDER BY cursor) AS total_bytes FROM sizes), selected AS MATERIALIZED (SELECT * FROM budget WHERE total_bytes<=8388608 OR cursor=(SELECT min(cursor) FROM budget)) SELECT b.cursor,b.id,b.account_id AS account,b.model_revision AS revision,b.metadata_only,c.embedding AS bytes,d.metadata,d.message_id,d.sender,d.recipients,d.subject,d.snoozed_until,d.filter_revision AS version,(c.id IS NOT NULL AND d.source=c.source AND d.content_version=c.content_version AND d.state<>'deleted') AS valid FROM selected b LEFT JOIN chunks c ON c.id=b.id AND c.account_id=b.account_id AND c.model_revision=b.model_revision LEFT JOIN documents d ON d.account_id=c.account_id AND d.message_id=c.message_id ORDER BY b.cursor");
+    let sql=format!("WITH base AS MATERIALIZED ({base}), sizes AS (SELECT b.*,COALESCE(length(c.embedding),0)+COALESCE(length(CAST(d.metadata AS BLOB)),0)+COALESCE(length(CAST(d.sender AS BLOB)),0)+COALESCE(length(CAST(d.recipients AS BLOB)),0)+COALESCE(length(CAST(d.subject AS BLOB)),0) AS bytes_count FROM base b LEFT JOIN chunks c ON c.id=b.id AND c.account_id=b.account_id AND c.model_revision=b.model_revision LEFT JOIN documents d ON d.account_id=c.account_id AND d.message_id=c.message_id), budget AS (SELECT *,sum(bytes_count) OVER(ORDER BY cursor) AS total_bytes FROM sizes), selected AS MATERIALIZED (SELECT * FROM budget WHERE total_bytes<=8388608 OR cursor=(SELECT min(cursor) FROM budget)) SELECT b.cursor,b.id,b.account_id AS account,b.model_revision AS revision,b.metadata_only,c.embedding AS bytes,d.metadata,d.message_id,d.sender,d.recipients,d.subject,d.snoozed_until,d.filter_revision AS version,(json_array_length(d.attachment_details)>0) AS has_attachment,(c.id IS NOT NULL AND d.source=c.source AND d.content_version=c.content_version AND d.state<>'deleted') AS valid FROM selected b LEFT JOIN chunks c ON c.id=b.id AND c.account_id=b.account_id AND c.model_revision=b.model_revision LEFT JOIN documents d ON d.account_id=c.account_id AND d.message_id=c.message_id ORDER BY b.cursor");
     Ok(sqlx::query_as(&sql).bind(cursor).fetch_all(db).await?)
 }
 #[derive(Default)]
@@ -83,6 +84,7 @@ impl Metadata {
                 recipients: row.recipients.clone().ok_or(Error::Invalid)?,
                 subject: row.subject.clone().ok_or(Error::Invalid)?,
                 snoozed_until: row.snoozed_until.clone(),
+                has_attachment: row.has_attachment.unwrap_or(false),
             })
         };
         self.remove(key);

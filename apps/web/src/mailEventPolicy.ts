@@ -14,7 +14,7 @@ export function eventAffects(query: Query, id: string, kinds: Set<string>, targe
   const all = kinds.has("reset");
   const mail = mailContentChanged(kinds);
   if (resource === "sender-cleanups") return query.queryKey[2] === id && (all || (kinds.has("operation_changed") && Array.isArray(query.state.data) && query.state.data.some(job => job.pending > 0)));
-  if (resource === "snoozes") return mail && Array.isArray(account) && account.includes(id);
+  if (resource === "snoozes" || resource === "mailbox-counts") return mail && Array.isArray(account) && account.includes(id);
   if (resource === "indexing") return account === id && (mail || kinds.has("index_changed"));
   if (resource === "search-page") return (mail || kinds.has("index_changed")) && Array.isArray(query.queryKey[2]) && query.queryKey[2].includes(id);
   if (resource === "mail") return (mail || !!query.queryKey[3] && kinds.has("index_changed")) && Array.isArray(query.queryKey[5]) && query.queryKey[5].includes(id);

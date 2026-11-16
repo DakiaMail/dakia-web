@@ -5,7 +5,7 @@ use std::{
     collections::VecDeque,
     path::PathBuf,
     sync::{
-        atomic::{AtomicU8, Ordering},
+        atomic::{AtomicBool, AtomicU8, Ordering},
         mpsc, Arc,
     },
     time::{Duration, Instant},
@@ -38,6 +38,7 @@ impl Embedder for LocalSearchEmbedder {
 #[derive(Clone)]
 pub(crate) struct QueryModel {
     state: Arc<AtomicU8>,
+    enabled: Arc<AtomicBool>,
     sender: Option<mpsc::SyncSender<Request>>,
     cache_queries: bool,
 }
@@ -45,6 +46,7 @@ impl Default for QueryModel {
     fn default() -> Self {
         Self {
             state: Arc::new(AtomicU8::new(0)),
+            enabled: Arc::new(AtomicBool::new(false)),
             sender: None,
             cache_queries: true,
         }
@@ -52,20 +54,34 @@ impl Default for QueryModel {
 }
 impl QueryModel {
     pub fn configured(path: PathBuf) -> Self {
-        Self::start(
+        Self::configured_enabled(path, true)
+    }
+    pub fn configured_enabled(path: PathBuf, enabled: bool) -> Self {
+        Self::start_enabled(
             move || {
                 LocalSearchEmbedder::from_dir(&path)
                     .map(|m| Box::new(m) as Box<dyn Embedder>)
                     .map_err(|_| QueryModelUnavailable)
             },
             Duration::from_secs(30),
+            enabled,
         )
     }
+    #[cfg(test)]
     fn start(
         load: impl Fn() -> Result<Box<dyn Embedder>, QueryModelUnavailable> + Send + 'static,
         retry: Duration,
     ) -> Self {
-        let state = Arc::new(AtomicU8::new(1));
+        Self::start_enabled(load, retry, true)
+    }
+    fn start_enabled(
+        load: impl Fn() -> Result<Box<dyn Embedder>, QueryModelUnavailable> + Send + 'static,
+        retry: Duration,
+        initially_enabled: bool,
+    ) -> Self {
+        let enabled = Arc::new(AtomicBool::new(initially_enabled));
+        let active = enabled.clone();
+        let state = Arc::new(AtomicU8::new(if initially_enabled { 1 } else { 0 }));
         let (sender, receiver) = mpsc::sync_channel::<Request>(CAPACITY);
         let status = state.clone();
         if std::thread::Builder::new()
@@ -75,7 +91,16 @@ impl QueryModel {
                 let mut next_load = Instant::now();
                 let mut cache: VecDeque<(String, Embedding)> = VecDeque::new();
                 loop {
-                    if model.is_none() && Instant::now() >= next_load {
+                    if !active.load(Ordering::Acquire) {
+                        model = None;
+                        cache.clear();
+                        status.store(0, Ordering::Release);
+                        next_load = Instant::now();
+                    }
+                    if active.load(Ordering::Acquire)
+                        && model.is_none()
+                        && Instant::now() >= next_load
+                    {
                         status.store(1, Ordering::Release);
                         // Warm the same inference path before advertising readiness.
                         model = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -86,20 +111,25 @@ impl QueryModel {
                         status.store(if model.is_some() { 2 } else { 3 }, Ordering::Release);
                         next_load = Instant::now() + retry;
                     }
-                    let request = if model.is_some() {
-                        receiver.recv().map_err(|_| ())
+                    let wait = if model.is_none() && active.load(Ordering::Acquire) {
+                        next_load
+                            .saturating_duration_since(Instant::now())
+                            .min(Duration::from_millis(100))
                     } else {
-                        match receiver
-                            .recv_timeout(next_load.saturating_duration_since(Instant::now()))
-                        {
-                            Ok(r) => Ok(r),
-                            Err(mpsc::RecvTimeoutError::Timeout) => continue,
-                            Err(mpsc::RecvTimeoutError::Disconnected) => Err(()),
-                        }
+                        Duration::from_millis(100)
+                    };
+                    let request = match receiver.recv_timeout(wait) {
+                        Ok(r) => Ok(r),
+                        Err(mpsc::RecvTimeoutError::Timeout) => continue,
+                        Err(mpsc::RecvTimeoutError::Disconnected) => Err(()),
                     };
                     let Ok(request) = request else {
                         break;
                     };
+                    if !active.load(Ordering::Acquire) {
+                        let _ = request.response.send(Err(QueryModelUnavailable));
+                        continue;
+                    }
                     if request.response.is_closed() {
                         continue;
                     }
@@ -141,6 +171,7 @@ impl QueryModel {
         }
         Self {
             state,
+            enabled,
             sender: Some(sender),
             cache_queries: true,
         }
@@ -156,13 +187,34 @@ impl QueryModel {
         Self::start(move || Ok(Box::new(Fixed(vector))), Duration::from_secs(30))
     }
     #[cfg(test)]
+    pub(crate) fn failing_fixture() -> Self {
+        struct Failing(bool);
+        impl Embedder for Failing {
+            fn query(&mut self, _: &str) -> Result<Embedding, QueryModelUnavailable> {
+                if std::mem::replace(&mut self.0, false) {
+                    Ok([0.; 384])
+                } else {
+                    Err(QueryModelUnavailable)
+                }
+            }
+        }
+        Self::start(|| Ok(Box::new(Failing(true))), Duration::from_secs(30))
+    }
+    #[cfg(test)]
     pub(crate) fn uncached(mut self) -> Self {
         self.cache_queries = false;
         self
     }
+    pub fn set_enabled(&self, enabled: bool) {
+        self.enabled.store(enabled, Ordering::Release);
+    }
     pub fn state(&self) -> QueryModelState {
+        if !self.enabled.load(Ordering::Acquire) {
+            return QueryModelState::Disabled;
+        }
+
         match self.state.load(Ordering::Acquire) {
-            0 => QueryModelState::Disabled,
+            0 => QueryModelState::Loading,
             1 => QueryModelState::Loading,
             2 => QueryModelState::Ready,
             _ => QueryModelState::Unavailable,
@@ -225,6 +277,49 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(5)).await;
         }
         panic!("query model did not become ready");
+    }
+
+    #[tokio::test]
+    async fn disabled_models_do_not_load_and_release_memory_until_reenabled() {
+        struct Counted(Arc<AtomicUsize>);
+        impl Drop for Counted {
+            fn drop(&mut self) {
+                self.0.fetch_sub(1, Ordering::SeqCst);
+            }
+        }
+        impl Embedder for Counted {
+            fn query(&mut self, _: &str) -> Result<Embedding, QueryModelUnavailable> {
+                Ok([0.; 384])
+            }
+        }
+        let live = Arc::new(AtomicUsize::new(0));
+        let count = live.clone();
+        let model = QueryModel::start_enabled(
+            move || {
+                count.fetch_add(1, Ordering::SeqCst);
+                Ok(Box::new(Counted(count.clone())))
+            },
+            Duration::from_secs(30),
+            false,
+        );
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        assert_eq!(live.load(Ordering::SeqCst), 0);
+        assert_eq!(model.state(), QueryModelState::Disabled);
+        model.set_enabled(true);
+        ready(&model).await;
+        assert_eq!(live.load(Ordering::SeqCst), 1);
+        model.clone().set_enabled(false);
+        assert!(model.embed("query").await.is_err());
+        for _ in 0..100 {
+            if live.load(Ordering::SeqCst) == 0 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        assert_eq!(live.load(Ordering::SeqCst), 0);
+        model.set_enabled(true);
+        ready(&model).await;
+        assert_eq!(live.load(Ordering::SeqCst), 1);
     }
     #[tokio::test]
     async fn cache_failures_retry_and_invalid_queries_are_isolated() {

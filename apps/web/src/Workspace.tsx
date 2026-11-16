@@ -1,13 +1,16 @@
-import { ArrowLeft, Bell, Keyboard, Mail, Plus, Settings2, Shield } from "lucide-react";
+import { ArrowLeft, Keyboard, Mail, Plus, Settings2, Shield } from "lucide-react";
 import type { Account } from "@dakia/api-types";
 import { useEffect, useRef, useState } from "react";
+import { SearchSettings } from "./SearchSettings";
 import { TranslationSettings } from "./TranslationSettings";
 import { Invitations } from "./Invitations";
 import { BlockedSenders } from "./BlockedSenders";
 import { ReleaseSettings } from "./Releases";
+import { NotificationSettings } from "./NotificationSettings";
+import { MailLinkSettings } from "./MailLinkSettings";
 import { InstallApp } from "./InstallApp";
 
-export function Workspace({ updatesFocus = 0, userId, accounts, onBack, onConnect, onSettings, onRemove, onReconnect, onNotifications, notificationStatus, alwaysLoadImages, onImagePrivacyChange, blockHiddenImages, onHiddenImagesChange, keyboardHints, onKeyboardHintsChange, keyboardShortcuts, onKeyboardShortcutsChange, onShortcutHelp }: {
+export function Workspace({ updatesFocus = 0, userId, accounts, onBack, onConnect, onSettings, onRemove, onReconnect, alwaysLoadImages, onImagePrivacyChange, blockHiddenImages, onHiddenImagesChange, keyboardHints, onKeyboardHintsChange, keyboardShortcuts, onKeyboardShortcutsChange, onShortcutHelp }: {
   updatesFocus?: number;
   userId?: string;
   keyboardHints: boolean;
@@ -21,8 +24,6 @@ export function Workspace({ updatesFocus = 0, userId, accounts, onBack, onConnec
   onSettings: (account: Account) => void;
   onRemove: (account: Account) => void;
   onReconnect: (account: Account) => void;
-  onNotifications: () => void;
-  notificationStatus: string;
   alwaysLoadImages: boolean;
   onImagePrivacyChange: (enabled: boolean) => void;
   blockHiddenImages: boolean;
@@ -64,11 +65,11 @@ export function Workspace({ updatesFocus = 0, userId, accounts, onBack, onConnec
           {keyboardError && <p role="alert">{keyboardError}</p>}
         </div>
       </section>
+      {userId && <SearchSettings userId={userId} />}
       {userId && <TranslationSettings userId={userId} />}
       <InstallApp />
-      <section className="workspace-notifications" aria-labelledby="workspace-notifications">
-        <span className="workspace-account-icon"><Bell size={20} /></span><div><h2 id="workspace-notifications">Notifications</h2><p>Get new-mail notifications on this browser.</p><button title="Enable notifications" onClick={onNotifications} disabled={notificationStatus === "Enabling…"}>Enable notifications</button>{notificationStatus && <p role="status">{notificationStatus}</p>}</div>
-      </section>
+      <MailLinkSettings />
+      <NotificationSettings key={userId} />
     </div>
   </main>;
 }

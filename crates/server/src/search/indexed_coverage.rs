@@ -5,6 +5,7 @@ pub(super) async fn read(
     app: &App,
     a: &dakia_storage::AuthorizedAccount,
     query: &Search,
+    has_attachment: bool,
     discovered: bool,
     folders: Vec<String>,
 ) -> (AccountCoverage, Vec<SearchDegradation>) {
@@ -47,15 +48,12 @@ pub(super) async fn read(
         && text.lexical_discovered
         && text.lexical_pending == 0
         && !text.lexical_failed
-        && (!text.semantic_required || text.semantic_available)
-        && !text.semantic_failed
-        && text.semantic_retrying == 0
-        && text.processed == text.eligible
         && text.delivery_pending == 0
         && text.dirty == 0
         && text.pending == 0
         && text.gaps == 0
-        && text.bodies == text.headers;
+        && text.bodies == text.headers
+        && (!has_attachment || text.attachment_pending == 0);
     let scans_complete = if ready {
         match app.store.search_scans_complete(a, &folders).await {
             Ok(complete) => complete,

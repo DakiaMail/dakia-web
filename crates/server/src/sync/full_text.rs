@@ -4,6 +4,7 @@ use super::*;
 use mail_parser::MimeHeaders;
 
 pub(crate) struct Extracted {
+    pub has_attachment: Option<bool>,
     pub text: String,
     pub participants: String,
     pub recipients: String,
@@ -15,6 +16,7 @@ pub(crate) struct Extracted {
 impl Default for Extracted {
     fn default() -> Self {
         Self {
+            has_attachment: None,
             text: String::new(),
             participants: String::new(),
             recipients: String::new(),
@@ -26,7 +28,7 @@ impl Default for Extracted {
 }
 
 #[cfg(test)]
-pub(crate) fn extract(raw: &[u8]) -> (String, &'static str) {
+pub(crate) fn extract(raw: &[u8]) -> (String, &'static str, Option<bool>) {
     let parsed = extract_content(raw);
     (
         format!(
@@ -34,6 +36,7 @@ pub(crate) fn extract(raw: &[u8]) -> (String, &'static str) {
             parsed.text, parsed.participants, parsed.attachments
         ),
         parsed.state,
+        matches!(parsed.state, "ready" | "partial" | "oversized").then(|| parsed.details != "[]"),
     )
 }
 
@@ -222,6 +225,7 @@ pub(crate) fn extract_content(raw: &[u8]) -> Extracted {
         details.push(serde_json::json!({"part": index, "filename": name.chars().take(200).collect::<String>(), "state": status, "byte_start":byte_start, "byte_end":attachments.len()}));
     }
     Extracted {
+        has_attachment: Some(!parsed.attachments.is_empty()),
         text,
         participants,
         recipients,
@@ -417,6 +421,7 @@ pub(crate) async fn tick(app: &App, a: &AuthorizedAccount) -> crate::Result<bool
         let commits: Vec<_> = records
             .iter()
             .map(|(message, content)| dakia_storage::SearchContent {
+                has_attachment: content.has_attachment,
                 message,
                 text: &content.text,
                 state: content.state,

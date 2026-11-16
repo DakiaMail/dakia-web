@@ -118,6 +118,7 @@ mod tests {
     fn metadata(account: &str, subject: &str) -> CandidateMetadata {
         let message=serde_json::from_value(serde_json::json!({"id":"indexed","account_id":account,"thread_id":"indexed","provider_id":"source","folder_ids":["INBOX"],"sender":{"email":"sender@example.invalid","name":null},"to":[],"subject":subject,"preview":"","received_at":"2026-01-01T00:00:00Z","unread":false,"starred":false,"category":null,"category_status":"pending","revision":1})).unwrap();
         CandidateMetadata {
+            has_attachment: false,
             message,
             sender: "sender@example.invalid".into(),
             recipients: "carbon@example.invalid".into(),

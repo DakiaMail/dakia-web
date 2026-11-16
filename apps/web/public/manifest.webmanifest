@@ -13,5 +13,13 @@
     { "src": "/dakia-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
     { "src": "/dakia-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
     { "src": "/dakia-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
-  ]
+  ],
+  "protocol_handlers": [{ "protocol": "mailto", "url": "/?mailto=%s" }],
+  "shortcuts": [{
+    "name": "Compose",
+    "short_name": "Compose",
+    "description": "Write an email",
+    "url": "/?compose=1",
+    "icons": [{ "src": "/dakia-icon-192.png", "sizes": "192x192", "type": "image/png" }]
+  }]
 }

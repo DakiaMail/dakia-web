@@ -14,8 +14,13 @@ async fn contract(url: Option<&str>) {
         .put_search_bodies(
             &a,
             &[
-                (&m, "courier delivery 東京大阪 доставка", "ready"),
-                (&exact, "other", "ready"),
+                (
+                    &m,
+                    "courier delivery 東京大阪 доставка",
+                    "ready",
+                    Some(false),
+                ),
+                (&exact, "other", "ready", Some(false)),
             ],
         )
         .await

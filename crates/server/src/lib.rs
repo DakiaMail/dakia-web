@@ -19,7 +19,9 @@ mod rules;
 mod search;
 pub mod search_lexical;
 pub mod search_models;
+pub mod search_policy;
 mod search_query_model;
+mod search_resources;
 mod search_status;
 mod sender_cleanup;
 mod sender_mail;
@@ -227,6 +229,10 @@ pub fn router_with_shutdown(app: App, shutdown: tokio::sync::watch::Sender<bool>
     let api = Router::new()
         .route("/session", get(session))
         .route(
+            "/search/settings",
+            get(search_policy::get_policy).put(search_policy::set_policy),
+        )
+        .route(
             "/translation/settings",
             get(translation_policy::get_policy).put(translation_policy::set_policy),
         )
@@ -265,6 +271,7 @@ pub fn router_with_shutdown(app: App, shutdown: tokio::sync::watch::Sender<bool>
         )
         .route("/push/public-key", get(push::public_key))
         .route("/push/subscriptions", post(push::subscribe))
+        .route("/push/subscriptions/{id}", get(push::status).delete(push::unsubscribe))
         .route(
             "/accounts/{account}",
             axum::routing::put(reconnect).delete(remove_account),
@@ -276,6 +283,7 @@ pub fn router_with_shutdown(app: App, shutdown: tokio::sync::watch::Sender<bool>
         )
         .route("/accounts/{account}/folders", get(folders))
         .route("/accounts/{account}/snoozes", get(snoozes))
+        .route("/accounts/{account}/mailbox-counts", get(mailbox_counts))
         .route("/accounts/{account}/sync-active", get(sync_active))
         .route("/accounts/{account}/indexing", get(search_status::status))
         .route(
@@ -656,6 +664,14 @@ async fn folders(
             .map(|f| f.name)
             .collect(),
     ))
+}
+async fn mailbox_counts(
+    State(app): State<App>,
+    Extension(user): Extension<Identity>,
+    Path(account): Path<String>,
+) -> Result<Json<serde_json::Value>> {
+    let a = app.store.authorize(&user.user, &account).await?;
+    Ok(Json(app.store.mailbox_counts(&a).await?))
 }
 async fn snoozes(
     State(app): State<App>,

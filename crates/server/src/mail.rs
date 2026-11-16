@@ -40,6 +40,7 @@ impl Drop for SyncActivity {
 }
 #[derive(Clone, Default)]
 pub struct MailRuntime {
+    pub(crate) search_policy_lock: Arc<Mutex<()>>,
     pub(crate) search_queries: crate::search_query_model::QueryModel,
     pub(crate) gmail: Option<crate::gmail_oauth::GmailConfig>,
     pub(crate) microsoft: Option<crate::microsoft_oauth::MicrosoftConfig>,
@@ -323,6 +324,11 @@ impl MailRuntime {
     }
     pub fn with_search_model(mut self, path: std::path::PathBuf) -> Self {
         self.search_queries = crate::search_query_model::QueryModel::configured(path);
+        self
+    }
+    pub fn with_search_model_enabled(mut self, path: std::path::PathBuf, enabled: bool) -> Self {
+        self.search_queries =
+            crate::search_query_model::QueryModel::configured_enabled(path, enabled);
         self
     }
 

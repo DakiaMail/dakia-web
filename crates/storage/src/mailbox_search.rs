@@ -45,7 +45,7 @@ impl MailboxTransaction<'_> {
                 let recipients =
                     normalize_search(&m.to.iter().map(address).collect::<Vec<_>>().join("\n"));
                 let subject = normalize_search(&m.subject);
-                write!(self,"INSERT INTO search_documents(message_id,source,sender,recipients,subject,received_at) VALUES(?,?,?,?,?,?) ON CONFLICT(message_id) DO UPDATE SET source=excluded.source,sender=excluded.sender,recipients=excluded.recipients,subject=excluded.subject,received_at=excluded.received_at,body=CASE WHEN source=excluded.source THEN body ELSE '' END,participants=CASE WHEN source=excluded.source THEN participants ELSE '' END,mime_recipients=CASE WHEN source=excluded.source THEN mime_recipients ELSE '' END,attachment_text=CASE WHEN source=excluded.source THEN attachment_text ELSE '' END,attachment_details=CASE WHEN source=excluded.source THEN attachment_details ELSE '[]' END,body_payload=CASE WHEN source=excluded.source THEN body_payload ELSE 0 END,body_state=CASE WHEN source=excluded.source THEN body_state ELSE 'pending' END,retry_at=CASE WHEN source=excluded.source THEN retry_at ELSE 0 END WHERE source<>excluded.source OR sender<>excluded.sender OR recipients<>excluded.recipients OR subject<>excluded.subject OR received_at<>excluded.received_at",[&m.id,&m.provider_id,&sender,&recipients,&subject,&m.received_at],"INSERT INTO search_documents(account_id,message_id,source,sender,recipients,subject,received_at) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(account_id,message_id) DO UPDATE SET source=excluded.source,sender=excluded.sender,recipients=excluded.recipients,subject=excluded.subject,received_at=excluded.received_at,body=CASE WHEN search_documents.source=excluded.source THEN search_documents.body ELSE '' END,participants=CASE WHEN search_documents.source=excluded.source THEN search_documents.participants ELSE '' END,mime_recipients=CASE WHEN search_documents.source=excluded.source THEN search_documents.mime_recipients ELSE '' END,attachment_text=CASE WHEN search_documents.source=excluded.source THEN search_documents.attachment_text ELSE '' END,attachment_details=CASE WHEN search_documents.source=excluded.source THEN search_documents.attachment_details ELSE '[]' END,body_payload=CASE WHEN search_documents.source=excluded.source THEN search_documents.body_payload ELSE 0 END,body_state=CASE WHEN search_documents.source=excluded.source THEN search_documents.body_state ELSE 'pending' END,retry_at=CASE WHEN search_documents.source=excluded.source THEN search_documents.retry_at ELSE 0 END WHERE search_documents.source<>excluded.source OR search_documents.sender<>excluded.sender OR search_documents.recipients<>excluded.recipients OR search_documents.subject<>excluded.subject OR search_documents.received_at<>excluded.received_at",[&self.account,&m.id,&m.provider_id,&sender,&recipients,&subject,&m.received_at]);
+                write!(self,"INSERT INTO search_documents(message_id,source,sender,recipients,subject,received_at) VALUES(?,?,?,?,?,?) ON CONFLICT(message_id) DO UPDATE SET source=excluded.source,sender=excluded.sender,recipients=excluded.recipients,subject=excluded.subject,received_at=excluded.received_at,has_attachment=CASE WHEN source=excluded.source THEN has_attachment ELSE NULL END,body=CASE WHEN source=excluded.source THEN body ELSE '' END,participants=CASE WHEN source=excluded.source THEN participants ELSE '' END,mime_recipients=CASE WHEN source=excluded.source THEN mime_recipients ELSE '' END,attachment_text=CASE WHEN source=excluded.source THEN attachment_text ELSE '' END,attachment_details=CASE WHEN source=excluded.source THEN attachment_details ELSE '[]' END,body_payload=CASE WHEN source=excluded.source THEN body_payload ELSE 0 END,body_state=CASE WHEN source=excluded.source THEN body_state ELSE 'pending' END,retry_at=CASE WHEN source=excluded.source THEN retry_at ELSE 0 END WHERE source<>excluded.source OR sender<>excluded.sender OR recipients<>excluded.recipients OR subject<>excluded.subject OR received_at<>excluded.received_at",[&m.id,&m.provider_id,&sender,&recipients,&subject,&m.received_at],"INSERT INTO search_documents(account_id,message_id,source,sender,recipients,subject,received_at) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(account_id,message_id) DO UPDATE SET source=excluded.source,sender=excluded.sender,recipients=excluded.recipients,subject=excluded.subject,received_at=excluded.received_at,has_attachment=CASE WHEN search_documents.source=excluded.source THEN search_documents.has_attachment ELSE NULL END,body=CASE WHEN search_documents.source=excluded.source THEN search_documents.body ELSE '' END,participants=CASE WHEN search_documents.source=excluded.source THEN search_documents.participants ELSE '' END,mime_recipients=CASE WHEN search_documents.source=excluded.source THEN search_documents.mime_recipients ELSE '' END,attachment_text=CASE WHEN search_documents.source=excluded.source THEN search_documents.attachment_text ELSE '' END,attachment_details=CASE WHEN search_documents.source=excluded.source THEN search_documents.attachment_details ELSE '[]' END,body_payload=CASE WHEN search_documents.source=excluded.source THEN search_documents.body_payload ELSE 0 END,body_state=CASE WHEN search_documents.source=excluded.source THEN search_documents.body_state ELSE 'pending' END,retry_at=CASE WHEN search_documents.source=excluded.source THEN search_documents.retry_at ELSE 0 END WHERE search_documents.source<>excluded.source OR search_documents.sender<>excluded.sender OR search_documents.recipients<>excluded.recipients OR search_documents.subject<>excluded.subject OR search_documents.received_at<>excluded.received_at",[&self.account,&m.id,&m.provider_id,&sender,&recipients,&subject,&m.received_at]);
             } else {
                 write!(
                     self,
@@ -91,7 +91,13 @@ impl MailboxTransaction<'_> {
             let participants = normalize_search(record.participants);
             let recipients = normalize_search(record.recipients);
             let attachments = normalize_search(record.attachments);
-            write!(self,"UPDATE search_documents SET body_payload=1,body=?,body_state=?,retry_at=?,updated_at=?,participants=?,mime_recipients=?,attachment_text=?,attachment_details=? WHERE message_id=? AND source=? AND EXISTS(SELECT 1 FROM messages WHERE id=? AND json_array_length(document,'$.folder_ids')>0 AND json_extract(document,'$.provider_id')=?)",[body,state,retry,updated,&participants,&recipients,&attachments,record.attachment_details,&m.id,&m.provider_id,&m.id,&m.provider_id],"UPDATE search_documents d SET body_payload=1,body=$1,body_state=$2,retry_at=$3,updated_at=$4,participants=$5,mime_recipients=$6,attachment_text=$7,attachment_details=$8 WHERE d.account_id=$9 AND d.message_id=$10 AND d.source=$11 AND EXISTS(SELECT 1 FROM messages m WHERE m.account_id=d.account_id AND m.id=d.message_id AND cardinality(m.folder_ids)>0 AND m.source=$11)",[body,state,retry,updated,&participants,&recipients,&attachments,record.attachment_details,&self.account,&m.id,&m.provider_id]);
+            let details =
+                if record.has_attachment == Some(true) && record.attachment_details == "[]" {
+                    "[{}]"
+                } else {
+                    record.attachment_details
+                };
+            write!(self,"UPDATE search_documents SET has_attachment=?,body_payload=1,body=?,body_state=?,retry_at=?,updated_at=?,participants=?,mime_recipients=?,attachment_text=?,attachment_details=? WHERE message_id=? AND source=? AND EXISTS(SELECT 1 FROM messages WHERE id=? AND json_array_length(document,'$.folder_ids')>0 AND json_extract(document,'$.provider_id')=?)",[record.has_attachment.map(i32::from),body,state,retry,updated,&participants,&recipients,&attachments,details,&m.id,&m.provider_id,&m.id,&m.provider_id],"UPDATE search_documents d SET has_attachment=$12,body_payload=1,body=$1,body_state=$2,retry_at=$3,updated_at=$4,participants=$5,mime_recipients=$6,attachment_text=$7,attachment_details=$8 WHERE d.account_id=$9 AND d.message_id=$10 AND d.source=$11 AND EXISTS(SELECT 1 FROM messages m WHERE m.account_id=d.account_id AND m.id=d.message_id AND cardinality(m.folder_ids)>0 AND m.source=$11)",[body,state,retry,updated,&participants,&recipients,&attachments,details,&self.account,&m.id,&m.provider_id,record.has_attachment.map(i32::from)]);
         }
         Ok(())
     }
@@ -154,7 +160,7 @@ impl AccountRepository {
             } else {
                 "m.received_at DESC,d.message_id COLLATE \"C\""
             };
-            let rows:Vec<String>=scalar!(local,tx,&format!("SELECT m.document FROM search_documents d JOIN messages m ON m.id=d.message_id WHERE d.body_state IN ('pending','fetch_error','quota') AND d.retry_at<=? AND json_array_length(m.document,'$.folder_ids')>0 ORDER BY {order} LIMIT ?"),[Utc::now().timestamp(),limit as i64],&format!("SELECT m.document FROM search_documents d JOIN messages m ON m.account_id=d.account_id AND m.id=d.message_id WHERE d.account_id=$1 AND d.body_state IN ('pending','fetch_error','quota') AND d.retry_at<=$2 AND cardinality(m.folder_ids)>0 ORDER BY {pg_order} LIMIT $3"),[&self.account,Utc::now().timestamp(),limit as i64],fetch_all);
+            let rows:Vec<String>=scalar!(local,tx,&format!("SELECT m.document FROM search_documents d JOIN messages m ON m.id=d.message_id WHERE (d.body_state IN ('pending','fetch_error','quota') OR (d.body_state='ready' AND d.has_attachment IS NULL)) AND d.retry_at<=? AND json_array_length(m.document,'$.folder_ids')>0 ORDER BY {order} LIMIT ?"),[Utc::now().timestamp(),limit as i64],&format!("SELECT m.document FROM search_documents d JOIN messages m ON m.account_id=d.account_id AND m.id=d.message_id WHERE d.account_id=$1 AND (d.body_state IN ('pending','fetch_error','quota') OR (d.body_state='ready' AND d.has_attachment IS NULL)) AND d.retry_at<=$2 AND cardinality(m.folder_ids)>0 ORDER BY {pg_order} LIMIT $3"),[&self.account,Utc::now().timestamp(),limit as i64],fetch_all);
             rows.into_iter()
                 .map(|raw| Ok(serde_json::from_str(&raw)?))
                 .collect()
@@ -230,6 +236,7 @@ impl AccountRepository {
     pub(crate) async fn current_search_messages(
         &self,
         ids: &[String],
+        has_attachment: bool,
     ) -> Result<Vec<(Message, bool)>> {
         if ids.len() > 200 {
             return Err(Error::Invalid);
@@ -239,13 +246,13 @@ impl AccountRepository {
             let rows: Vec<(String, bool)> = if local {
                 // Keep the source snapshot and every eligibility predicate.
                 // Deliver one bounded batch across SQLite's worker channel.
-                let batch:String=sqlx::query_scalar("SELECT COALESCE(json_group_array(json_array(m.document,EXISTS(SELECT 1 FROM snoozes s WHERE s.thread_id=json_extract(m.document,'$.thread_id') AND s.until>?))),'[]') FROM messages m JOIN search_documents d ON d.message_id=m.id JOIN search_eligible_messages e ON e.id=m.id WHERE m.id IN (SELECT value FROM json_each(?)) AND d.source=json_extract(m.document,'$.provider_id') AND NOT EXISTS(SELECT 1 FROM search_dirty WHERE message_id=m.id) AND NOT EXISTS(SELECT 1 FROM search_index_outbox WHERE message_id=m.id)").bind(now()).bind(&ids).fetch_one(&mut *tx).await?;
+                let batch:String=sqlx::query_scalar("SELECT COALESCE(json_group_array(json_array(m.document,EXISTS(SELECT 1 FROM snoozes s WHERE s.thread_id=json_extract(m.document,'$.thread_id') AND s.until>?))),'[]') FROM messages m JOIN search_documents d ON d.message_id=m.id JOIN search_eligible_messages e ON e.id=m.id WHERE m.id IN (SELECT value FROM json_each(?)) AND d.source=json_extract(m.document,'$.provider_id') AND NOT EXISTS(SELECT 1 FROM search_dirty WHERE message_id=m.id) AND NOT EXISTS(SELECT 1 FROM search_index_outbox WHERE message_id=m.id) AND (?=0 OR d.has_attachment=1)").bind(now()).bind(&ids).bind(has_attachment).fetch_one(&mut *tx).await?;
                 serde_json::from_str::<Vec<(String, i64)>>(&batch)?
                     .into_iter()
                     .map(|(raw, snoozed)| (raw, snoozed != 0))
                     .collect()
             } else {
-                sqlx::query_as("SELECT m.document,EXISTS(SELECT 1 FROM snoozes s WHERE s.account_id=m.account_id AND s.thread_id=m.thread_id AND s.until>$1) FROM messages m JOIN search_documents d ON d.account_id=m.account_id AND d.message_id=m.id JOIN search_eligible_messages e ON e.account_id=m.account_id AND e.id=m.id WHERE m.account_id=$2 AND m.id IN (SELECT jsonb_array_elements_text($3::jsonb)) AND d.source=m.source AND NOT EXISTS(SELECT 1 FROM search_dirty WHERE account_id=m.account_id AND message_id=m.id) AND NOT EXISTS(SELECT 1 FROM search_index_outbox WHERE account_id=m.account_id AND message_id=m.id)").bind(now()).bind(&self.account).bind(&ids).fetch_all(&mut *tx).await?
+                sqlx::query_as("SELECT m.document,EXISTS(SELECT 1 FROM snoozes s WHERE s.account_id=m.account_id AND s.thread_id=m.thread_id AND s.until>$1) FROM messages m JOIN search_documents d ON d.account_id=m.account_id AND d.message_id=m.id JOIN search_eligible_messages e ON e.account_id=m.account_id AND e.id=m.id WHERE m.account_id=$2 AND m.id IN (SELECT jsonb_array_elements_text($3::jsonb)) AND d.source=m.source AND NOT EXISTS(SELECT 1 FROM search_dirty WHERE account_id=m.account_id AND message_id=m.id) AND NOT EXISTS(SELECT 1 FROM search_index_outbox WHERE account_id=m.account_id AND message_id=m.id) AND (NOT $4 OR d.has_attachment=1)").bind(now()).bind(&self.account).bind(&ids).bind(has_attachment).fetch_all(&mut *tx).await?
             };
             rows.into_iter()
                 .map(|(raw, snoozed)| Ok((serde_json::from_str(&raw)?, snoozed)))
@@ -255,7 +262,7 @@ impl AccountRepository {
     #[cfg(test)]
     pub(crate) async fn current_search_message(&self, id: &str) -> Result<Option<Message>> {
         Ok(self
-            .current_search_messages(&[id.to_owned()])
+            .current_search_messages(&[id.to_owned()], false)
             .await?
             .into_iter()
             .next()
@@ -267,6 +274,7 @@ impl MailboxTransaction<'_> {
     async fn source_coverage(
         &mut self,
         expected: Option<&str>,
+        semantic_enabled: bool,
     ) -> Result<(crate::full_text::TextCoverage, Option<String>)> {
         let row:Option<SourceInventoryRow>=tuples!(self,"SELECT t.headers,t.bodies,t.pending,t.gaps,t.body_bytes,t.dirty,t.retrying,t.delivery_pending,t.eligible,t.processed,v.document,COALESCE(?1,p.model_revision),COALESCE(s.processed,0),CASE WHEN p.model_revision=COALESCE(?1,p.model_revision) THEN p.available ELSE -1 END,COALESCE(c.pending,0) FROM search_totals t LEFT JOIN provider_documents v ON v.key='search:database' LEFT JOIN search_semantic_profile p ON p.id=1 LEFT JOIN search_stage_totals s ON s.model_revision=COALESCE(?1,p.model_revision) AND s.lexical_revision=MAX(COALESCE(p.lexical_revision,2),?2) LEFT JOIN search_cleanup_totals c ON c.id=1 WHERE t.id=1",[expected,crate::lexical_text::REVISION],"SELECT t.headers,t.bodies,t.pending,t.gaps,t.body_bytes,t.dirty,t.retrying,t.delivery_pending,t.eligible,t.processed,v.document,COALESCE($2,p.model_revision),COALESCE(s.processed,0),CASE WHEN p.model_revision=COALESCE($2,p.model_revision) THEN p.available ELSE -1 END,COALESCE(c.pending,0) FROM search_totals t LEFT JOIN provider_documents v ON v.account_id=t.account_id AND v.key='search:database' LEFT JOIN search_semantic_profile p ON p.account_id=t.account_id LEFT JOIN search_stage_totals s ON s.account_id=t.account_id AND s.model_revision=COALESCE($2,p.model_revision) AND s.lexical_revision=GREATEST(COALESCE(p.lexical_revision,2),$3) LEFT JOIN search_cleanup_totals c ON c.account_id=t.account_id WHERE t.account_id=$1",[&self.account,expected,crate::lexical_text::REVISION],fetch_optional);
         let Some((
@@ -289,8 +297,10 @@ impl MailboxTransaction<'_> {
         else {
             return Ok((Default::default(), None));
         };
+        let model_revision = model_revision.filter(|_| semantic_enabled);
         Ok((
             crate::full_text::TextCoverage {
+                attachment_pending: value!(self,"SELECT count(*) FROM search_documents WHERE has_attachment IS NULL",[],"SELECT count(*) FROM search_documents WHERE account_id=$1 AND has_attachment IS NULL",[&self.account],fetch_one),
                 headers,
                 bodies,
                 pending,
@@ -307,8 +317,8 @@ impl MailboxTransaction<'_> {
                 },
                 semantic_required: model_revision.is_some(),
                 semantic_revision: model_revision.clone(),
-                semantic_available: semantic_available == 1,
-                semantic_failed: semantic_available == 0,
+                semantic_available: semantic_enabled && semantic_available == 1,
+                semantic_failed: semantic_enabled && semantic_available == 0,
                 semantic_pending: if model_revision.is_some() {
                     (eligible - semantic_processed).max(0)
                 } else {
@@ -329,9 +339,10 @@ impl AccountRepository {
     pub(crate) async fn source_coverage(
         &self,
         expected: Option<&str>,
+        semantic_enabled: bool,
     ) -> Result<(crate::full_text::TextCoverage, Option<String>)> {
         scoped!(self, scope, false, {
-            scope.source_coverage(expected).await
+            scope.source_coverage(expected, semantic_enabled).await
         })
     }
 }
@@ -383,6 +394,11 @@ impl AccountRepository {
                     base.to_owned()
                 };
                 let sql=sql.replace("ORDER BY json_extract(m.document,'$.received_at') DESC,m.id DESC LIMIT 50", &format!("{} ORDER BY json_extract(m.document,'$.received_at') DESC,m.id DESC LIMIT 50",crate::classification::CLASSIFICATION_SQL)).replace("ON eligible.id=m.id", "ON eligible.id=m.id CROSS JOIN (SELECT ? AS filter) cf");
+                let sql = if filter.has_attachment {
+                    sql.replace("WHERE NOT EXISTS", "WHERE EXISTS(SELECT 1 FROM search_documents d WHERE d.message_id=m.id AND d.source=json_extract(m.document,'$.provider_id') AND d.has_attachment=1) AND NOT EXISTS") .replace("WHERE (json_extract(m.document", "WHERE EXISTS(SELECT 1 FROM search_documents d WHERE d.message_id=m.id AND d.source=json_extract(m.document,'$.provider_id') AND d.has_attachment=1) AND (json_extract(m.document")
+                } else {
+                    sql
+                };
                 let mut request = sqlx::query_scalar(&sql);
                 if let Some(budget) = budget {
                     request = request.bind(budget);
@@ -443,6 +459,11 @@ ORDER BY m.received_at DESC,m.id COLLATE \"C\" DESC LIMIT 50";
                     base.to_owned()
                 };
                 let sql=sql.replace("ORDER BY m.received_at DESC,m.id COLLATE \"C\" DESC LIMIT 50", &format!("{} ORDER BY m.received_at DESC,m.id COLLATE \"C\" DESC LIMIT 50",crate::classification::CLASSIFICATION_PG_SQL)).replace("ON e.account_id=m.account_id AND e.id=m.id", "ON e.account_id=m.account_id AND e.id=m.id CROSS JOIN (SELECT $15::TEXT AS filter) cf");
+                let sql = if filter.has_attachment {
+                    sql.replace("WHERE m.account_id=$1", "WHERE m.account_id=$1 AND EXISTS(SELECT 1 FROM search_documents d WHERE d.account_id=m.account_id AND d.message_id=m.id AND d.source=m.source AND d.has_attachment=1)")
+                } else {
+                    sql
+                };
                 let mut request = sqlx::query_scalar(&sql)
                     .bind(&self.account)
                     .bind(now())

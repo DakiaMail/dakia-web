@@ -535,6 +535,9 @@ impl SearchConnection {
         )?;
         Ok(())
     }
+    pub async fn unload_vectors(&self) -> Result<()> {
+        self.vectors.unload().await
+    }
     pub async fn maintain_vectors(&self, snapshot: bool) -> Result<bool> {
         let SearchDatabase::Sqlite(db) = self.connection().await? else {
             return Ok(false);
@@ -650,6 +653,15 @@ macro_rules! metadata_predicates {
                 .push($alias)
                 .push(".unread<>")
                 .push_bind(value);
+        }
+        if criteria.has_attachment {
+            $q.push(" AND json_array_length(")
+                .push($alias)
+                .push(if $sqlite {
+                    ".attachment_details)>0"
+                } else {
+                    ".attachment_details::json)>0"
+                });
         }
         if let Some(value) = criteria.starred {
             $q.push(" AND ")

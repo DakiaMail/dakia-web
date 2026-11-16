@@ -13,6 +13,21 @@ async fn fixture_backend(
     AuthorizedAccount,
     Arc<Controlled>,
 ) {
+    fixture_backend_semantic(count, real, application, search, true).await
+}
+async fn fixture_backend_semantic(
+    count: usize,
+    real: bool,
+    application: Option<&str>,
+    search: Option<&str>,
+    index_semantic: bool,
+) -> (
+    tempfile::TempDir,
+    crate::App,
+    String,
+    AuthorizedAccount,
+    Arc<Controlled>,
+) {
     let (dir, mut app, mut user, mut a, mut provider) = controlled().await;
     if application.is_some() {
         let input = app.store.credential(&a).await.unwrap();
@@ -169,6 +184,7 @@ async fn fixture_backend(
                     "Historical archive body"
                 };
                 dakia_storage::SearchContent {
+                    has_attachment: Some(false),
                     message: m,
                     text,
                     state: "ready",
@@ -195,7 +211,7 @@ async fn fixture_backend(
             break;
         }
     }
-    for _ in 0..count * 4 + 10 {
+    for _ in 0..if index_semantic { count * 4 + 10 } else { 0 } {
         let Some(turn) = app
             .store
             .claim_embedding(&a, &revision, true)
@@ -243,7 +259,7 @@ async fn fixture_backend(
     }
     assert_eq!(
         app.store.text_coverage(&a).await.unwrap().processed,
-        count as i64
+        if index_semantic { count as i64 } else { 0 }
     );
     for _ in 0..2000 {
         if app.mail.search_queries.state() == crate::search_query_model::QueryModelState::Ready {
@@ -353,13 +369,8 @@ async fn hybrid_phrases_are_strict_and_model_failure_retains_lexical_matches() {
     );
     let page = run(&app, &user, "package", a.id(), None).await.unwrap();
     assert_eq!(page.rows.len(), 3);
-    assert!(page.pending);
-    assert!(page
-        .search
-        .unwrap()
-        .degradation
-        .iter()
-        .any(|d| d.code == "semantic_search_unavailable"));
+    assert!(!page.pending);
+    assert!(page.search.unwrap().degradation.is_empty());
 }
 #[tokio::test]
 #[ignore = "requires pinned CPU E5 assets; scripts/fetch-search-model.py"]
@@ -854,4 +865,95 @@ async fn real_hybrid_lisbon_question_finds_accommodation_without_literal_words()
         before,
         "a complete local index must answer without provider search"
     );
+}
+
+#[tokio::test]
+async fn keyword_search_and_pagination_survive_disabled_or_missing_semantics() {
+    let (_dir, mut app, user, a, _) = fixture_backend_semantic(120, false, None, None, false).await;
+    for disabled in [true, false] {
+        app.store.set_search_embeddings_enabled(!disabled);
+        if disabled {
+            app.mail.search_queries.set_enabled(false);
+            app.store.unload_search_vectors().await.unwrap();
+            let coverage = app.store.text_coverage(&a).await.unwrap();
+            assert!(!coverage.semantic_required);
+            assert_eq!(coverage.processed, 120);
+        } else {
+            app.mail = app
+                .mail
+                .with_search_model("/missing-semantic-test-model".into());
+            app.store
+                .prepare_embeddings(
+                    &a,
+                    &dakia_inference::embedding::search_model_revision(),
+                    false,
+                )
+                .await
+                .unwrap();
+        }
+        for query in [
+            "archive",
+            "subject:Package",
+            "from:sender@example.invalid archive",
+        ] {
+            let mut ids = BTreeSet::new();
+            let mut cursor = None;
+            loop {
+                let page = run(&app, &user, query, a.id(), cursor).await.unwrap();
+                assert!(!page.pending, "{disabled}: {query}");
+                assert!(page
+                    .coverage
+                    .iter()
+                    .all(|c| c.state == CoverageState::Complete));
+                assert!(page
+                    .search
+                    .as_ref()
+                    .is_none_or(|s| s.degradation.is_empty()));
+                for row in page.rows {
+                    assert!(ids.insert(row.id));
+                }
+                cursor = page.continuation;
+                if cursor.is_none() {
+                    break;
+                }
+            }
+            assert_eq!(ids.len(), 120, "{disabled}: {query}");
+        }
+    }
+}
+
+#[tokio::test]
+async fn inference_failure_on_the_current_request_falls_back_to_complete_keywords() {
+    let (_dir, mut app, user, a, _) = fixture_backend(3, false, None, None).await;
+    app.mail.search_queries = crate::search_query_model::QueryModel::failing_fixture();
+    for _ in 0..100 {
+        if app.mail.search_queries.state() == crate::search_query_model::QueryModelState::Ready {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let page = run(&app, &user, "archive", a.id(), None).await.unwrap();
+    assert_eq!(page.rows.len(), 3);
+    assert!(!page.pending);
+    assert!(page.search.unwrap().degradation.is_empty());
+    assert_eq!(
+        app.mail.search_queries.state(),
+        crate::search_query_model::QueryModelState::Unavailable
+    );
+}
+
+#[tokio::test]
+async fn unloading_vectors_preserves_the_durable_index_for_reenable() {
+    let (_dir, app, _user, a, _) = fixture_backend(3, false, None, None).await;
+    let revision = dakia_inference::embedding::search_model_revision();
+    assert!(app.store.search_vectors_ready(&a, &revision).await.unwrap());
+    app.store.unload_search_vectors().await.unwrap();
+    assert!(!app.store.search_vectors_ready(&a, &revision).await.unwrap());
+    for _ in 0..100 {
+        if !app.store.maintain_search_vectors(false).await.unwrap() {
+            break;
+        }
+    }
+    assert!(app.store.search_vectors_ready(&a, &revision).await.unwrap());
+    assert_eq!(app.store.text_coverage(&a).await.unwrap().processed, 3);
 }

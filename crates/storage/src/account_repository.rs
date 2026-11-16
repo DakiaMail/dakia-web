@@ -5,6 +5,8 @@ use crate::*;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use std::str::FromStr;
+#[path = "mailbox_counts.rs"]
+mod counts;
 #[cfg(test)]
 #[path = "account_repository_tests.rs"]
 mod tests;

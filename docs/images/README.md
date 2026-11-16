@@ -1,65 +1,61 @@
 # Documentation screenshots
 
-Captured on 2026-11-15 from source revision `c63030c`, using the running Dakia frontend in an isolated Google Chrome session. All mail, names, addresses, and attachments are fictional. No real mailbox, personal browser profile, provider connection, or email delivery was used.
-
-The mobile inbox was refreshed on 2026-11-16 from source revision `8e0f5ea`, with a single-row search toolbar, expandable attention summary, and underline tabs. Accounts and Refresh mail are available in the mobile sidebar. Other captures retain the revision above.
+Refreshed on 2026-11-16 from frontend revision [`33a4607`](https://github.com/DakiaMail/dakia-web/commit/33a4607935cbfa98762473de5a1d2c6488db7783), after PR #39 merged. All nine images show the running app in an isolated Google Chrome session, with fictional mail, names, addresses, and attachments.
 
 ## Inbox, sending, and mobile
 
-The normal app runs with the existing demo mailbox from `apps/web/src/demo/seed.ts`. The demo uses the same frontend components as the server build; actions are handled by its browser-local transport. These captures demonstrate the interface, not provider sync or delivery.
+The inbox, composer, and mobile scenes use the existing demo mailbox in `apps/web/src/demo/seed.ts` and the same frontend components as the server build. No real mailbox connection or email delivery is involved.
 
 ```sh
-npm ci --ignore-scripts
-npm run dev --workspace @dakia/web -- --mode demo --port 5188
+DAKIA_BUILD_ID=33a4607935cbfa98762473de5a1d2c6488db7783 npm run build:demo
+npm exec --workspace @dakia/web -- vite preview --host 127.0.0.1 --outDir dist-demo --port 5188 --strictPort
 ```
 
-Open `http://127.0.0.1:5188/?reset=1` in an isolated Chrome profile. Desktop viewport: 1440 × 960. Mobile viewport: 390 × 844. Device scale: 1. Locale: English. Timezone: Europe/Tallinn. The demo dates are relative to its initial creation time; the clock wasn't frozen.
+Open `http://127.0.0.1:5188/?reset=1` in an isolated Chrome profile. Desktop viewport: 1440 × 960. Mobile viewport: 390 × 844. Device scale: 1. Locale: English (en-US). Timezone: Europe/Tallinn. The demo clock is fixed at 2026-11-16 12:00 EET before seeding the mailbox.
 
 | Image | Scene |
 | --- | --- |
-| `personal.webp` | Personal tab across both accounts, Maya's launch conversation and attachment open |
-| `automated.webp` | All automated mail, copyable details, type filters, and a receipt open |
-| `transactions.webp` | Transactions selected, with matching receipts and an attachment |
-| `attention.webp` | Needs attention sidebar view with a verification code and cancelled flight |
-| `compose.webp` | New message to Maya, with Send later → Pick date & time open; cropped to the composer and picker |
-| `inbox-mobile.webp` | Personal inbox with a single-row search toolbar and collapsed attention summary |
-| `reader-mobile.webp` | Maya’s conversation in the narrow layout, with dark theme enabled |
+| `personal.webp` | Personal inbox across both accounts, with Maya’s launch conversation and attachment open |
+| `automated.webp` | Automated inbox, type filters, extracted details, and an open receipt |
+| `transactions.webp` | Transactions selected, with matching receipts and a receipt attachment |
+| `attention.webp` | Needs attention view with a verification code open and a cancelled flight in the list |
+| `compose.webp` | New message to Maya with Send later and Pick date & time open, cropped to the composer and picker |
+| `inbox-mobile.webp` | Personal inbox with the search toolbar at the top and attention summary collapsed |
+| `reader-mobile.webp` | Maya’s conversation in dark theme, with an attachment and reply controls |
 
-Mobile images are responsive browser captures, not native phone screenshots. The demo read-state notice was dismissed with its normal control before capturing the mobile reader. Normal scroll boundaries, toolbar behavior, and the app's email-rendering colors are retained.
+Mobile images are responsive Chrome captures. The reader scene starts in a fresh demo session with dark theme selected before opening the message. Email-authored rendering colors and normal scrolling are retained. Extra keyboard hints are left off. The captures contain no unread-status notice, image-failure notice, or end-of-list message.
 
 ## Real on-device translation
 
-The translation pair uses the production frontend build and the existing disposable Rust translation fixture:
+The translation pair uses the production frontend build and the existing disposable Rust fixture `language::browser_tests::browser_device_translation_fixture`, listening on loopback port 4346. The fixture session values are defined in `apps/web/browser/device-translation-backend.spec.ts` and authorize only fictional fixture data.
 
 ```sh
-npm run build
+DAKIA_BUILD_ID=33a4607935cbfa98762473de5a1d2c6488db7783 npm run build
 DAKIA_WORKERS="$PWD/workers" \
 DAKIA_MODEL_CACHE=/private/tmp/dakia-production-translation-models \
   cargo test -p dakia-server --lib browser_device_translation_fixture -- --ignored --nocapture
 ```
 
-The fixture listens on loopback port 4346. Its test session and CSRF values are defined in `apps/web/browser/device-translation-backend.spec.ts`; they authorize only this disposable fixture. Set the translation policy to `device`, then open its `estonian-english-footer` message.
+A loopback proxy on port 5190 serves the freshly built frontend and forwards fixture API calls to port 4346, preserving its origin for CSRF checks. The existing compiled fixture was reused; the frontend and browser translation engine come from revision `33a4607`.
 
-For the screenshot scene, intercepted API responses give the fictional message the subject “Neljapäevane kohtumine”, sender Liis Tamm (`liis@atelier.example`), and recipient Alex Morgan (`alex@northline.example`). Search and conversation responses contain that message with complete coverage. Account addresses are fictional. The original HTML body is unchanged. The full desktop viewport includes the new search toolbar. No application code, translated output, or rendered interface was repainted.
+The screenshot scene gives the fictional message the subject “Neljapäevane kohtumine”, sender Liis Tamm (`liis@atelier.example`), and recipient Alex Morgan (`alex@northline.example`). Only fictional display metadata, mailbox lists, and account counts are controlled for the scene. The original message body, including its English footer, is unchanged.
 
-The capture uses the previously verified Estonian weights in the isolated model cache, checked against the pinned byte sizes and SHA-256 digests in `workers/translation/models.json`. The authenticated model endpoint delivers them to Chrome, and the real browser WASM engine generates the English text. This refresh does not retest cold model downloads.
+The translation policy is set to `device`. The browser downloads the Estonian files from the fixture’s authenticated model endpoint and runs the real WASM engine. All three cached files were checked against the pinned byte sizes and SHA-256 hashes in `workers/translation/models.json`. Cold external model downloads were not repeated.
 
-For this refresh, a loopback HTTP proxy on port 5190 serves the newly built `apps/web/dist` and forwards fixture API requests to port 4346, preserving the fixture origin for its CSRF checks. This allows the existing compiled test fixture to be reused without rebuilding the Rust server. The screenshot route interception described above changes only fictional scene data.
-
-`translation-original.webp` shows the original before translation. `translation.webp` shows the browser-generated English result with Show original available. Both are full 1440 × 960 desktop captures. This is evidence of local inference, not cold-download reliability, universal device support, or live-provider acceptance.
+`translation-original.webp` shows the original before translation. `translation.webp` shows the browser-generated English result with Show original available. The rendered interface and translated output were not repainted.
 
 ## Export
 
-Google Chrome reported version 157.0.8103.51. Source captures were PNG. Exports use Pillow WebP quality 90, method 6, without source metadata. Images retain their aspect ratio; only the composer is cropped. The superseded inbox tour and older Workspace/mobile captures have been removed.
+Google Chrome version: 157.0.8103.51. Source captures are PNG. Exports use Pillow WebP quality 90 and method 6, without source metadata. Aspect ratios are retained; only the composer image is cropped. All nine exported images were visually inspected.
 
 | File | Pixels | Bytes | SHA-256 |
 | --- | --- | ---: | --- |
-| `attention.webp` | 1440 × 960 | 29524 | `1d724bbd4a1753bef4fb89f5d1aa1af6b80889655ef7dbfbd06e7636a0258020` |
-| `automated.webp` | 1440 × 960 | 79088 | `f22cbe69facd83aa82e706d9e0a5fbebac277b2757ade646a3b2d78e4862acde` |
-| `compose.webp` | 800 × 580 | 19902 | `297b2b04471a76c9e6823b563518c24d2bc6eefbc6a1ab99dd2462282bd34a3f` |
-| `inbox-mobile.webp` | 390 × 844 | 45250 | `d0ea167078171e0d88348fda506bb35b5103f880fc281644cb2999acd03d3b51` |
-| `personal.webp` | 1440 × 960 | 103696 | `fd43279417b2f085a94c8e96ea34b7b64c7764df19a395752f93a017ee7fba8f` |
-| `reader-mobile.webp` | 390 × 844 | 22564 | `9a283eb0b6c28981288d7ad2260997baefa3e3340d09d6764ede98d82bc151a0` |
-| `transactions.webp` | 1440 × 960 | 54008 | `cbb701dfd85856775987e4e4390e675b8a345bd934a6f54006b33a03c9b7f1c1` |
-| `translation.webp` | 1440 × 960 | 57798 | `c8c04fe0b12d6381966d7c3b2c4159ca3ae3d23451cbf6fc220558b1c6e36c47` |
-| `translation-original.webp` | 1440 × 960 | 58016 | `c78a3ecdf277f5da89c14db4f47bb6c70f7b290ea3e7f0fdfb3d46fa172fcf83` |
+| `attention.webp` | 1440 × 960 | 36808 | `68302a86f3e5dc3d44d3ab5eb2a4ef59298aaa8e549cbfb47621f4df5b976e80` |
+| `automated.webp` | 1440 × 960 | 81174 | `ca86646f0b8872e73cb3d51c557b760fe1efd83e02c9360761c2155b985c49b0` |
+| `compose.webp` | 784 × 550 | 18100 | `34c636ee14ab9a1efe0dc2735dfcd8bf953ce1016d56742690952a6fcb25d389` |
+| `inbox-mobile.webp` | 390 × 844 | 45720 | `f30264abf48a10ba2cec34f0300b73e68e74a8ce8fe35a374a82fffffc9fa460` |
+| `personal.webp` | 1440 × 960 | 103140 | `42ad40756da326c1af074b7aadd39253b19e4f94ee0e79823e0c0df5014b7fe9` |
+| `reader-mobile.webp` | 390 × 844 | 22596 | `58bdd7f1fe1e5504bd10b62c03e9623c59f2414f088ca1f5dbab25ea582a391c` |
+| `transactions.webp` | 1440 × 960 | 52362 | `eb4d73fdfb8aa7e2581dde755b6d04433bff9add7becbde0967e38e77830130b` |
+| `translation-original.webp` | 1440 × 960 | 55882 | `87b7cb6b30a4e5a91ef975a37efb5639e761391f14ffe4d0635bc4dfa6a5e992` |
+| `translation.webp` | 1440 × 960 | 55658 | `08c1d5d57ebdabc9a42e9afadd8cc245b799edd2beadad1c1b8feb0e7ef5f179` |

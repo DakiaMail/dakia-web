@@ -32,7 +32,7 @@ The installation owner chooses **On devices**, **On devices with host fallback**
 
 ## Search and conversations
 
-Search across your connected accounts or narrow the scope to one mailbox. Follow replies in conversations, download attachments, star messages, and switch between folders. Recent folders and message bodies are saved in a bounded browser cache for faster reopening after session checks. See [saved mail and offline limits](persistent-local-cache.md).
+Search across your connected accounts or narrow the scope to one mailbox. Choose **Has attachment** to find mail with files, or add `has:attachment` to your search. Follow replies in conversations, download attachments, star messages, and switch between folders. Recent folders and message bodies are saved in a bounded browser cache for faster reopening after session checks. See [saved mail and offline limits](persistent-local-cache.md).
 
 ## Write now, send later
 

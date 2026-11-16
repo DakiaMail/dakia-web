@@ -9,6 +9,7 @@ pub(super) async fn page(
     r: &SearchRequest,
     scopes: &[dakia_storage::AuthorizedAccount],
     query: &Search,
+    has_attachment: bool,
     wanted: Option<&str>,
     cursor: &mut Cursor,
 ) -> Result<Option<SearchPage>> {
@@ -60,6 +61,7 @@ pub(super) async fn page(
             && text.pending == 0
             && text.gaps == 0
             && text.bodies == text.headers
+            && (!has_attachment || text.attachment_pending == 0)
             && app
                 .store
                 .search_scans_fresh(a, folders.as_deref().unwrap_or_default())
@@ -95,6 +97,7 @@ pub(super) async fn page(
                     text: query.text.as_deref(),
                     seen: query.seen,
                     starred: query.starred,
+                    has_attachment,
                     folders: if wanted.is_some() {
                         folders.as_deref()
                     } else {

@@ -3,9 +3,9 @@
 use super::*;
 use mail_parser::MimeHeaders;
 
-pub(crate) fn extract(raw: &[u8]) -> (String, &'static str) {
+pub(crate) fn extract(raw: &[u8]) -> (String, &'static str, Option<bool>) {
     let Some(parsed) = mail_parser::MessageParser::default().parse(raw) else {
-        return (String::new(), "parse_error");
+        return (String::new(), "parse_error", None);
     };
     if parsed.parts.iter().any(|p| {
         p.content_type().is_some_and(|c| {
@@ -18,11 +18,12 @@ pub(crate) fn extract(raw: &[u8]) -> (String, &'static str) {
                 })
         })
     }) {
-        return (String::new(), "encrypted");
+        return (String::new(), "encrypted", None);
     }
     if parsed.parts.iter().any(|p| p.is_encoding_problem) {
-        return (String::new(), "parse_error");
+        return (String::new(), "parse_error", None);
     }
+    let has_attachment = Some(parsed.attachments().next().is_some());
     let mut text = String::new();
     // Include both alternatives: a plain-text version need not contain every
     // word in its HTML counterpart. Never index binary payloads or URLs.
@@ -35,7 +36,7 @@ pub(crate) fn extract(raw: &[u8]) -> (String, &'static str) {
             }
             text.push('\n');
             if text.len() > 1024 * 1024 {
-                return (String::new(), "oversized");
+                return (String::new(), "oversized", has_attachment);
             }
         }
     }
@@ -45,7 +46,7 @@ pub(crate) fn extract(raw: &[u8]) -> (String, &'static str) {
             text.push('\n');
         }
     }
-    (text, "ready")
+    (text, "ready", has_attachment)
 }
 
 #[tracing::instrument(target = "dakia_server::diagnostics", skip_all, fields(account_key = crate::diagnostics::correlation(a.id()), purpose = "search_index"))]
@@ -148,7 +149,7 @@ pub(crate) async fn tick(app: &App, a: &AuthorizedAccount) -> crate::Result<bool
                     .raw_with_limit(&app.store, a, &m.id, 4 * 1024 * 1024)
                     .await
             };
-            let (text, state) = match result {
+            let (text, state, has_attachment) = match result {
                 Ok(raw) => {
                     bytes += raw.len();
                     tokio::task::spawn_blocking(move || extract(&raw))
@@ -180,11 +181,11 @@ pub(crate) async fn tick(app: &App, a: &AuthorizedAccount) -> crate::Result<bool
                         failed = true;
                         "fetch_error"
                     };
-                    (String::new(), state)
+                    (String::new(), state, None)
                 }
             };
             tracing::info!(target: "dakia_server::diagnostics", message_key = crate::diagnostics::correlation(&m.id), source_key = crate::diagnostics::correlation(&m.provider_id), operation = "search_index", outcome = state, indexed_bytes = text.len() as u64, "mail_work");
-            records.push((m, text, state));
+            records.push((m, text, state, has_attachment));
             if failed
                 || bytes >= 4 * 1024 * 1024
                 || started.elapsed() >= std::time::Duration::from_secs(2)
@@ -206,7 +207,7 @@ pub(crate) async fn tick(app: &App, a: &AuthorizedAccount) -> crate::Result<bool
     if progressed {
         let commits: Vec<_> = records
             .iter()
-            .map(|(m, text, state)| (*m, text.as_str(), *state))
+            .map(|(m, text, state, has_attachment)| (*m, text.as_str(), *state, *has_attachment))
             .collect();
         app.store.put_search_bodies(a, &commits).await?;
     }

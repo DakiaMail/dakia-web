@@ -15,7 +15,8 @@ async fn run(
 #[test]
 fn full_text_mime_decodes_both_alternatives_unicode_and_declares_gaps() {
     let raw=b"From: f@example.invalid\r\nMIME-Version: 1.0\r\nContent-Type: multipart/alternative; boundary=x\r\n\r\n--x\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\nplain caf=C3=A9\r\n--x\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<p>html-only &amp; other</p>\r\n--x--\r\n";
-    let (text, state) = crate::sync::full_text::extract(raw);
+    let (text, state, has_attachment) = crate::sync::full_text::extract(raw);
+    assert_eq!(has_attachment, Some(false));
     assert_eq!(state, "ready");
     assert!(
         text.contains("café") && text.contains("html-only & other"),
@@ -85,7 +86,7 @@ async fn full_text_federated_pages_are_ordered_complete_is_verified_and_fallback
         app.store.index_search_headers(scope).await.unwrap();
         for m in &rows {
             app.store
-                .put_search_body(scope, m, "body-only 東京 café", "ready")
+                .put_search_body(scope, m, "body-only 東京 café", "ready", Some(false))
                 .await
                 .unwrap();
         }
@@ -520,4 +521,30 @@ async fn gmail_bounded_identity_discovery_rearms_same_message_without_unpruning_
     );
     assert_eq!(app.store.text_coverage(&a).await.unwrap().bodies, 1);
     assert_eq!(provider.recovery_calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn attachment_search_checks_provider_results_and_indexed_mime() {
+    for attached in [false, true] {
+        let (_dir, app, user, a, provider) = controlled().await;
+        let raw = if attached {
+            b"From: fixture@example.invalid\r\nSubject: Synthetic fixture\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=x\r\n\r\n--x\r\nContent-Type: text/plain\r\n\r\nhello\r\n--x\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=report.pdf\r\n\r\nfile\r\n--x--\r\n".as_slice()
+        } else {
+            b"From: fixture@example.invalid\r\nContent-Type: text/plain\r\n\r\nhello".as_slice()
+        };
+        assert_eq!(crate::sync::full_text::extract(raw).2, Some(attached));
+        *provider.raw.lock().await = raw.to_vec();
+        let page = run(&app, &user, "has:attachment", a.id(), None)
+            .await
+            .unwrap();
+        assert_eq!(page.rows.len(), if attached { 2 } else { 0 });
+        assert!(provider.mutations.lock().await.is_empty());
+        crate::sync::full_text::tick(&app, &a).await.unwrap();
+        let filter = dakia_storage::CachedSearchFilter {
+            has_attachment: true,
+            ..Default::default()
+        };
+        let rows = app.store.full_text_rows(&a, &filter, None).await.unwrap();
+        assert_eq!(rows.len(), if attached { 2 } else { 0 });
+    }
 }

@@ -8,6 +8,7 @@ pub(super) async fn cached(
     r: &SearchRequest,
     scopes: &[dakia_storage::AuthorizedAccount],
     query: &Search,
+    has_attachment: bool,
     wanted: Option<&str>,
     cursor: &Cursor,
 ) -> Result<Option<SearchPage>> {
@@ -54,6 +55,7 @@ pub(super) async fn cached(
                         text: query.text.as_deref(),
                         seen: query.seen,
                         starred: query.starred,
+                        has_attachment,
                         folders: if wanted.is_some() {
                             folders.as_deref()
                         } else {

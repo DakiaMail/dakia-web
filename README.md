@@ -77,7 +77,9 @@ Dakia connects to your email provider. You don't need to run a mail server or ch
 
 Dakia is under active development. Back up your installation and try a disposable mailbox before relying on it for important mail.
 
-Follow the [hosting guide](docs/hosting.md) to install Docker through its official packages, review the Compose files, and start the pinned image. The recommended setup doesn't run a Dakia installer as root. Choose public HTTPS with Caddy, your existing proxy, or private Tailscale access.
+Use a [prebuilt Linux runtime](docs/native-hosting.md) on AMD64 or ARM64 to run Dakia without Docker or a Rust compiler. Node, workers, and search models are included.
+
+Or follow the [hosting guide](docs/hosting.md) to install Docker through its official packages, review the Compose files, and start the pinned image. The recommended setup doesn't run a Dakia installer as root. Choose public HTTPS with Caddy, your existing proxy, or private Tailscale access.
 
 Restrict access before the first start, then create the owner login before opening the installation to others.
 

@@ -28,6 +28,8 @@ jobs:
         run: |
           sh -n scripts/upgrade.sh
           sh -n scripts/install.sh
+          for script in scripts/package-runtime.sh scripts/check-native-runtime.sh deploy/native/dakia; do sh -n "$script"; done
+          node --test scripts/tests/native-runtime.test.mjs
           node --test scripts/tests/upgrade*.test.mjs scripts/tests/install.test.mjs
           if [ "$GITHUB_REF_TYPE" = tag ]; then
             node --input-type=module -e 'import {version} from "./scripts/upgrade.mjs"; if(!version(process.env.VERSION)) throw Error("Expected a semantic vX.Y.Z release tag")'
@@ -119,7 +121,7 @@ jobs:
             -e DAKIA_MICROSOFT_CLIENT_ID=microsoft-image-fixture \
             -e DAKIA_MICROSOFT_CLIENT_SECRET=synthetic-image-smoke-only "$image"
           ready=false
-          for attempt in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             if docker exec "$name" /app/dakia-healthcheck; then ready=true; break; fi
             sleep 1
           done
@@ -128,13 +130,25 @@ jobs:
           before=$(docker exec "$name" sha256sum /secrets/credential-key)
           docker restart "$name"
           ready=false
-          for attempt in $(seq 1 30); do
+          for _ in $(seq 1 30); do
             if docker exec "$name" /app/dakia-healthcheck; then ready=true; break; fi
             sleep 1
           done
           test "$ready" = true
           test "$before" = "$(docker exec "$name" sha256sum /secrets/credential-key)"
           docker exec -i "$name" node --input-type=module - --resume < scripts/image-oauth-smoke.mjs
+      - name: Package and check the native runtime
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          scripts/package-runtime.sh "$IMAGE@$DIGEST" "$VERSION" "${{ matrix.arch }}" native-dist
+          scripts/check-native-runtime.sh "native-dist/dakia-$VERSION-linux-${{ matrix.arch }}.tar.gz"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-runtime-${{ matrix.arch }}
+          path: native-dist/*
+          if-no-files-found: error
+          retention-days: 7
   repair-image:
     strategy:
       fail-fast: false
@@ -194,6 +208,12 @@ jobs:
             docker buildx imagetools create -t "$IMAGE:edge" "$IMAGE:$VERSION"
           fi
           docker buildx imagetools inspect "$IMAGE:$VERSION" | tee -a "$GITHUB_STEP_SUMMARY"
+      - uses: actions/download-artifact@v4
+        if: github.ref_type == 'tag'
+        with:
+          pattern: native-runtime-*
+          path: native-dist
+          merge-multiple: true
       - name: Publish the verified release
         if: github.ref_type == 'tag'
         env:
@@ -209,7 +229,10 @@ jobs:
           else
             gh release create "$VERSION" --draft --verify-tag --generate-notes
           fi
-          gh release upload "$VERSION" dakia-release.json scripts/upgrade.sh scripts/upgrade.mjs --clobber
+          test -s "native-dist/dakia-$VERSION-linux-amd64.tar.gz"
+          test -s "native-dist/dakia-$VERSION-linux-arm64.tar.gz"
+          (cd native-dist && cat ./*.sha256 > SHA256SUMS && sha256sum -c SHA256SUMS)
+          gh release upload "$VERSION" dakia-release.json scripts/upgrade.sh scripts/upgrade.mjs native-dist/*.tar.gz native-dist/SHA256SUMS --clobber
           case "$VERSION" in
             *-*) gh release edit "$VERSION" --draft=false --prerelease ;;
             *) gh release edit "$VERSION" --draft=false --latest ;;

@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+runtime=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+: "${DAKIA_DATA_DIR:?Set DAKIA_DATA_DIR to a private persistent directory}"
+: "${DAKIA_CREDENTIAL_KEY_FILE:?Set DAKIA_CREDENTIAL_KEY_FILE to a private key path}"
+export DAKIA_WEB_ROOT="${DAKIA_WEB_ROOT:-$runtime/web}"
+export DAKIA_WORKERS="${DAKIA_WORKERS:-$runtime/workers}"
+export DAKIA_SEARCH_MODEL_DIR="${DAKIA_SEARCH_MODEL_DIR:-$runtime/search-model}"
+export DAKIA_MODEL_CACHE="${DAKIA_MODEL_CACHE:-$DAKIA_DATA_DIR/models}"
+export DAKIA_NODE="$runtime/node"
+export DAKIA_LISTEN="${DAKIA_LISTEN:-127.0.0.1:3025}"
+export SQLITE_TMPDIR="${SQLITE_TMPDIR:-$DAKIA_DATA_DIR}"
+export LD_LIBRARY_PATH="$runtime${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+exec "$runtime/dakia-server"

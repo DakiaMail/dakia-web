@@ -2,7 +2,7 @@
 
 Run Dakia with Docker Compose, or follow the [native Linux setup](native-hosting.md) to use a complete release bundle without Docker. Neither path requires compiling Rust. You keep your existing email provider; there is no mail server, database service, or MX change to set up.
 
-The steps below use readable configuration files and the published image pinned in `compose.yaml`. They do not run Dakia scripts on your host. You still trust the container image and Docker; review the [Dockerfile](../Dockerfile) and [Compose file](../compose.yaml) before running them.
+The steps below install the latest stable release, [v0.1.0](https://github.com/DakiaMail/dakia-web/releases/tag/v0.1.0), using the image digest pinned in `compose.yaml`. They do not run Dakia scripts on your host. You still trust the container image and Docker; review the [Dockerfile](../Dockerfile) and [Compose file](../compose.yaml) before running them.
 
 ## Before you start
 

@@ -1,6 +1,6 @@
 <p align="center"><img src="apps/web/public/dakia-icon-512.png" alt="Dakia logo" width="64"></p>
 <h1 align="center">Dakia</h1>
-<p align="center">People first. The rest, organized.</p>
+<p align="center">Web-based email client with unified inbox</p>
 <p align="center"><a href="https://demo.dakiamail.com">Try the demo</a> · <a href="docs/hosting.md">Self-host Dakia</a> · <a href="docs/features.md">Explore the features</a></p>
 
 Dakia is a free, open-source email client you run on your own server. Bring your existing mailboxes together, keep personal conversations in focus, and translate emails on your device.

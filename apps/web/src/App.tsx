@@ -328,6 +328,14 @@ export function App() {
       })
       .catch(error => { if (deepLinkPending.current) setDeepLinkError(error); });
   }, [accounts.data, client]);
+  const mailboxCounts = useQuery({
+    queryKey: ["mailbox-counts", ids], enabled: !!session.data && !!accounts.data,
+    queryFn: async ({ signal }) => {
+      const counts = await Promise.all(ids.map(id => api.mailboxCounts(id, signal)));
+      return counts.reduce((sum, count) => ({ starred: sum.starred + count.starred, attention: sum.attention + count.attention }), { starred: 0, attention: 0 });
+    },
+    refetchInterval: 15000, retry: false,
+  });
   const snoozeState = useQuery({
     queryKey: ["snoozes", ids], enabled: !!session.data && ids.length > 0,
     queryFn: async ({ signal }) => (await Promise.all(ids.map(async account_id =>
@@ -706,7 +714,7 @@ export function App() {
     try {
       await client.cancelQueries({ queryKey: ["mail"] });
       const completed = new Map(settledTokens.current);
-      await Promise.all([client.invalidateQueries({ queryKey: ["mail"] }, { throwOnError: true }), client.invalidateQueries({ queryKey: ["snoozes"] })]);
+      await Promise.all([client.invalidateQueries({ queryKey: ["mail"] }, { throwOnError: true }), client.invalidateQueries({ queryKey: ["snoozes"] }), client.invalidateQueries({ queryKey: ["mailbox-counts"] })]);
       setOverrides(old => {
         const next = { ...old };
         for (const [id, done] of completed) {
@@ -967,8 +975,8 @@ export function App() {
         <nav aria-label="Mailboxes">
           {navs.map(({ id, label, icon: Icon }) => (
             <button title={label}
-              aria-label={id === "Snoozed" ? "Snoozed" : undefined}
-              aria-describedby={id === "Snoozed" ? "snoozed-count" : undefined}
+              aria-label={["Snoozed", "Starred", "Needs attention"].includes(id) ? label : undefined}
+              aria-describedby={id === "Snoozed" ? "snoozed-count" : id === "Starred" || id === "Needs attention" ? `${id === "Starred" ? "starred" : "attention"}-count` : undefined}
               key={id}
               className={!workspace && nav === id && !q ? "selected" : ""}
               aria-current={!workspace && nav === id && !q ? "page" : undefined}
@@ -977,11 +985,10 @@ export function App() {
               <Icon size={17} />
               {label}
               {id === "Snoozed" && <><span className="count" aria-hidden="true">{snoozeState.isSuccess ? snoozedCount : "…"}</span><span className="sr-only" id="snoozed-count">{snoozeState.isSuccess ? `${snoozedCount} snoozed emails` : "Snoozed count unavailable"}</span></>}
-              {id === "INBOX" && rows.some((m) => m.unread) && (
-                <span className="count">
-                  {rows.filter((m) => m.unread).length}
-                </span>
-              )}
+              {(id === "Starred" || id === "Needs attention") && <>
+                <span className="count" aria-hidden="true">{mailboxCounts.isSuccess ? mailboxCounts.data[id === "Starred" ? "starred" : "attention"] : "…"}</span>
+                <span className="sr-only" id={`${id === "Starred" ? "starred" : "attention"}-count`}>{mailboxCounts.isSuccess ? `${mailboxCounts.data[id === "Starred" ? "starred" : "attention"]} emails` : "Count unavailable"}</span>
+              </>}
             </button>
           ))}
         </nav>

@@ -27,6 +27,7 @@ COPY --from=build /src/crates/inference/assets/multilingual-e5-small/ /app/searc
 COPY --from=web /src/apps/web/dist/ /app/web/
 COPY --from=web /src/workers/ /app/workers/
 COPY LICENSE THIRD_PARTY_NOTICES.md /app/licenses/
+COPY --from=web /usr/local/LICENSE /app/licenses/Node-LICENSE
 COPY crates/inference/assets/licenses/ /app/licenses/
 COPY workers/translation/DESKTOP_THIRD_PARTY_NOTICES.md /app/licenses/
 COPY --from=web /src/node_modules/@fontsource/inter/LICENSE /app/licenses/Inter-OFL-1.1.txt

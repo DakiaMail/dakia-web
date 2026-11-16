@@ -253,6 +253,7 @@ pub fn router_with_shutdown(app: App, shutdown: tokio::sync::watch::Sender<bool>
         )
         .route("/push/public-key", get(push::public_key))
         .route("/push/subscriptions", post(push::subscribe))
+        .route("/push/subscriptions/{id}", get(push::status).delete(push::unsubscribe))
         .route(
             "/accounts/{account}",
             axum::routing::put(reconnect).delete(remove_account),

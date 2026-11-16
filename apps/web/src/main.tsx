@@ -32,7 +32,7 @@ async function start() {
     <React.StrictMode>
       <DakiaProvider>
         <QueryClientProvider client={client}>
-          <InstallProvider><AppUpdateProvider><App /></AppUpdateProvider></InstallProvider>
+          <AppUpdateProvider><InstallProvider><App /></InstallProvider></AppUpdateProvider>
         </QueryClientProvider>
       </DakiaProvider>
     </React.StrictMode>,

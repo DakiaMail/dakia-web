@@ -8,7 +8,6 @@ import type {
   ScheduledMessage,
 } from "@dakia/api-types";
 import { accountPath, key, request } from "./api";
-import { localTransport } from "./localTransport";
 // These thin routes reuse the generated Rust DTOs. See API-INTEGRATION.md for unimplemented backend surfaces.
 const messagePath = (m: Message) =>
   `${accountPath(m.account_id)}/messages/${key(m.id)}`;
@@ -35,6 +34,8 @@ export const extraApi = {
     ),
   job: (account: string, id: string) =>
     request<ModelJob>(`${accountPath(account)}/jobs/${key(id)}`),
+  pushStatus: (id: string) => request<boolean>(`/push/subscriptions/${key(id)}`),
+  disablePush: (id: string) => request<void>(`/push/subscriptions/${key(id)}`, { method: "DELETE" }),
   pushKey: () => request<string>("/push/public-key"),
   subscribe: (subscription: PushSubscriptionJSON) =>
     request<void>("/push/subscriptions", {
@@ -42,25 +43,3 @@ export const extraApi = {
       body: JSON.stringify(subscription),
     }),
 };
-export async function enableNotifications() {
-  if (localTransport) throw new Error("Notifications are not available in this browser.");
-  if (!("serviceWorker" in navigator) || !("PushManager" in window))
-    throw new Error("Notifications are not available in this browser.");
-  if ((await Notification.requestPermission()) !== "granted")
-    throw new Error(
-      "Allow notifications in browser settings to enable new-mail alerts.",
-    );
-  const publicKey = await extraApi.pushKey();
-  const padded = (publicKey + "=".repeat((4 - (publicKey.length % 4)) % 4))
-    .replace(/-/g, "+")
-    .replace(/_/g, "/");
-  const bytes = Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
-  const registration = await navigator.serviceWorker.ready;
-  const subscription =
-    (await registration.pushManager.getSubscription()) ||
-    (await registration.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: bytes,
-    }));
-  await extraApi.subscribe(subscription.toJSON());
-}

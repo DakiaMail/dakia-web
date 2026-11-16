@@ -33,13 +33,13 @@ it("hides installation in standalone mode", () => {
   renderApp();
   expect(screen.queryByRole("region", { name: "Install Dakia" })).toBeNull();
 });
-it("gives iPad Safari home-screen and notification instructions", () => {
+it("offers the library guide on iPad and explains where notifications work", () => {
   vi.spyOn(navigator, "platform", "get").mockReturnValue("MacIntel");
   Object.defineProperty(navigator, "maxTouchPoints", { value: 5, configurable: true });
   vi.spyOn(navigator, "userAgent", "get").mockReturnValue("Mozilla/5.0 Version/18.0 Safari/605.1.15");
   renderApp();
-  expect(screen.getByText(/In Safari, tap Share/)).toBeTruthy();
-  expect(screen.getByText(/iOS 16.4/)).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Install Dakia" })).toBeTruthy();
+  expect(screen.getByText(/Open Dakia from your home screen/)).toBeTruthy();
 });
 it("handles failed prompts without retrying the spent event", async () => {
   renderApp();

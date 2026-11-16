@@ -42,14 +42,20 @@ impl Store {
     }
 
     pub async fn flush_search_index(&self, a: &AuthorizedAccount) -> Result<bool> {
+        storage_deadline(
+            std::time::Duration::from_secs(10),
+            self.flush_search_index_inner(a),
+        )
+        .await
+    }
+
+    async fn flush_search_index_inner(&self, a: &AuthorizedAccount) -> Result<bool> {
         let Some(target) = &self.search_database else {
             return Ok(false);
         };
         let _guard = self.gate.read().await;
         let repository = self.account_repository(a).await?;
-        let identity = tokio::time::timeout(std::time::Duration::from_secs(10), target.identity())
-            .await
-            .map_err(|_| Error::DeadlineExceeded)??;
+        let identity = target.identity().await?;
         if !self
             .search_cleanup_done
             .load(std::sync::atomic::Ordering::Acquire)

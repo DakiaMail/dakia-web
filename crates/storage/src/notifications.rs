@@ -52,6 +52,32 @@ impl Store {
             .finish_push(message, subscription, retry)
             .await
     }
+    pub async fn next_push_claim(
+        &self,
+        a: &AuthorizedAccount,
+    ) -> Result<Option<(serde_json::Value, i64)>> {
+        let _guard = self.gate.read().await;
+        let _rules_guard = self.rules_gate.read().await;
+        let rules = self.rules(a.user_id()).await?;
+        self.account_repository(a)
+            .await?
+            .next_push_claim(&rules)
+            .await
+    }
+    pub async fn finish_push_attempt(
+        &self,
+        a: &AuthorizedAccount,
+        message: &str,
+        subscription: &str,
+        attempt: i64,
+        retry: Option<u32>,
+    ) -> Result<()> {
+        let _guard = self.gate.read().await;
+        self.account_repository(a)
+            .await?
+            .finish_push_attempt(message, subscription, attempt, retry)
+            .await
+    }
     pub async fn recover_push(&self, a: &AuthorizedAccount) -> Result<()> {
         let _guard = self.gate.read().await;
         let _rules_guard = self.rules_gate.read().await;

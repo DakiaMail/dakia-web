@@ -41,6 +41,7 @@ pub use full_text::{normalize_search, SearchContent, TextCoverage};
 /// Bounded federated account work and matching per-component read capacity.
 pub const SEARCH_ACCOUNT_CONCURRENCY: usize = 8;
 
+mod database_deadline;
 mod sender_mail;
 mod sync;
 mod thread_graph;
@@ -51,6 +52,7 @@ use aes_gcm::{
 };
 use chrono::{DateTime, Duration, SecondsFormat, Utc};
 use dakia_domain::*;
+pub use database_deadline::storage_deadline;
 use rand::RngCore;
 #[cfg(test)]
 use sqlx::Row;
@@ -176,6 +178,11 @@ async fn pool(path: &Path) -> Result<SqlitePool> {
 fn sqlite_pool_options() -> SqlitePoolOptions {
     SqlitePoolOptions::new()
         .max_connections(1)
+        .after_connect(|connection, _| Box::pin(database_deadline::sqlite(connection)))
+        .before_acquire(|connection, _| Box::pin(async move {
+            database_deadline::sqlite(connection).await?;
+            Ok(true)
+        }))
         .after_release(|connection, _| {
             Box::pin(async move {
                 // Wait for queued rollbacks before checking SQLx's transaction state.

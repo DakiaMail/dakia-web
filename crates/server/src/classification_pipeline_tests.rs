@@ -1,6 +1,59 @@
 use super::*;
 
 #[tokio::test]
+async fn completed_classification_retries_only_persistence_after_a_transient_failure() {
+    let (dir, app, _, a, _) = controlled().await;
+    let message = app
+        .mail
+        .snapshot_page(&app.store, &a, "INBOX", None)
+        .await
+        .unwrap()
+        .rows
+        .remove(0);
+    app.store
+        .queue_model(&a, &message.id, JobKind::Classify, "fixture", None)
+        .await
+        .unwrap();
+    let mut job = app.store.claim_model(&a).await.unwrap().unwrap();
+    job.status = JobStatus::Succeeded;
+    let db = database(&dir, &a).await;
+    sqlx::query("CREATE TRIGGER fail_completed_model BEFORE UPDATE ON messages BEGIN SELECT RAISE(ABORT,'synthetic persistence failure'); END").execute(&db).await.unwrap();
+    let repair = {
+        let db = db.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            sqlx::query("DROP TRIGGER fail_completed_model")
+                .execute(&db)
+                .await
+                .unwrap();
+        })
+    };
+    let classification = Classification {
+        status: CategoryStatus::Ready,
+        ..Default::default()
+    };
+    crate::models::persist_outcome(&app.store, &a, &job, Some(&classification), None)
+        .await
+        .unwrap();
+    repair.await.unwrap();
+    assert_eq!(
+        app.store.model_job(&a, &job.id).await.unwrap().status,
+        JobStatus::Succeeded
+    );
+    let revision = app.store.message(&a, &message.id).await.unwrap().revision;
+    let cursor = app.store.event_cursor(&a).await.unwrap();
+    crate::models::persist_outcome(&app.store, &a, &job, Some(&classification), None)
+        .await
+        .unwrap();
+    assert_eq!(
+        app.store.message(&a, &message.id).await.unwrap().revision,
+        revision
+    );
+    assert_eq!(app.store.event_cursor(&a).await.unwrap(), cursor);
+    db.close().await;
+}
+
+#[tokio::test]
 async fn cached_read_backfill_keeps_moving_and_separates_notices_from_correspondence() {
     let (_dir, app, _, a, provider) = controlled().await;
     app.store
@@ -49,6 +102,25 @@ async fn cached_read_backfill_keeps_moving_and_separates_notices_from_correspond
             .unwrap();
         ids.push(m.id.clone());
     }
+    app.store
+        .requeue_classification_policy(&a, dakia_inference::POLICY_REVISION)
+        .await
+        .unwrap();
+    let mut protected = app.store.message(&a, &ids[0]).await.unwrap();
+    protected.id = "protected-claim".into();
+    protected.provider_id = "protected-claim".into();
+    let protected = app.store.upsert_message(&a, protected).await.unwrap();
+    app.store
+        .queue_model(
+            &a,
+            &protected.id,
+            JobKind::Classify,
+            dakia_inference::POLICY_REVISION,
+            None,
+        )
+        .await
+        .unwrap();
+    let mut owned = app.store.claim_model(&a).await.unwrap().unwrap();
     let worker = tokio::spawn(crate::models::run(app.clone()));
     let completed = tokio::time::timeout(Duration::from_millis(1500), async {
         loop {
@@ -73,6 +145,28 @@ async fn cached_read_backfill_keeps_moving_and_separates_notices_from_correspond
     .await;
     worker.abort();
     completed.expect("cached backfill must not idle for two seconds after each message");
+    assert_eq!(
+        app.store.model_job(&a, &owned.id).await.unwrap().status,
+        JobStatus::Running
+    );
+    owned.status = JobStatus::Succeeded;
+    crate::models::persist_outcome(
+        &app.store,
+        &a,
+        &owned,
+        Some(&Classification {
+            status: CategoryStatus::Ready,
+            ..Classification::default()
+        }),
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        app.store.model_job(&a, &owned.id).await.unwrap().status,
+        JobStatus::Succeeded
+    );
+
     assert_eq!(
         app.store.message(&a, &ids[0]).await.unwrap().inbox_kind(),
         InboxKind::Automated

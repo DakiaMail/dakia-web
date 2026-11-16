@@ -37,7 +37,12 @@ pub async fn run(app: App) {
         // Recovery reads retained vectors only, so paused provider/extraction
         // work does not prevent rebuilding the local accelerator.
         let snapshot = Instant::now() >= next_snapshot;
-        match app.store.maintain_search_vectors(snapshot).await {
+        match dakia_storage::storage_deadline(
+            STORAGE_TURN,
+            app.store.maintain_search_vectors(snapshot),
+        )
+        .await
+        {
             Ok(worked) => {
                 progressed |= worked;
                 if snapshot && !worked {
@@ -60,23 +65,30 @@ pub async fn run(app: App) {
                 account_cursor = (start + index + 1) % count;
                 let available = model.is_some();
                 // First delivery or index recovery can reset durable model preparation.
-                if !matches!(
-                    tokio::time::timeout(
+                if phase_result(
+                    a.id(),
+                    "prepare",
+                    dakia_storage::storage_deadline(
                         STORAGE_TURN,
-                        app.store.prepare_embeddings(&a, &revision, available)
+                        app.store.prepare_embeddings(&a, &revision, available),
                     )
                     .await,
-                    Ok(Ok(()))
-                ) {
+                )
+                .is_err()
+                {
                     continue;
                 }
                 if enabled {
                     if let Some(model) = &model {
-                        let _ = tokio::time::timeout(
-                            STORAGE_TURN,
-                            app.store.discover_embeddings(&a, &revision),
-                        )
-                        .await;
+                        let _ = phase_result(
+                            a.id(),
+                            "discover",
+                            dakia_storage::storage_deadline(
+                                STORAGE_TURN,
+                                app.store.discover_embeddings(&a, &revision),
+                            )
+                            .await,
+                        );
                         turns = turns.wrapping_add(1);
                         match execute_turn(&app.store, &a, &revision, model.clone(), turns % 8 == 0)
                             .await
@@ -88,16 +100,15 @@ pub async fn run(app: App) {
                         }
                     }
                 }
-                match tokio::time::timeout(STORAGE_TURN, app.store.flush_embedding_receipts(&a))
-                    .await
+                match dakia_storage::storage_deadline(
+                    STORAGE_TURN,
+                    app.store.flush_embedding_receipts(&a),
+                )
+                .await
                 {
-                    Ok(Ok(worked)) => progressed |= worked,
-                    result => {
-                        let reason = match &result {
-                            Ok(Err(error)) => error.diagnostic_code(),
-                            _ => "deadline_exceeded".into(),
-                        };
-                        tracing::warn!(target:"dakia_server::diagnostics",operation="search_completion",reason=%reason,outcome="failed",account_key=crate::diagnostics::correlation(a.id()),"search completion delivery will retry")
+                    Ok(worked) => progressed |= worked,
+                    Err(error) => {
+                        tracing::warn!(target:"dakia_server::diagnostics",operation="search_completion",reason=%error.diagnostic_code(),outcome="failed",account_key=crate::diagnostics::correlation(a.id()),"search completion delivery will retry")
                     }
                 }
                 if started.elapsed() >= Duration::from_secs(2) {
@@ -113,6 +124,19 @@ pub async fn run(app: App) {
         .await;
     }
 }
+fn phase_result<T>(
+    account: &str,
+    stage: &'static str,
+    result: Result<T, Error>,
+) -> Result<T, Error> {
+    if let Err(error) = &result {
+        tracing::warn!(target: "dakia_server::diagnostics", operation = "search_embeddings", stage,
+            account_key = crate::diagnostics::correlation(account), reason = %error.diagnostic_code(),
+            outcome = if matches!(error, Error::DeadlineExceeded) { "deferred" } else { "failed" },
+            "search indexing phase will retry");
+    }
+    result
+}
 async fn execute_turn(
     store: &Store,
     a: &AuthorizedAccount,
@@ -120,9 +144,9 @@ async fn execute_turn(
     model: Model,
     oldest: bool,
 ) -> Result<bool, Error> {
-    let turn = tokio::time::timeout(STORAGE_TURN, store.claim_embedding(a, revision, oldest))
-        .await
-        .map_err(|_| Error::DeadlineExceeded)??;
+    let turn =
+        dakia_storage::storage_deadline(STORAGE_TURN, store.claim_embedding(a, revision, oldest))
+            .await?;
     let Some(turn) = turn else {
         return Ok(false);
     };
@@ -160,15 +184,28 @@ async fn execute_turn(
     })
     .await;
     match result {
-        Ok(Ok(passage)) => match store.commit_embedding(a, &turn, &passage).await {
+        Ok(Ok(passage)) => match dakia_storage::storage_deadline(
+            STORAGE_TURN,
+            store.commit_embedding(a, &turn, &passage),
+        )
+        .await
+        {
             Ok(value) => Ok(value),
             Err(error) => {
-                let _ = store.defer_embedding(a, &turn, "storage_failed").await;
+                let _ = dakia_storage::storage_deadline(
+                    STORAGE_TURN,
+                    store.defer_embedding(a, &turn, "storage_failed"),
+                )
+                .await;
                 Err(error)
             }
         },
         _ => {
-            store.defer_embedding(a, &turn, "model_failed").await?;
+            dakia_storage::storage_deadline(
+                STORAGE_TURN,
+                store.defer_embedding(a, &turn, "model_failed"),
+            )
+            .await?;
             Err(Error::Invalid)
         }
     }
@@ -177,6 +214,57 @@ async fn execute_turn(
 mod tests {
     use super::*;
     use dakia_domain::*;
+
+    #[tokio::test]
+    async fn preparation_and_discovery_failures_log_safe_stage_and_reason() {
+        let dir = tempfile::tempdir().unwrap();
+        let retained = crate::diagnostics::Retained::open(dir.path()).unwrap();
+        let subscriber = tracing_subscriber::fmt()
+            .with_ansi(false)
+            .with_writer(retained)
+            .finish();
+        let timeout = dakia_storage::storage_deadline(
+            Duration::from_millis(1),
+            std::future::pending::<Result<(), Error>>(),
+        )
+        .await;
+        tracing::subscriber::with_default(subscriber, || {
+            assert!(matches!(
+                phase_result("private-account", "prepare", timeout),
+                Err(Error::DeadlineExceeded)
+            ));
+            assert!(phase_result::<()>(
+                "private-account",
+                "discover",
+                Err(Error::Sql(sqlx::Error::Protocol(
+                    "private@example.invalid".into()
+                )))
+            )
+            .is_err());
+            assert!(!phase_result("private-account", "discover", Ok(false)).unwrap());
+        });
+        let text =
+            std::fs::read_to_string(dir.path().join("diagnostics/mail-events.0.log")).unwrap();
+        for expected in [
+            "stage=\"prepare\"",
+            "stage=\"discover\"",
+            "reason=deadline_exceeded",
+            "reason=database_error",
+            "outcome=\"deferred\"",
+            "outcome=\"failed\"",
+            &crate::diagnostics::correlation("private-account"),
+        ] {
+            assert!(text.contains(expected), "missing {expected}: {text}");
+        }
+        assert_eq!(
+            text.lines().count(),
+            2,
+            "successful discovery is not a failure"
+        );
+        assert!(!text.contains("private-account"));
+        assert!(!text.contains("private@example.invalid"));
+    }
+
     async fn worker_contract(url: Option<&str>) {
         let dir = tempfile::tempdir().unwrap();
         let mut store = Store::open(dir.path(), [27; 32]).await.unwrap();

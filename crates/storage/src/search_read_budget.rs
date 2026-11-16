@@ -34,14 +34,7 @@ pub(super) async fn sqlite(db: &SqlitePool) -> Result<SqliteRead> {
 async fn sqlite_for(db: &SqlitePool, turn: std::time::Duration) -> Result<SqliteRead> {
     let mut connection = db.acquire().await?;
     let active = Arc::new(AtomicBool::new(true));
-    let alive = active.clone();
-    let until = std::time::Instant::now() + turn;
-    connection
-        .lock_handle()
-        .await?
-        .set_progress_handler(1000, move || {
-            alive.load(Ordering::Acquire) && std::time::Instant::now() < until
-        });
+    crate::database_deadline::sqlite_read_limit(&mut connection, turn, active.clone()).await?;
     Ok(SqliteRead { connection, active })
 }
 
@@ -64,14 +57,7 @@ impl Drop for SqliteSnapshot {
 pub(super) async fn sqlite_snapshot(db: &SqlitePool) -> Result<SqliteSnapshot> {
     let mut transaction = db.begin().await?;
     let active = Arc::new(AtomicBool::new(true));
-    let alive = active.clone();
-    let until = std::time::Instant::now() + TURN;
-    transaction
-        .lock_handle()
-        .await?
-        .set_progress_handler(1000, move || {
-            alive.load(Ordering::Acquire) && std::time::Instant::now() < until
-        });
+    crate::database_deadline::sqlite_read_limit(&mut transaction, TURN, active.clone()).await?;
     Ok(SqliteSnapshot {
         transaction,
         active,
@@ -90,26 +76,47 @@ pub(super) async fn postgres(db: &PgPool) -> Result<PostgresRead> {
 }
 async fn postgres_for(db: &PgPool, turn: std::time::Duration) -> Result<PostgresRead> {
     let mut transaction = db.begin().await?;
-    sqlx::query(&format!(
-        "SET LOCAL statement_timeout='{}ms'",
-        turn.as_millis()
-    ))
-    .execute(&mut *transaction)
-    .await?;
+    crate::database_deadline::postgres_read_limit(&mut transaction, turn).await?;
     Ok(PostgresRead { transaction })
 }
 pub(super) async fn postgres_snapshot(db: &PgPool) -> Result<PostgresRead> {
-    let mut read = postgres(db).await?;
+    let mut transaction = db.begin().await?;
     sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
-        .execute(read.connection())
+        .execute(&mut *transaction)
         .await?;
-    Ok(read)
+    crate::database_deadline::postgres_read_limit(&mut transaction, TURN).await?;
+    Ok(PostgresRead { transaction })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     const EXPENSIVE:&str="WITH RECURSIVE values_to_sum(n) AS(VALUES(0) UNION ALL SELECT n+1 FROM values_to_sum WHERE n<1000000000) SELECT sum(n) FROM values_to_sum";
+    #[tokio::test]
+    async fn sqlite_read_guard_never_extends_a_parent_deadline() {
+        let db = sqlite_pool()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        let result: crate::Result<()> =
+            crate::storage_deadline(std::time::Duration::from_millis(25), async {
+                let mut read = sqlite_for(&db, std::time::Duration::from_secs(10)).await?;
+                sqlx::query(EXPENSIVE).execute(read.connection()).await?;
+                Ok(())
+            })
+            .await;
+        assert!(matches!(result, Err(crate::Error::DeadlineExceeded)));
+        tokio::time::timeout(std::time::Duration::from_millis(250), db.acquire())
+            .await
+            .unwrap()
+            .unwrap();
+        sqlx::query("CREATE TABLE proof(value INTEGER)")
+            .execute(&db)
+            .await
+            .unwrap();
+        db.close().await;
+    }
     #[tokio::test]
     async fn sqlite_ranking_snapshot_is_stable_and_cancelled_reads_roll_back() {
         let dir = tempfile::tempdir().unwrap();

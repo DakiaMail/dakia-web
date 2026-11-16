@@ -42,6 +42,16 @@ async fn newsletter_delivery_gate_reaches_real_worker_only_for_eligible_mail() {
         mail: crate::mail::MailRuntime::default(),
     };
     let calls = AtomicUsize::new(0);
+    let db = sqlx::SqlitePool::connect(&format!(
+        "sqlite:{}",
+        dir.path()
+            .join("accounts")
+            .join(format!("{}.sqlite", a.id()))
+            .display()
+    ))
+    .await
+    .unwrap();
+    let mut faulted_completion = false;
     let send = |job: serde_json::Value| {
         calls.fetch_add(1, Ordering::SeqCst);
         async move {
@@ -126,7 +136,7 @@ async fn newsletter_delivery_gate_reaches_real_worker_only_for_eligible_mail() {
                 .unwrap();
         }
         if id == "reclassified" {
-            let job = app.store.next_push(&a).await.unwrap().unwrap();
+            let (job, attempt) = app.store.next_push_claim(&a).await.unwrap().unwrap();
             let model = app
                 .store
                 .queue_model(&a, id, JobKind::Classify, "fixture", None)
@@ -148,10 +158,27 @@ async fn newsletter_delivery_gate_reaches_real_worker_only_for_eligible_mail() {
                 )
                 .await
                 .unwrap();
-            deliver(&app, &a, job, &send).await.unwrap();
+            deliver(&app, &a, job, attempt, &send).await.unwrap();
         }
-        while let Some(job) = app.store.next_push(&a).await.unwrap() {
-            deliver(&app, &a, job, &send).await.unwrap();
+        while let Some((job, attempt)) = app.store.next_push_claim(&a).await.unwrap() {
+            let repair = if id == "person" && !faulted_completion {
+                faulted_completion = true;
+                sqlx::query("CREATE TRIGGER fail_push_finish BEFORE UPDATE ON push_jobs WHEN OLD.state='running' AND NEW.state='done' BEGIN SELECT RAISE(ABORT,'synthetic completion failure'); END").execute(&db).await.unwrap();
+                let db = db.clone();
+                Some(tokio::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+                    sqlx::query("DROP TRIGGER fail_push_finish")
+                        .execute(&db)
+                        .await
+                        .unwrap();
+                }))
+            } else {
+                None
+            };
+            deliver(&app, &a, job, attempt, &send).await.unwrap();
+            if let Some(repair) = repair {
+                repair.await.unwrap();
+            }
         }
         if matches!(id, "newsletter" | "pending" | "reclassified" | "routine") {
             assert_eq!(
@@ -167,6 +194,8 @@ async fn newsletter_delivery_gate_reaches_real_worker_only_for_eligible_mail() {
     );
     app.store.recover_push(&a).await.unwrap();
     assert!(app.store.next_push(&a).await.unwrap().is_none());
+    assert!(faulted_completion);
+    db.close().await;
 }
 
 #[tokio::test]

@@ -23,26 +23,26 @@ pub(super) async fn status(
                 })
                 .all(|f| terminal.contains(&f.name))
     });
-    let (coverage, mut search_unavailable) = match tokio::time::timeout(
+    let (coverage, mut search_unavailable) = match dakia_storage::storage_deadline(
         std::time::Duration::from_secs(10),
         app.store.text_coverage(&a),
     )
     .await
     {
-        Ok(Ok(coverage)) => (coverage, false),
-        _ => (app.store.indexing_inventory(&a).await?, true),
+        Ok(coverage) => (coverage, false),
+        Err(_) => (app.store.indexing_inventory(&a).await?, true),
     };
     let mut vector_pending = false;
     if coverage.semantic_required && coverage.eligible > 0 {
         if let Some(revision) = coverage.semantic_revision.as_deref() {
-            match tokio::time::timeout(
+            match dakia_storage::storage_deadline(
                 std::time::Duration::from_secs(10),
                 app.store.search_vectors_ready(&a, revision),
             )
             .await
             {
-                Ok(Ok(ready)) => vector_pending = !ready,
-                _ => search_unavailable = true,
+                Ok(ready) => vector_pending = !ready,
+                Err(_) => search_unavailable = true,
             }
         }
     }

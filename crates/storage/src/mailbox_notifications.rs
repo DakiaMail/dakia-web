@@ -27,13 +27,15 @@ impl MailboxTransaction<'_> {
         }
         Ok(())
     }
-    async fn next_push(&mut self, rules: &[MailRule]) -> Result<Option<serde_json::Value>> {
+    async fn next_push(&mut self, rules: &[MailRule]) -> Result<Option<(serde_json::Value, i64)>> {
         self.suppress_push(rules).await?;
         let deadline = (Utc::now() + Duration::minutes(5)).to_rfc3339();
         let at = Utc::now().timestamp();
-        let sqlite=format!("UPDATE push_jobs SET state='running',document=CASE WHEN attempts=0 THEN json_set(document,'$.deadline',?) ELSE document END,attempts=attempts+1 WHERE rowid=(SELECT rowid FROM push_jobs WHERE state='pending' AND next_attempt<=? AND attempts<5 AND EXISTS ({SQLITE_ELIGIBLE}) ORDER BY rowid LIMIT 1) RETURNING document");
-        let pg=format!("UPDATE push_jobs SET state='running',document=CASE WHEN attempts=0 THEN jsonb_set(document::jsonb,'{{deadline}}',to_jsonb($2::TEXT))::TEXT ELSE document END,attempts=attempts+1 WHERE account_id=$1 AND id=(SELECT id FROM push_jobs WHERE account_id=$1 AND state='pending' AND next_attempt<=$3 AND attempts<5 AND EXISTS ({PG_ELIGIBLE}) ORDER BY id LIMIT 1) RETURNING document");
-        let raw: Option<String> = value!(
+        // An abandoned send may have reached the push service. Never replay it.
+        write!(self,"UPDATE push_jobs SET state='done' WHERE rowid IN (SELECT rowid FROM push_jobs WHERE state IN ('pending','running') AND state='running' AND unixepoch(json_extract(document,'$.deadline'))<=? ORDER BY rowid LIMIT 200)",[at],"UPDATE push_jobs SET state='done' WHERE account_id=$1 AND id IN (SELECT id FROM push_jobs WHERE account_id=$1 AND state='running' AND floor(extract(epoch FROM (document::jsonb->>'deadline')::TIMESTAMPTZ))::BIGINT<=$2 ORDER BY id LIMIT 200)",[&self.account,at]);
+        let sqlite=format!("UPDATE push_jobs SET state='running',document=CASE WHEN attempts=0 THEN json_set(document,'$.deadline',?) ELSE document END,attempts=attempts+1 WHERE rowid=(SELECT rowid FROM push_jobs WHERE state IN ('pending','running') AND state='pending' AND next_attempt<=? AND attempts<5 AND EXISTS ({SQLITE_ELIGIBLE}) ORDER BY rowid LIMIT 1) RETURNING document,attempts");
+        let pg=format!("UPDATE push_jobs SET state='running',document=CASE WHEN attempts=0 THEN jsonb_set(document::jsonb,'{{deadline}}',to_jsonb($2::TEXT))::TEXT ELSE document END,attempts=attempts+1 WHERE account_id=$1 AND id=(SELECT id FROM push_jobs WHERE account_id=$1 AND state='pending' AND next_attempt<=$3 AND attempts<5 AND EXISTS ({PG_ELIGIBLE}) ORDER BY id LIMIT 1) RETURNING document,attempts");
+        let raw: Option<(String, i64)> = tuples!(
             self,
             &sqlite,
             [&deadline, at],
@@ -41,7 +43,8 @@ impl MailboxTransaction<'_> {
             [&self.account, &deadline, at],
             fetch_optional
         );
-        raw.map(|s| Ok(serde_json::from_str(&s)?)).transpose()
+        raw.map(|(s, attempt)| Ok((serde_json::from_str(&s)?, attempt)))
+            .transpose()
     }
     async fn push_send_allowed(
         &mut self,
@@ -70,10 +73,11 @@ impl MailboxTransaction<'_> {
         message: &str,
         subscription: &str,
         retry: Option<u32>,
+        attempt: Option<i64>,
     ) -> Result<()> {
         let state = if retry.is_some() { "pending" } else { "done" };
         let at = Utc::now().timestamp() + i64::from(retry.unwrap_or(0).min(3600));
-        write!(self,"UPDATE push_jobs SET state=?,next_attempt=? WHERE message_id=? AND subscription_id=? AND state='running'",[state,at,message,subscription],"UPDATE push_jobs SET state=$1,next_attempt=$2 WHERE account_id=$3 AND message_id=$4 AND subscription_id=$5 AND state='running'",[state,at,&self.account,message,subscription]);
+        write!(self,"UPDATE push_jobs SET state=?,next_attempt=? WHERE message_id=? AND subscription_id=? AND state='running' AND (? IS NULL OR attempts=?)",[state,at,message,subscription,attempt,attempt],"UPDATE push_jobs SET state=$1,next_attempt=$2 WHERE account_id=$3 AND message_id=$4 AND subscription_id=$5 AND state='running' AND ($6::BIGINT IS NULL OR attempts=$6)",[state,at,&self.account,message,subscription,attempt]);
         Ok(())
     }
     async fn recover_push(&mut self, rules: &[MailRule]) -> Result<()> {
@@ -105,6 +109,12 @@ impl MailboxTransaction<'_> {
 }
 impl AccountRepository {
     pub(crate) async fn next_push(&self, rules: &[MailRule]) -> Result<Option<serde_json::Value>> {
+        Ok(self.next_push_claim(rules).await?.map(|(job, _)| job))
+    }
+    pub(crate) async fn next_push_claim(
+        &self,
+        rules: &[MailRule],
+    ) -> Result<Option<(serde_json::Value, i64)>> {
         scoped!(self, scope, true, { scope.next_push(rules).await })
     }
     pub(crate) async fn push_send_allowed(
@@ -124,7 +134,20 @@ impl AccountRepository {
         retry: Option<u32>,
     ) -> Result<()> {
         scoped!(self, scope, true, {
-            scope.finish_push(message, subscription, retry).await
+            scope.finish_push(message, subscription, retry, None).await
+        })
+    }
+    pub(crate) async fn finish_push_attempt(
+        &self,
+        message: &str,
+        subscription: &str,
+        attempt: i64,
+        retry: Option<u32>,
+    ) -> Result<()> {
+        scoped!(self, scope, true, {
+            scope
+                .finish_push(message, subscription, retry, Some(attempt))
+                .await
         })
     }
     pub(crate) async fn recover_push(&self, rules: &[MailRule]) -> Result<()> {

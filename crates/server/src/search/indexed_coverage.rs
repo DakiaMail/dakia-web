@@ -9,12 +9,11 @@ pub(super) async fn read(
     folders: Vec<String>,
 ) -> (AccountCoverage, Vec<SearchDegradation>) {
     let mut issues = vec![];
-    let (text, mut failed) = match tokio::time::timeout(
+    let (text, mut failed) = match dakia_storage::storage_deadline(
         std::time::Duration::from_secs(10),
         app.store.text_coverage(a),
     )
     .await
-    .unwrap_or(Err(StorageError::Invalid))
     {
         Ok(text) => (text, false),
         Err(_) => {

@@ -1,6 +1,83 @@
 use super::*;
 
 #[tokio::test]
+async fn expired_push_claims_become_terminal_without_replaying_a_send() {
+    let (_dir, store, user, a, _) = fixture().await;
+    store
+        .subscribe(
+            &user,
+            "expiry",
+            &serde_json::json!({"id":"expiry","user_id":user}).to_string(),
+        )
+        .await
+        .unwrap();
+    store
+        .record_incremental(&a, "INBOX", &[], "bootstrap")
+        .await
+        .unwrap();
+    let mut arrival = message(&a, "expiring-push");
+    arrival.received_at = (Utc::now() + Duration::hours(1)).to_rfc3339();
+    arrival.category_status = CategoryStatus::Ready;
+    arrival.classification = Some(crate::classification::legacy_classification("people"));
+    let arrival = store.upsert_message(&a, arrival).await.unwrap();
+    store
+        .record_incremental(&a, "INBOX", &[arrival], "arrival")
+        .await
+        .unwrap();
+    store.next_push(&a).await.unwrap().unwrap();
+    assert!(store.next_push(&a).await.unwrap().is_none());
+    let db = store.db(&a).await.unwrap();
+    sqlx::query("WITH RECURSIVE n(i) AS(VALUES(1) UNION ALL SELECT i+1 FROM n WHERE i<5000) INSERT INTO push_jobs(message_id,subscription_id,document,state) SELECT printf('history-%05d',i),'expiry','{}','done' FROM n").execute(&db).await.unwrap();
+    let plan: Vec<(i64,i64,i64,String)> = sqlx::query_as("EXPLAIN QUERY PLAN UPDATE push_jobs SET state='done' WHERE rowid IN (SELECT rowid FROM push_jobs WHERE state IN ('pending','running') AND state='running' AND unixepoch(json_extract(document,'$.deadline'))<=0 ORDER BY rowid LIMIT 200)").fetch_all(&db).await.unwrap();
+    assert!(
+        plan.iter().any(|row| row.3.contains("push_jobs_active")),
+        "{plan:?}"
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, String>(
+            "SELECT state FROM push_jobs WHERE message_id='expiring-push'"
+        )
+        .fetch_one(&db)
+        .await
+        .unwrap(),
+        "running"
+    );
+    sqlx::query("UPDATE push_jobs SET document=json_set(document,'$.deadline','2000-01-01T00:00:00Z') WHERE message_id='expiring-push'").execute(&db).await.unwrap();
+    assert!(store.next_push(&a).await.unwrap().is_none());
+    assert_eq!(
+        sqlx::query_scalar::<_, String>(
+            "SELECT state FROM push_jobs WHERE message_id='expiring-push'"
+        )
+        .fetch_one(&db)
+        .await
+        .unwrap(),
+        "done"
+    );
+    store
+        .finish_push(&a, "expiring-push", "expiry", Some(0))
+        .await
+        .unwrap();
+    assert!(store.next_push(&a).await.unwrap().is_none());
+    sqlx::query("WITH RECURSIVE n(i) AS(VALUES(1) UNION ALL SELECT i+1 FROM n WHERE i<201) INSERT INTO push_jobs(message_id,subscription_id,document,state) SELECT 'expiring-push',printf('expired-%05d',i),'{\"deadline\":\"2000-01-01T00:00:00Z\"}','running' FROM n").execute(&db).await.unwrap();
+    assert!(store.next_push(&a).await.unwrap().is_none());
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM push_jobs WHERE state='running'")
+            .fetch_one(&db)
+            .await
+            .unwrap(),
+        1
+    );
+    assert!(store.next_push(&a).await.unwrap().is_none());
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM push_jobs WHERE state='running'")
+            .fetch_one(&db)
+            .await
+            .unwrap(),
+        0
+    );
+}
+
+#[tokio::test]
 async fn newsletter_push_waits_for_classification_and_is_terminal_after_restart() {
     let (dir, store, user, a, _) = fixture().await;
     for id in ["one", "two"] {
@@ -249,8 +326,7 @@ async fn bootstrap_arrivals_replay_restart_folders_and_accounts_preserve_push_de
     }
     let first = store.next_push(&a).await.unwrap().unwrap();
     assert!(store.next_push(&a).await.unwrap().is_none());
-    // Crash after claim, possibly after HTTP delivery: recovered job retains its
-    // exact ID (and therefore browser notification tag), not a fresh alert.
+    // Explicit offline recovery preserves the original notification identity.
     let reopened = Store::open(dir.path(), [31; 32]).await.unwrap();
     let a = reopened.authorize(&user, a.id()).await.unwrap();
     reopened.recover_push(&a).await.unwrap();

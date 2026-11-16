@@ -105,17 +105,10 @@ pub(crate) async fn subscribe(
     Ok(StatusCode::NO_CONTENT)
 }
 pub async fn run(app: App) {
-    let mut recovered = std::collections::HashSet::new();
     loop {
         if app.store.jobs_enabled().await.unwrap_or(false) {
             if let Ok(accounts) = app.store.job_accounts().await {
                 for a in accounts {
-                    if !recovered.contains(a.id()) {
-                        if app.store.recover_push(&a).await.is_err() {
-                            continue;
-                        }
-                        recovered.insert(a.id().to_owned());
-                    }
                     let _ = tick(&app, &a).await;
                 }
             }
@@ -124,16 +117,20 @@ pub async fn run(app: App) {
     }
 }
 async fn tick(app: &App, a: &AuthorizedAccount) -> Result<(), Error> {
-    let Some(job) = app.store.next_push(a).await? else {
+    let Some((job, attempt)) = app.store.next_push_claim(a).await? else {
         return Ok(());
     };
-    deliver(app, a, job, |job| crate::models::node_worker("push", job)).await
+    deliver(app, a, job, attempt, |job| {
+        crate::models::node_worker("push", job)
+    })
+    .await
 }
 
 async fn deliver<F, Fut>(
     app: &App,
     a: &AuthorizedAccount,
     mut job: serde_json::Value,
+    attempt: i64,
     send: F,
 ) -> Result<(), Error>
 where
@@ -152,7 +149,9 @@ where
         .into_iter()
         .find(|s| s["id"] == id);
     let Some(subscription) = current else {
-        app.store.finish_push(a, &message, &id, None).await?;
+        app.store
+            .finish_push_attempt(a, &message, &id, attempt, None)
+            .await?;
         return Ok(());
     };
     job["subscription"] = subscription;
@@ -186,5 +185,22 @@ where
         },
         _ => Some(60),
     };
-    app.store.finish_push(a, &message, &id, retry).await
+    // Retry saving the known result, never the transport call.
+    for save_attempt in 0..3 {
+        match dakia_storage::storage_deadline(
+            std::time::Duration::from_secs(10),
+            app.store
+                .finish_push_attempt(a, &message, &id, attempt, retry),
+        )
+        .await
+        {
+            Ok(()) => return Ok(()),
+            Err(error) if save_attempt == 2 => {
+                tracing::warn!(target: "dakia_server::diagnostics", operation = "push_completion", reason = %error.diagnostic_code(), "push outcome not persisted; send will not be replayed");
+                return Err(error);
+            }
+            Err(_) => tokio::time::sleep(std::time::Duration::from_millis(100)).await,
+        }
+    }
+    unreachable!()
 }

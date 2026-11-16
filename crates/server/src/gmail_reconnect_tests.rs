@@ -187,5 +187,26 @@ async fn google_reconnect_replaces_expired_grant_only_after_valid_callback() {
     );
     let new_provider = app.mail.provider(&app.store, &a).await.unwrap();
     assert!(!Arc::ptr_eq(&old_provider, &new_provider));
+    let reopened = Store::open(directory.path(), [7; 32]).await.unwrap();
+    let restored = reopened.authorize(&user, a.id()).await.unwrap();
+    assert_eq!(
+        reopened
+            .credential(&restored)
+            .await
+            .unwrap()
+            .gmail_oauth
+            .unwrap()
+            .refresh_token,
+        "replacement-fixture"
+    );
+    assert_eq!(reopened.accounts(&user).await.unwrap().len(), 1);
+    assert_eq!(
+        reopened
+            .provider_document(&restored, "fixture-data")
+            .await
+            .unwrap()
+            .as_deref(),
+        Some("keep")
+    );
     task.abort();
 }

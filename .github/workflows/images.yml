@@ -144,7 +144,7 @@ jobs:
           scripts/package-runtime.sh "$IMAGE@$DIGEST" "$VERSION" "${{ matrix.arch }}" native-dist
           docker build -t dakia-native-check -f deploy/native/runtime-check.Dockerfile deploy/native
           docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
-            --tmpfs /tmp:rw,nosuid,nodev,size=2g,mode=1777 \
+            --tmpfs /tmp:rw,exec,nosuid,nodev,size=2g,mode=1777 \
             -v "$GITHUB_WORKSPACE/scripts:/source/scripts:ro" \
             -v "$GITHUB_WORKSPACE/native-dist:/source/native-dist:ro" \
             dakia-native-check sh /source/scripts/check-native-runtime.sh \

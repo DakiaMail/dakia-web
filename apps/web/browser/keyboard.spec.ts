@@ -168,15 +168,15 @@ test("mail navigation, selection, read, unread, stars and removal use the intend
   await page.keyboard.press("u");
   await expect.poll(() => writes.length).toBe(1);
   expect(writes[0]).toMatchObject({ target_id: mail.rows[0].id, change: { kind: "read", value: false } });
-  await expect(page.getByRole("button", { name: "Mark unread", exact: true })).toBeEnabled();
+  await expect(page.locator(".message-row.selected").getByRole("button", { name: "Archive message", exact: true })).toBeEnabled();
   await page.keyboard.press("Shift+u");
   await expect.poll(() => writes.length).toBe(2);
   expect(writes[1]).toMatchObject({ change: { kind: "read", value: true } });
-  await expect(page.getByRole("button", { name: "Mark unread", exact: true })).toBeEnabled();
+  await expect(page.locator(".message-row.selected").getByRole("button", { name: "Archive message", exact: true })).toBeEnabled();
   await page.keyboard.press("s");
   await expect.poll(() => writes.length).toBe(3);
   expect(writes[2]).toMatchObject({ change: { kind: "star", value: !mail.rows[0].starred } });
-  await expect(page.getByRole("button", { name: "Mark unread", exact: true })).toBeEnabled();
+  await expect(page.locator(".message-row.selected").getByRole("button", { name: "Archive message", exact: true })).toBeEnabled();
   await page.keyboard.press("x");
   await expect(page.locator(".message-select input:checked")).toHaveCount(1);
   await page.keyboard.press("j");
@@ -260,6 +260,7 @@ test("move and snooze open keyboard-operable dialogs, and spam uses the current 
     await page.keyboard.press(key);
     const dialog = page.getByRole("dialog", { name: title, exact: true });
     await expect(dialog).toBeVisible();
+    await expect.poll(() => dialog.evaluate(element => element.contains(document.activeElement))).toBe(true);
     await page.keyboard.press("e");
     expect(writes).toEqual([]);
     await page.keyboard.press("Escape");

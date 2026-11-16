@@ -11,6 +11,10 @@ function spec(values: (string | number)[]): Artifact {
 }
 const models = registry.models.map(m => ({ ...m, files: { model: spec(m.files.model), shortlist: spec(m.files.shortlist), vocabs: m.files.vocabs.map(spec) } }));
 const CACHE = "dakia-translation-packs-v1";
+const CACHE_WAIT = 10_000;
+// The server may need its 120-second cold-download budget before sending bytes.
+const DOWNLOAD_CONNECT_WAIT = 150_000;
+const DOWNLOAD_IDLE_WAIT = 30_000;
 const wasmUrl = new URL("../../../workers/translation/browser/bergamot-translator.wasm", import.meta.url).href;
 const wasmHash = "f38ef807636a7c994afedaab7ff8ffe0d590d21897f05139f747b80fd7bbe926";
 const digest = async (bytes: ArrayBuffer) => [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map(x => x.toString(16).padStart(2, "0")).join("");
@@ -98,6 +102,21 @@ class DeviceTranslator {
     const signal = operation.signal;
     const abort = () => { operation.abort(); this.stopWorker(); };
     outerSignal.addEventListener("abort", abort, { once: true });
+    const wait = async <T>(promise: Promise<T>, milliseconds: number): Promise<T> => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let cancelled = () => {};
+      try {
+        return await new Promise<T>((resolve, reject) => {
+          cancelled = () => reject(signal.reason);
+          promise.then(resolve, reject);
+          if (signal.aborted) { cancelled(); return; }
+          signal.addEventListener("abort", cancelled, { once: true });
+          const expire = () => operation.abort(new DeviceTranslationError("The language took too long to load on this device. Try again."));
+          if (milliseconds <= 0) expire();
+          else timer = setTimeout(expire, milliseconds);
+        });
+      } finally { clearTimeout(timer); signal.removeEventListener("abort", cancelled); }
+    };
     try {
       if (!this.worker || this.source !== source) {
         this.stopWorker();
@@ -111,33 +130,35 @@ class DeviceTranslator {
             lastReport = now; progress({ stage: "downloading", downloaded: downloaded + partial, total });
           }
         };
-        const cache = await caches.open(CACHE);
+        const cache = await wait(caches.open(CACHE), CACHE_WAIT);
         const artifact = async (url: string, size: number, hash: string) => {
           signal.throwIfAborted();
-          const cached = await cache.match(url);
+          const cached = await wait(cache.match(url), CACHE_WAIT);
           if (cached) {
-            const bytes = await cached.arrayBuffer();
-            if (bytes.byteLength === size && await digest(bytes) === hash) { downloaded += size; report(); return bytes; }
-            await cache.delete(url);
+            const bytes = await wait(cached.arrayBuffer(), CACHE_WAIT);
+            if (bytes.byteLength === size && await wait(digest(bytes), CACHE_WAIT) === hash) { downloaded += size; report(); return bytes; }
+            await wait(cache.delete(url), CACHE_WAIT);
           }
           report();
-          const response = await fetch(url, { signal, credentials: "same-origin", cache: "no-store", redirect: "error" });
+          const response = await wait(fetch(url, { signal, credentials: "same-origin", cache: "no-store", redirect: "error" }), DOWNLOAD_CONNECT_WAIT);
           if (!response.ok || !response.body) throw new DeviceTranslationError("The language download failed. Try again.");
           const reader = response.body.getReader(), bytes = new Uint8Array(size);
           let received = 0;
+          let lastProgress = performance.now();
           try {
             while (true) {
-              const { value, done } = await reader.read(); if (done) break;
+              const { value, done } = await wait(reader.read(), DOWNLOAD_IDLE_WAIT - (performance.now() - lastProgress)); if (done) break;
               if (received + value.byteLength > size) throw new DeviceTranslationError("The language download could not be verified. Try again.");
               bytes.set(value, received);
+              if (value.byteLength) lastProgress = performance.now();
               received += value.byteLength; report(received);
             }
-          } catch (error) { await reader.cancel().catch(() => {}); throw error; }
+          } catch (error) { void reader.cancel().catch(() => {}); throw error; }
           finally { reader.releaseLock(); }
-          if (received !== size || await digest(bytes.buffer) !== hash) throw new DeviceTranslationError("The language download could not be verified. Try again.");
+          if (received !== size || await wait(digest(bytes.buffer), CACHE_WAIT) !== hash) throw new DeviceTranslationError("The language download could not be verified. Try again.");
           signal.throwIfAborted();
-          try { await cache.put(url, new Response(bytes)); }
-          catch { throw new DeviceTranslationError("There is not enough browser storage to save this language. Remove a saved language or free some space."); }
+          try { await wait(cache.put(url, new Response(bytes)), CACHE_WAIT); }
+          catch { signal.throwIfAborted(); throw new DeviceTranslationError("There is not enough browser storage to save this language. Remove a saved language or free some space."); }
           downloaded += size; report(); return bytes.buffer;
         };
         const wasmBinary = await artifact(wasmUrl, 4_960_506, wasmHash);

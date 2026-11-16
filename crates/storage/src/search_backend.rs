@@ -1,7 +1,9 @@
 //! Derived search persistence. No provider calls, credentials, or authorization decisions.
 use crate::{normalize_search, CachedSearchFilter, Error, Result};
 use dakia_domain::Message;
-use sqlx::{postgres::PgPoolOptions, PgPool, Row, SqlitePool};
+#[cfg(test)]
+use sqlx::postgres::PgPoolOptions;
+use sqlx::{PgPool, Row, SqlitePool};
 use std::{path::Path, str::FromStr};
 
 macro_rules! query {
@@ -137,7 +139,7 @@ impl SearchDatabase {
                     .await?,
             ),
             Self::Postgres(db) => Self::Postgres(
-                PgPoolOptions::new()
+                crate::database_deadline::postgres_pool_options(db.connect_options().as_ref())
                     .max_connections(capacity)
                     .min_connections(capacity)
                     .acquire_timeout(std::time::Duration::from_secs(3))
@@ -171,7 +173,7 @@ impl SearchDatabase {
         match url {
             Some(url) if url.starts_with("postgres:") || url.starts_with("postgresql:") => {
                 let options = sqlx::postgres::PgConnectOptions::from_str(url)?;
-                let bootstrap = PgPoolOptions::new()
+                let bootstrap = crate::database_deadline::postgres_pool_options(&options)
                     .max_connections(1)
                     .acquire_timeout(std::time::Duration::from_secs(3))
                     .connect_with(options.clone())
@@ -197,7 +199,7 @@ impl SearchDatabase {
                     .execute(&bootstrap)
                     .await?;
                 bootstrap.close().await;
-                let db = PgPoolOptions::new()
+                let db = crate::database_deadline::postgres_pool_options(&options)
                     .max_connections(4)
                     .acquire_timeout(std::time::Duration::from_secs(3))
                     // Search deadlines are shorter than compilation of these ranking expressions.
@@ -459,7 +461,7 @@ impl SearchDatabase {
 pub(crate) struct SearchConnection {
     root: std::path::PathBuf,
     url: Option<String>,
-    database: tokio::sync::Mutex<Option<SearchDatabase>>,
+    database: std::sync::Arc<tokio::sync::Mutex<Option<SearchDatabase>>>,
     lexical_read: tokio::sync::OnceCell<SearchDatabase>,
     semantic_read: tokio::sync::OnceCell<SearchDatabase>,
     phrase_read: tokio::sync::OnceCell<SearchDatabase>,
@@ -482,7 +484,7 @@ impl SearchConnection {
         Ok(Self {
             root: root.to_owned(),
             url: url.map(str::to_owned),
-            database: tokio::sync::Mutex::new(None),
+            database: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
             lexical_read: tokio::sync::OnceCell::new(),
             semantic_read: tokio::sync::OnceCell::new(),
             phrase_read: tokio::sync::OnceCell::new(),
@@ -492,13 +494,19 @@ impl SearchConnection {
         })
     }
     async fn connection(&self) -> Result<SearchDatabase> {
-        let mut guard = self.database.lock().await;
+        let mut guard = self.database.clone().lock_owned().await;
         if let Some(db) = &*guard {
             return Ok(db.clone());
         }
-        let db = SearchDatabase::open(&self.root, self.url.as_deref()).await?;
-        *guard = Some(db.clone());
-        Ok(db)
+        let (root, url) = (self.root.clone(), self.url.clone());
+        // Caller deadlines must neither interrupt migrations nor restart them on every retry.
+        tokio::spawn(async move {
+            let db = SearchDatabase::open(&root, url.as_deref()).await?;
+            *guard = Some(db.clone());
+            Ok(db)
+        })
+        .await
+        .map_err(|_| Error::Invalid)?
     }
     async fn lane(&self, lane: &tokio::sync::OnceCell<SearchDatabase>) -> Result<SearchDatabase> {
         Ok(lane
@@ -1265,3 +1273,39 @@ mod read_lane_tests;
 #[cfg(test)]
 #[path = "search_field_upgrade_tests.rs"]
 mod field_upgrade_tests;
+
+#[cfg(test)]
+mod initialization_deadline_tests {
+    use super::*;
+    #[tokio::test]
+    async fn cancelled_cold_open_keeps_unscoped_migration_initialization() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("search")).unwrap();
+        let options = sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(dir.path().join("search/index.sqlite"))
+            .create_if_missing(true);
+        let locker = sqlx::SqlitePool::connect_with(options).await.unwrap();
+        sqlx::query("CREATE TABLE migration_fixture(value INTEGER)")
+            .execute(&locker)
+            .await
+            .unwrap();
+        let lock = locker.begin_with("BEGIN EXCLUSIVE").await.unwrap();
+        let search = SearchConnection::new(dir.path(), None).unwrap();
+        let result =
+            crate::storage_deadline(std::time::Duration::from_millis(25), search.warm()).await;
+        assert!(matches!(result, Err(Error::DeadlineExceeded)));
+        assert!(
+            search.database.try_lock().is_err(),
+            "initialization remains owned after caller cancellation"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        lock.rollback().await.unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(5), search.warm())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(search.database.lock().await.is_some());
+        assert!(uuid::Uuid::parse_str(&search.identity().await.unwrap()).is_ok());
+        locker.close().await;
+    }
+}

@@ -445,6 +445,29 @@ async fn models(a: &AccountRepository, b: &AccountRepository) {
         a.message(&expired.id).await.unwrap().category_status,
         CategoryStatus::Pending
     );
+    let row = insert(a, "model-expired-running").await;
+    a.queue_model(&row.id, JobKind::Classify, "fixture", None)
+        .await
+        .unwrap();
+    let active = a.claim_model().await.unwrap().unwrap();
+    assert!(a.claim_model().await.unwrap().is_none());
+    assert_eq!(
+        a.model_job(&active.id).await.unwrap().status,
+        JobStatus::Running
+    );
+    match &a.backend {
+        Backend::Sqlite(db) => {
+            sqlx::query("UPDATE model_jobs SET document=json_set(document,'$.deadline','2000-01-01T00:00:00Z') WHERE id=?").bind(&active.id).execute(db).await.unwrap();
+        }
+        Backend::Postgres(db) => {
+            sqlx::query("UPDATE model_jobs SET document=jsonb_set(document::jsonb,'{deadline}','\"2000-01-01T00:00:00Z\"')::TEXT WHERE account_id=$1 AND id=$2").bind(&a.account).bind(&active.id).execute(db).await.unwrap();
+        }
+    }
+    assert!(a.claim_model().await.unwrap().is_none());
+    assert_eq!(
+        a.model_job(&active.id).await.unwrap().status,
+        JobStatus::Failed
+    );
     for (id, read) in [
         ("model-interrupted", false),
         ("model-interrupted-read", true),
@@ -496,9 +519,21 @@ async fn models(a: &AccountRepository, b: &AccountRepository) {
         .await
         .unwrap()
         .is_none());
-    a.finish_model(job, None, Some(("source", &content)))
+    a.finish_model(job.clone(), None, Some(("source", &content)))
         .await
         .unwrap();
+    let revision = a.message("model-translation").await.unwrap().revision;
+    a.finish_model(job.clone(), None, Some(("source", &content)))
+        .await
+        .unwrap();
+    assert_eq!(
+        a.model_job(&job.id).await.unwrap().status,
+        JobStatus::Succeeded
+    );
+    assert_eq!(
+        a.message("model-translation").await.unwrap().revision,
+        revision
+    );
     assert!(a
         .provider_document("translation:model-translation:source")
         .await
@@ -599,6 +634,25 @@ async fn notifications(a: &AccountRepository, b: &AccountRepository) {
             assert!(next.is_none());
         }
     }
+    let fenced = arrival(a, "push-fenced", Some("people"), CategoryStatus::Ready).await;
+    let (_, first_attempt) = a.next_push_claim(&[]).await.unwrap().unwrap();
+    a.finish_push_attempt(&fenced.id, "worker-push", first_attempt, Some(0))
+        .await
+        .unwrap();
+    let (_, second_attempt) = a.next_push_claim(&[]).await.unwrap().unwrap();
+    assert_eq!(second_attempt, first_attempt + 1);
+    // The first completion committed but its acknowledgement was lost.
+    a.finish_push_attempt(&fenced.id, "worker-push", first_attempt, Some(0))
+        .await
+        .unwrap();
+    assert_eq!(
+        push_state(a, &fenced.id).await,
+        (second_attempt, "running".into())
+    );
+    assert!(a.next_push_claim(&[]).await.unwrap().is_none());
+    a.finish_push_attempt(&fenced.id, "worker-push", second_attempt, None)
+        .await
+        .unwrap();
     let row = arrival(a, "push-recheck", Some("people"), CategoryStatus::Ready).await;
     a.next_push(&[]).await.unwrap().unwrap();
     // Simulate classification becoming pending after the push was claimed.

@@ -1,5 +1,90 @@
 //! Completed classification history must not monopolize the sync database.
 use super::*;
+
+#[tokio::test]
+async fn expired_model_claims_recover_without_reclaiming_active_or_committed_jobs() {
+    let (_dir, store, _, a, _) = fixture().await;
+    let mut m = message(&a, "expiry");
+    m.classification = Some(Classification::default());
+    store.upsert_message(&a, m).await.unwrap();
+    store
+        .queue_model(&a, "expiry", JobKind::Classify, "fixture", None)
+        .await
+        .unwrap();
+    let job = store.claim_model(&a).await.unwrap().unwrap();
+    assert!(store.claim_model(&a).await.unwrap().is_none());
+    assert_eq!(
+        store.model_job(&a, &job.id).await.unwrap().status,
+        JobStatus::Running
+    );
+    let db = store.db(&a).await.unwrap();
+    sqlx::query("UPDATE model_jobs SET document=json_set(document,'$.deadline','2000-01-01T00:00:00Z') WHERE id=?").bind(&job.id).execute(&db).await.unwrap();
+    assert!(store.claim_model(&a).await.unwrap().is_none());
+    assert_eq!(
+        store.model_job(&a, &job.id).await.unwrap().status,
+        JobStatus::Failed
+    );
+    assert!(store.classification_candidate(&a).await.unwrap().is_some());
+    store
+        .queue_model(&a, "expiry", JobKind::Classify, "fixture", None)
+        .await
+        .unwrap();
+    let mut committed = store.claim_model(&a).await.unwrap().unwrap();
+    committed.status = JobStatus::Succeeded;
+    store
+        .finish_model(&a, committed.clone(), Some("people"), None)
+        .await
+        .unwrap();
+    let revision = store.message(&a, "expiry").await.unwrap().revision;
+    sqlx::query("UPDATE model_jobs SET document=json_set(document,'$.deadline','2000-01-01T00:00:00Z') WHERE id=?").bind(&committed.id).execute(&db).await.unwrap();
+    assert!(store.claim_model(&a).await.unwrap().is_none());
+    store
+        .finish_model(&a, committed.clone(), Some("newsletters"), None)
+        .await
+        .unwrap();
+    assert_eq!(
+        store.model_job(&a, &committed.id).await.unwrap().status,
+        JobStatus::Succeeded
+    );
+    assert_eq!(
+        store.message(&a, "expiry").await.unwrap().revision,
+        revision
+    );
+}
+
+#[tokio::test]
+async fn failed_result_persistence_can_defer_both_model_kinds() {
+    let (_dir, store, _, a, _) = fixture().await;
+    let db = store.db(&a).await.unwrap();
+    for kind in [JobKind::Classify, JobKind::Translate] {
+        store
+            .upsert_message(&a, message(&a, "defer-result"))
+            .await
+            .unwrap();
+        store
+            .queue_model(&a, "defer-result", kind, "fixture", None)
+            .await
+            .unwrap();
+        let job = store.claim_model(&a).await.unwrap().unwrap();
+        assert!(store
+            .defer_model_failure(&a, &job, ModelFailureReason::StorageUnavailable)
+            .await
+            .unwrap());
+        assert_eq!(
+            store.model_job(&a, &job.id).await.unwrap().status,
+            JobStatus::Pending
+        );
+        assert!(store.claim_model(&a).await.unwrap().is_none());
+        sqlx::query("UPDATE model_jobs SET retry_at=0 WHERE id=?")
+            .bind(&job.id)
+            .execute(&db)
+            .await
+            .unwrap();
+        let mut retried = store.claim_model(&a).await.unwrap().unwrap();
+        retried.status = JobStatus::Cancelled;
+        store.finish_model(&a, retried, None, None).await.unwrap();
+    }
+}
 use crate::models::CLASSIFICATION_CANDIDATE_QUERY;
 
 #[tokio::test]

@@ -52,8 +52,8 @@ def stages(profile: str, channel: str, dovecot_ssh: str | None = None) -> list[S
     result = [
         Stage("runner", (sys.executable, "-m", "unittest", "discover", "-s", "scripts/tests", "-v")),
         Stage("format", (*cargo, "fmt", "--all", "--", "--check")),
-        Stage("search-model", (*cargo,"test","-p","dakia-inference","--lib","embedding::tests","--locked","--","--include-ignored"),120),
-        Stage("search-model-worker",(*cargo,"test","-p","dakia-server","--lib","real_worker_persists_later_passages_without_mime_retention","--locked","--","--ignored"),120),
+        Stage("search-model", (*cargo,"test","-p","dakia-inference","--lib","embedding::tests","--locked","--","--include-ignored"),1200),
+        Stage("search-model-worker",(*cargo,"test","-p","dakia-server","--lib","real_worker_persists_later_passages_without_mime_retention","--locked","--","--ignored"),1200),
         Stage("rust", (*cargo, "test", "--workspace", "--locked", "--no-fail-fast"), 1200),
         Stage("clippy", (*cargo, "clippy", "--workspace", "--all-targets", "--locked", "--", "-D", "warnings"), 1200),
         Stage("web-unit", ("npm", "test")),

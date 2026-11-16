@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { IDBFactory } from "fake-indexeddb";
+import { IDBFactory, IDBObjectStore } from "fake-indexeddb";
 import { QueryClient } from "@tanstack/react-query";
 import { LocalMailCache } from "./localMailCache";
 import { accounts, content, page as mail } from "../browser/fixtures";
@@ -72,6 +72,22 @@ test("cached body reads do not renew the retention deadline", async () => {
   vi.spyOn(Date, "now").mockReturnValue(start + 8 * 86400000);
   expect(await cache.body(content.message.account_id, content.message.id)).toBeUndefined();
   vi.restoreAllMocks();
+});
+test("a cancelled body read cannot mark late cached content as freshly hydrated", async () => {
+  await save();
+  const controller = new AbortController();
+  const get = IDBObjectStore.prototype.get;
+  const spy = vi.spyOn(IDBObjectStore.prototype, "get").mockImplementation(function(this: IDBObjectStore, key) {
+    const result = get.call(this, key);
+    if (this.name === "entries") result.addEventListener("success", () => controller.abort(), { once: true });
+    return result;
+  });
+  try {
+    expect(await cache.body(content.message.account_id, content.message.id, controller.signal)).toBeUndefined();
+  } finally { spy.mockRestore(); }
+  const fresh = { ...content, text: "Fresh network content" };
+  client.setQueryData(body, fresh); await cache.flush();
+  expect(await cache.body(content.message.account_id, content.message.id)).toEqual(fresh);
 });
 test("expired entries and provider cursors never hydrate", async () => {
   await save(); vi.spyOn(Date, "now").mockReturnValue(Date.now() + 8 * 86400000);

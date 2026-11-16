@@ -1,7 +1,9 @@
 //! Typed control persistence. SQL and transactions stay behind this boundary;
 //! callers cannot select a pool, construct SQL, or obtain a driver-specific row.
 use crate::{Result, Store};
-use sqlx::{postgres::PgPoolOptions, PgPool, Row, SqlitePool};
+#[cfg(test)]
+use sqlx::postgres::PgPoolOptions;
+use sqlx::{PgPool, Row, SqlitePool};
 use std::str::FromStr;
 
 #[derive(Clone)]
@@ -120,7 +122,7 @@ impl ControlRepository {
 
     pub async fn open_postgres(url: &str) -> Result<Self> {
         let options = sqlx::postgres::PgConnectOptions::from_str(url)?;
-        let bootstrap = PgPoolOptions::new()
+        let bootstrap = crate::database_deadline::postgres_pool_options(&options)
             .max_connections(1)
             .connect_with(options.clone())
             .await?;
@@ -128,7 +130,7 @@ impl ControlRepository {
             .execute(&bootstrap)
             .await?;
         bootstrap.close().await;
-        let db = PgPoolOptions::new()
+        let db = crate::database_deadline::postgres_pool_options(&options)
             .max_connections(4)
             .connect_with(options.options([("search_path", "dakia_control,public")]))
             .await?;

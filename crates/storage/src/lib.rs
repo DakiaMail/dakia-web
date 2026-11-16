@@ -41,6 +41,7 @@ pub use full_text::{normalize_search, SearchContent, TextCoverage};
 /// Bounded federated account work and matching per-component read capacity.
 pub const SEARCH_ACCOUNT_CONCURRENCY: usize = 8;
 
+mod database_deadline;
 mod sender_mail;
 mod sync;
 mod thread_graph;
@@ -51,6 +52,7 @@ use aes_gcm::{
 };
 use chrono::{DateTime, Duration, SecondsFormat, Utc};
 use dakia_domain::*;
+pub use database_deadline::storage_deadline;
 use rand::RngCore;
 #[cfg(test)]
 use sqlx::Row;
@@ -93,8 +95,27 @@ pub enum Error {
     QuotaExceeded,
     #[error("account has pending or uncertain mail actions")]
     AccountBusy,
+    #[error("storage operation deadline exceeded")]
+    DeadlineExceeded,
 }
 pub type Result<T> = std::result::Result<T, Error>;
+impl Error {
+    /// Keep driver details and stored mail out of diagnostic logs.
+    pub fn diagnostic_code(&self) -> std::borrow::Cow<'_, str> {
+        match self {
+            Self::Sql(sqlx::Error::Database(error)) => {
+                error.code().unwrap_or("database_error".into())
+            }
+            Self::Sql(sqlx::Error::InvalidSavePointStatement) => "invalid_transaction_state".into(),
+            Self::Sql(sqlx::Error::PoolTimedOut) => "database_pool_timeout".into(),
+            Self::Sql(_) => "database_error".into(),
+            Self::Io(_) => "filesystem_error".into(),
+            Self::Json(_) => "serialization_error".into(),
+            Self::DeadlineExceeded => "deadline_exceeded".into(),
+            _ => "storage_error".into(),
+        }
+    }
+}
 /// Held for the process lifetime by the server or offline operator command.
 pub fn lock_data_directory(root: impl AsRef<Path>) -> Result<std::fs::File> {
     std::fs::create_dir_all(root.as_ref())?;
@@ -153,10 +174,27 @@ async fn pool(path: &Path) -> Result<SqlitePool> {
         .pragma("secure_delete", "ON")
         .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
         .busy_timeout(std::time::Duration::from_secs(5));
-    Ok(SqlitePoolOptions::new()
+    Ok(sqlite_pool_options().connect_with(options).await?)
+}
+fn sqlite_pool_options() -> SqlitePoolOptions {
+    SqlitePoolOptions::new()
         .max_connections(1)
-        .connect_with(options)
-        .await?)
+        .after_connect(|connection, _| Box::pin(database_deadline::sqlite(connection)))
+        .before_acquire(|connection, _| Box::pin(async move {
+            database_deadline::sqlite(connection).await?;
+            Ok(true)
+        }))
+        .after_release(|connection, _| {
+            Box::pin(async move {
+                // Wait for queued rollbacks before checking SQLx's transaction state.
+                connection.lock_handle().await?.remove_progress_handler();
+                let reusable = !sqlx::Connection::is_in_transaction(connection);
+                if !reusable {
+                    tracing::warn!(target: "dakia_server::diagnostics", operation = "storage", reason = "invalid_transaction_state", "discarding unusable database connection");
+                }
+                Ok(reusable)
+            })
+        })
 }
 impl Store {
     pub async fn open(root: impl AsRef<Path>, key: [u8; 32]) -> Result<Self> {
@@ -226,10 +264,7 @@ impl Store {
                         .pragma("secure_delete", "ON")
                         .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
                         .busy_timeout(std::time::Duration::from_secs(5));
-                    SqlitePoolOptions::new()
-                        .max_connections(1)
-                        .connect_with(options)
-                        .await?
+                    sqlite_pool_options().connect_with(options).await?
                 }
                 Some(_) => return Err(Error::Invalid),
             };

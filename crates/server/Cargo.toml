@@ -39,6 +39,7 @@ semver = "1"
 hickory-resolver = "0.24"
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
 sqlx.workspace = true
 dakia-storage = { path = "../storage", features = ["test-support"] }
 native-tls = "0.2"

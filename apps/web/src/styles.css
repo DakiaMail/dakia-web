@@ -1695,7 +1695,7 @@ body {
  .selection-actions.matching-selection { padding: 6px 12px; gap: 2px 10px; }
  .visible-selection-control, .matching-selection .selection-count { min-height: 44px; }
  .matching-selection .reader-toolbar { flex-basis: 100%; justify-content: space-between; }
- .matching-selection .reader-toolbar button { min-width: 40px; min-height: 44px; }
+ .matching-selection .reader-toolbar button { min-width: 44px; min-height: 44px; }
 }
 
 .mail-details .unsubscribe { display: contents; }

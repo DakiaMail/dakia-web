@@ -1,7 +1,9 @@
 //! Account persistence with explicit native SQL. Domain transitions and revision
 //! checks are shared; drivers, ownership locks, and transaction details stay here.
 use crate::*;
-use sqlx::{postgres::PgPoolOptions, PgPool};
+#[cfg(test)]
+use sqlx::postgres::PgPoolOptions;
+use sqlx::PgPool;
 use std::str::FromStr;
 #[path = "mailbox_counts.rs"]
 mod counts;
@@ -780,7 +782,7 @@ impl ApplicationDatabase {
     }
     pub(crate) async fn open_with_lease(url: &str, lease: Arc<DatabaseLease>) -> Result<Self> {
         let options = sqlx::postgres::PgConnectOptions::from_str(url)?;
-        let bootstrap = PgPoolOptions::new()
+        let bootstrap = crate::database_deadline::postgres_pool_options(&options)
             .max_connections(1)
             .connect_with(options.clone())
             .await?;
@@ -788,7 +790,7 @@ impl ApplicationDatabase {
             .execute(&bootstrap)
             .await?;
         bootstrap.close().await;
-        let db = PgPoolOptions::new()
+        let db = crate::database_deadline::postgres_pool_options(&options)
             .max_connections(8)
             .connect_with(options.options([("search_path", "dakia_mail,public")]))
             .await?;

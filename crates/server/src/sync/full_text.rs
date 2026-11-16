@@ -452,8 +452,8 @@ async fn deliver_index(app: &App, account: &AuthorizedAccount) -> crate::Result<
                 .await?;
             return Ok(true);
         }
-        Err(_) => {
-            tracing::warn!(target: "dakia_server::diagnostics", operation="search_index", outcome="delivery_failed", "search delivery will retry");
+        Err(error) => {
+            tracing::warn!(target: "dakia_server::diagnostics", operation="search_index", reason=%error.diagnostic_code(), outcome="delivery_failed", "search delivery will retry");
             app.store
                 .put_provider_document(account, "search:delivery_error", "unavailable")
                 .await?;

@@ -23,56 +23,60 @@ pub(super) async fn cached(
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(20);
     let accounts = futures_util::stream::iter(scopes.to_vec())
         .map(|a| async move {
-            let result = tokio::time::timeout_at(deadline, async {
-                let folders = match app.store.provider_document(&a, "probe").await? {
-                    Some(raw) => serde_json::from_str::<dakia_mail_provider::Probe>(&raw)
-                        .ok()
-                        .and_then(|p| {
-                            select_folders(
-                                p.folders.into_iter().filter(|f| f.selectable).collect(),
-                                wanted,
-                            )
+            let result = dakia_storage::storage_deadline(
+                deadline.saturating_duration_since(tokio::time::Instant::now()),
+                async {
+                    let folders = match app.store.provider_document(&a, "probe").await? {
+                        Some(raw) => serde_json::from_str::<dakia_mail_provider::Probe>(&raw)
                             .ok()
-                        }),
-                    None => None,
-                };
-                // Never guess localized special-use roles or case-fold custom folders.
-                if wanted.is_some() && folders.is_none() {
-                    return Ok((vec![], vec![]));
-                }
-                let found = app
-                    .store
-                    .cached_search_preview_rows(
-                        &a,
-                        &dakia_storage::CachedSearchFilter {
-                            classification: r.classification(),
-                            since: None,
-                            before: None,
-                            from: query.from.as_deref(),
-                            to: query.to.as_deref(),
-                            subject: query.subject.as_deref(),
-                            text: query.text.as_deref(),
-                            text_alternatives: None,
-                            text_units: None,
-                            seen: query.seen,
-                            starred: query.starred,
-                            has_attachment,
-                            folders: if wanted.is_some() {
-                                folders.as_deref()
-                            } else {
-                                None
+                            .and_then(|p| {
+                                select_folders(
+                                    p.folders.into_iter().filter(|f| f.selectable).collect(),
+                                    wanted,
+                                )
+                                .ok()
+                            }),
+                        None => None,
+                    };
+                    // Never guess localized special-use roles or case-fold custom folders.
+                    if wanted.is_some() && folders.is_none() {
+                        return Ok((vec![], vec![]));
+                    }
+                    let found = app
+                        .store
+                        .cached_search_preview_rows(
+                            &a,
+                            &dakia_storage::CachedSearchFilter {
+                                classification: r.classification(),
+                                since: None,
+                                before: None,
+                                from: query.from.as_deref(),
+                                to: query.to.as_deref(),
+                                subject: query.subject.as_deref(),
+                                text: query.text.as_deref(),
+                                text_alternatives: None,
+                                text_units: None,
+                                seen: query.seen,
+                                starred: query.starred,
+                                has_attachment,
+                                folders: if wanted.is_some() {
+                                    folders.as_deref()
+                                } else {
+                                    None
+                                },
+                                category: r.category.as_deref(),
+                                snoozed_only: wants_snoozed(&r.q),
+                                hide_snoozed: wanted
+                                    .is_some_and(|f| f.eq_ignore_ascii_case("INBOX")),
                             },
-                            category: r.category.as_deref(),
-                            snoozed_only: wants_snoozed(&r.q),
-                            hide_snoozed: wanted.is_some_and(|f| f.eq_ignore_ascii_case("INBOX")),
-                        },
-                    )
-                    .await?;
-                Ok::<_, ApiFailure>((found, folders.unwrap_or_default()))
-            })
+                        )
+                        .await?;
+                    Ok::<_, ApiFailure>((found, folders.unwrap_or_default()))
+                },
+            )
             .await;
             match result {
-                Ok(Ok((found, folders))) => (
+                Ok((found, folders)) => (
                     found,
                     AccountCoverage {
                         account_id: a.id().into(),
@@ -82,7 +86,7 @@ pub(super) async fn cached(
                         inbox: None,
                     },
                 ),
-                Ok(Err(error)) => (
+                Err(error) if error.1 != "request_timeout" => (
                     vec![],
                     AccountCoverage {
                         account_id: a.id().into(),

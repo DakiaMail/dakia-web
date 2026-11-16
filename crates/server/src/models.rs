@@ -6,7 +6,7 @@ use axum::{
 };
 use dakia_domain::*;
 use dakia_inference::{ContentSnapshot, EmailClassificationInput, LocalEmailClassifier};
-use dakia_storage::{AuthorizedAccount, Error, ModelFailureReason};
+use dakia_storage::{AuthorizedAccount, Error, ModelFailureReason, Store};
 use mail_parser::MimeHeaders;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -158,23 +158,22 @@ pub(crate) async fn node_worker(
 pub async fn run(app: App) {
     let revision = dakia_inference::POLICY_REVISION.to_owned();
     let classifier = Some(Arc::new(Mutex::new(LocalEmailClassifier)));
-    let mut recovered = std::collections::HashSet::new();
+    let mut prepared = std::collections::HashSet::new();
     loop {
         let mut progressed = false;
         if app.store.jobs_enabled().await.unwrap_or(false) {
             if let Ok(accounts) = app.store.job_accounts().await {
                 for a in accounts {
-                    if !recovered.contains(a.id()) {
-                        if app.store.recover_models(&a).await.is_err()
-                            || app
-                                .store
-                                .requeue_classification_policy(&a, &revision)
-                                .await
-                                .is_err()
+                    if !prepared.contains(a.id()) {
+                        if app
+                            .store
+                            .requeue_classification_policy(&a, &revision)
+                            .await
+                            .is_err()
                         {
                             continue;
                         }
-                        recovered.insert(a.id().to_owned());
+                        prepared.insert(a.id().to_owned());
                     }
                     if classifier.is_some() {
                         if let Ok(Some(message)) = app.store.classification_candidate(&a).await {
@@ -184,7 +183,12 @@ pub async fn run(app: App) {
                                 .await;
                         }
                     }
-                    if let Ok(Some(mut job)) = app.store.claim_model(&a).await {
+                    if let Ok(Some(mut job)) = dakia_storage::storage_deadline(
+                        Duration::from_secs(10),
+                        app.store.claim_model(&a),
+                    )
+                    .await
+                    {
                         progressed = true;
                         let mut reason = ModelFailureReason::WorkerFailed;
                         let result = execute(&app, &a, &job, classifier.clone(), &mut reason)
@@ -215,19 +219,27 @@ pub async fn run(app: App) {
                         };
                         let (category, translation) = result.ok().flatten().unwrap_or((None, None));
                         let job_key = crate::diagnostics::correlation(&job.id);
-                        if let Err(error) = app
-                            .store
-                            .finish_classification(
-                                &a,
-                                job,
-                                category.as_ref(),
-                                translation.as_ref().map(|(s, c)| (s.as_str(), c)),
-                            )
-                            .await
+                        if let Err(error) = persist_outcome(
+                            &app.store,
+                            &a,
+                            &job,
+                            category.as_ref(),
+                            translation.as_ref().map(|(s, c)| (s.as_str(), c)),
+                        )
+                        .await
                         {
+                            let deferred = dakia_storage::storage_deadline(
+                                Duration::from_secs(10),
+                                app.store.defer_model_failure(
+                                    &a,
+                                    &job,
+                                    ModelFailureReason::StorageUnavailable,
+                                ),
+                            )
+                            .await;
                             tracing::warn!(target: "dakia_server::diagnostics",
                                 account_key = crate::diagnostics::correlation(a.id()), job_key,
-                                error = %error, "model job outcome not persisted");
+                                reason = %error.diagnostic_code(), deferred = matches!(deferred, Ok(true)), "model job outcome not persisted");
                         }
                     }
                 }
@@ -241,6 +253,27 @@ pub async fn run(app: App) {
         })
         .await;
     }
+}
+pub(crate) async fn persist_outcome(
+    store: &Store,
+    a: &AuthorizedAccount,
+    job: &ModelJob,
+    classification: Option<&Classification>,
+    translation: Option<(&str, &MessageContent)>,
+) -> Result<(), Error> {
+    for attempt in 0..3 {
+        match dakia_storage::storage_deadline(
+            Duration::from_secs(10),
+            store.finish_classification(a, job.clone(), classification, translation),
+        )
+        .await
+        {
+            Ok(()) => return Ok(()),
+            Err(error) if attempt == 2 => return Err(error),
+            Err(_) => tokio::time::sleep(Duration::from_millis(100)).await,
+        }
+    }
+    unreachable!()
 }
 pub(crate) async fn execute(
     app: &App,

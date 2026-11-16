@@ -6,6 +6,7 @@ pub enum ModelFailureReason {
     ContentInvalid,
     RevisionChanged,
     WorkerFailed,
+    StorageUnavailable,
     Deadline,
 }
 impl ModelFailureReason {
@@ -15,6 +16,7 @@ impl ModelFailureReason {
             Self::ContentInvalid => "content_invalid",
             Self::RevisionChanged => "revision_changed",
             Self::WorkerFailed => "worker_failed",
+            Self::StorageUnavailable => "storage_unavailable",
             Self::Deadline => "deadline",
         }
     }

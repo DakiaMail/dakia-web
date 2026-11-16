@@ -196,16 +196,17 @@ export class LocalMailCache {
     this.serial = this.serial.then(work, work);
     return this.serial as Promise<void>;
   }
-  async body(account: string, id: string): Promise<MessageContent | undefined> {
+  async body(account: string, id: string, signal?: AbortSignal): Promise<MessageContent | undefined> {
     const generation = this.generation;
     if (!this.owner || !this.accounts.has(account)) return;
     try {
       const db = await this.open();
+      signal?.throwIfAborted();
       const tx = db.transaction(["entries", "meta"], "readonly");
       const epoch = await request(tx.objectStore("meta").get("epoch"));
       if ((epoch || 0) !== this.epoch) return;
       const entry = await request(tx.objectStore("entries").get(JSON.stringify([this.owner, JSON.parse(bodyKey(account, id))]))) as Entry | undefined;
-      if (generation !== this.generation || !entry || entry.saved < Date.now() - AGE || entry.bytes > 4 * 1024 * 1024) return;
+      if (signal?.aborted || generation !== this.generation || !entry || entry.saved < Date.now() - AGE || entry.bytes > 4 * 1024 * 1024) return;
       const data = JSON.parse(entry.json) as MessageContent;
       if (message(data.message) && data.message.id === id && data.message.account_id === account && typeof data.html === "string" && typeof data.text === "string" && Array.isArray(data.attachments) && data.attachments.every(a => typeof a.id === "string" && typeof a.filename === "string" && typeof a.content_type === "string" && Number.isFinite(a.size_bytes)) && Array.isArray(data.reply_to) && data.reply_to.every(address) && Array.isArray(data.cc) && data.cc.every(address) && Array.isArray(data.references) && data.references.every(r => typeof r === "string")) { this.localBodies.add(bodyKey(account, id)); return data; }
     } catch { /* Use the network when local storage is unavailable. */ }

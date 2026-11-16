@@ -120,6 +120,10 @@ impl IntoResponse for ApiFailure {
                         "This message is too large to open here. Open it in your mail provider."
                             .into()
                     }
+                    "message_load_timeout" => {
+                        "This message took too long to load. Try again.".into()
+                    }
+                    "request_timeout" => "This request took too long. Try again.".into(),
                     _ => self.1.replace('_', " "),
                 },
             }),
@@ -142,7 +146,11 @@ impl From<StorageError> for ApiFailure {
             ),
             StorageError::Invalid => Self(StatusCode::BAD_REQUEST, "invalid_input"),
             StorageError::AccountBusy => Self(StatusCode::CONFLICT, "account_has_pending_actions"),
-            _ => Self(StatusCode::INTERNAL_SERVER_ERROR, "storage_error"),
+            StorageError::DeadlineExceeded => Self(StatusCode::GATEWAY_TIMEOUT, "request_timeout"),
+            error => {
+                tracing::warn!(target: "dakia_server::diagnostics", operation = "storage", reason = %error.diagnostic_code(), "storage request failed");
+                Self(StatusCode::INTERNAL_SERVER_ERROR, "storage_error")
+            }
         }
     }
 }
@@ -445,8 +453,18 @@ async fn content(
     Extension(user): Extension<Identity>,
     Path((account, id)): Path<(String, String)>,
 ) -> Result<Json<MessageContent>> {
-    let a = app.store.authorize(&user.user, &account).await?;
-    Ok(Json(app.mail.content(&app.store, &a, &id).await?))
+    dakia_storage::storage_deadline(std::time::Duration::from_secs(60), async {
+        let a = app.store.authorize(&user.user, &account).await?;
+        Ok(Json(app.mail.content(&app.store, &a, &id).await?))
+    })
+    .await
+    .map_err(|error: ApiFailure| {
+        if error.1 == "request_timeout" {
+            ApiFailure(StatusCode::GATEWAY_TIMEOUT, "message_load_timeout")
+        } else {
+            error
+        }
+    })
 }
 #[derive(Deserialize)]
 struct ConversationQuery {

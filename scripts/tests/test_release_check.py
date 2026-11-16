@@ -84,6 +84,12 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(len(changed), 1)
         self.assertEqual(changed[0][1].command[-2:], ("--ssh-host", "fixture-host"))
 
+    def test_model_cargo_stages_allow_the_same_cold_build_budget_as_rust(self):
+        for profile in ("core", "full"):
+            stages = {stage.name: stage for stage in release.stages(profile, "1.98.0")}
+            for name in ("search-model", "search-model-worker"):
+                self.assertGreaterEqual(stages[name].timeout, stages["rust"].timeout)
+
     def test_stages_have_distinct_browser_reports(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)

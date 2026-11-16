@@ -8,12 +8,16 @@ for (const width of [390, 1480]) test(`opening mail remains readable during simu
   const message = { ...mail.rows[0], unread: true, subject: "Synthetic combined failure" };
   const operations: Record<string, unknown>[] = [];
   const calls = { conversation: 0, image: 0, content: 0 };
+  const conversationModes = new Set<string>();
   const unexpected: string[] = [];
   await page.route("**/api/**", async route => {
-    const path = new URL(route.request().url()).pathname;
+    const url = new URL(route.request().url()), path = url.pathname;
     const respond = (json: unknown) => route.fulfill({ json });
     if (path === "/api/session") return respond({ user_id: "fixture", csrf_token: "fixture" });
     if (path === "/api/accounts") return respond(accounts);
+    if (path === "/api/local-access") return respond({ can_invite: false });
+    if (path === "/api/translation/settings") return respond({ mode: "host", can_manage: false });
+    if (path.endsWith("/indexing")) return respond({ account_id: path.split("/")[3], state: "complete", discovery_complete: true, eligible: 1, processed: 1, backlog: 0, gaps: 0 });
     if (path.endsWith("/events")) return route.fulfill({ contentType: "text/event-stream", body: ": ready\n\n" });
     if (path.endsWith("/sync-active")) return respond(false);
     if (path === "/api/search" || path.endsWith("/messages")) return respond({ ...mail, rows: [message], pending: false, continuation: null });
@@ -24,6 +28,7 @@ for (const width of [390, 1480]) test(`opening mail remains readable during simu
     if (path.includes("/operations/")) return respond({ ...operations[0], status: "failed", revision: 3 });
     if (path.endsWith("/conversation")) {
       calls.conversation++;
+      conversationModes.add(url.searchParams.has("snapshot") ? "snapshot" : "discovery");
       return route.fulfill({ status: 502, json: { code: "provider_unavailable", message: "Fixture provider unavailable" } });
     }
     if (path.endsWith(`/messages/${message.id}`)) {
@@ -35,7 +40,7 @@ for (const width of [390, 1480]) test(`opening mail remains readable during simu
       return route.fulfill({ status: 502, json: { code: "remote_image_unavailable", message: "Fixture image unavailable" } });
     }
     if (path.endsWith("/unsubscribe")) return respond({ kind: "unavailable" });
-    if (["/drafts", "/scheduled", "/submissions", "/sender-cleanups"].some(suffix => path.endsWith(suffix))) return respond([]);
+    if (["/drafts", "/scheduled", "/submissions", "/sender-cleanups", "/snoozes", "/rules"].some(suffix => path.endsWith(suffix))) return respond([]);
     unexpected.push(path);
     return route.fulfill({ status: 500, json: { code: "unexpected_fixture_request", message: path } });
   });
@@ -50,14 +55,18 @@ for (const width of [390, 1480]) test(`opening mail remains readable during simu
   await expect(page.locator("details summary")).toHaveText("2 images could not be loaded.");
   await expect(page.locator("details")).not.toHaveAttribute("open", "");
   expect(operations.map(op => op.change)).toEqual([{ kind: "read", value: true }]);
-  expect(calls).toEqual({ conversation: 2, image: 2, content: 1 });
+  await expect(page.getByRole("button", { name: "Retry conversation", exact: true })).toBeEnabled();
+  expect([...conversationModes].sort()).toEqual(["discovery", "snapshot"]);
+  expect(calls).toMatchObject({ image: 2, content: 1 });
+  // Strict Mode may restart initial reads; neither failed query should poll afterward.
+  const settledCalls = { ...calls };
   await page.screenshot({ path: testInfo.outputPath("combined-reader-failures.png"), fullPage: true });
   await page.clock.install();
   await page.clock.runFor(120_000);
   await expect(page.getByRole("alert")).toHaveCount(0);
   await expect(body).toContainText("Your saved message is readable");
   expect(operations).toHaveLength(1);
-  expect(calls).toEqual({ conversation: 2, image: 2, content: 1 });
+  expect(calls).toEqual(settledCalls);
   await page.getByRole("button", { name: "Retry loading images" }).click();
   await expect.poll(() => calls.image).toBe(4);
   expect(operations).toHaveLength(1);

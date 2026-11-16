@@ -10,8 +10,9 @@ impl MailboxTransaction<'_> {
             return Err(Error::Invalid);
         }
         write!(self,"UPDATE model_jobs SET failure_reason=? WHERE id=? AND state='running'",[reason.code(),&job.id],"UPDATE model_jobs SET failure_reason=$1 WHERE account_id=$2 AND id=$3 AND state='running'",[reason.code(),&self.account,&job.id]);
-        if !matches!(reason, ModelFailureReason::ContentUnavailable)
-            || job.kind != JobKind::Classify
+        if !matches!(reason, ModelFailureReason::StorageUnavailable)
+            && (!matches!(reason, ModelFailureReason::ContentUnavailable)
+                || job.kind != JobKind::Classify)
         {
             return Ok(false);
         }
@@ -66,6 +67,7 @@ impl MailboxTransaction<'_> {
     }
     async fn claim_model(&mut self) -> Result<Option<ModelJob>> {
         let at = Utc::now().timestamp();
+        write!(self,"UPDATE model_jobs SET state='failed',failure_reason='deadline',document=json_set(document,'$.status','failed') WHERE id IN (SELECT id FROM model_jobs WHERE state IN ('pending','running') AND state='running' AND unixepoch(json_extract(document,'$.deadline'))<=? LIMIT 200)",[at],"UPDATE model_jobs SET state='failed',failure_reason='deadline',document=jsonb_set(document::jsonb,'{status}','\"failed\"')::TEXT WHERE account_id=$1 AND id IN (SELECT id FROM model_jobs WHERE account_id=$1 AND state='running' AND floor(extract(epoch FROM deadline::TIMESTAMPTZ))::BIGINT<=$2 ORDER BY queue_id LIMIT 200)",[&self.account,at]);
         let raw:Option<String>=value!(self,"UPDATE model_jobs SET state='running' WHERE id=(SELECT id FROM model_jobs WHERE state='pending' AND retry_at<=? ORDER BY rowid LIMIT 1) AND state='pending' RETURNING document",[at],"UPDATE model_jobs SET state='running' WHERE account_id=$1 AND id=(SELECT id FROM model_jobs WHERE account_id=$1 AND state='pending' AND retry_at<=$2 ORDER BY queue_id LIMIT 1) AND state='pending' RETURNING document",[&self.account,at],fetch_optional);
         let Some(raw) = raw else {
             return Ok(None);
@@ -88,8 +90,26 @@ impl MailboxTransaction<'_> {
         classification: Option<&Classification>,
         translation: Option<(&str, &MessageContent)>,
     ) -> Result<()> {
-        if job.account_id != self.account {
+        if job.account_id != self.account
+            || translation.is_some_and(|(_, content)| {
+                content.message.account_id != self.account || content.message.id != job.message_id
+            })
+        {
             return Err(Error::Invalid);
+        }
+        let state: Option<String> = value!(
+            self,
+            "SELECT state FROM model_jobs WHERE id=?",
+            [&job.id],
+            "SELECT state FROM model_jobs WHERE account_id=$1 AND id=$2",
+            [&self.account, &job.id],
+            fetch_optional
+        );
+        if !matches!(
+            state.ok_or(Error::NotFound)?.as_str(),
+            "pending" | "running"
+        ) {
+            return Ok(());
         }
         write!(
             self,
@@ -146,11 +166,6 @@ impl MailboxTransaction<'_> {
         }
         if valid && job.status == JobStatus::Succeeded {
             if let Some((source, content)) = translation {
-                if content.message.account_id != self.account
-                    || content.message.id != job.message_id
-                {
-                    return Err(Error::Invalid);
-                }
                 let key = format!("translation:{}:{source}", job.message_id);
                 let raw = serde_json::to_string(content)?;
                 write!(self,"INSERT INTO provider_documents(key,document) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET document=excluded.document",[&key,&raw],"INSERT INTO provider_documents(account_id,key,document) VALUES($1,$2,$3) ON CONFLICT(account_id,key) DO UPDATE SET document=excluded.document",[&self.account,&key,&raw]);

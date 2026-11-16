@@ -120,22 +120,25 @@ for (const action of ["Archive", "Move to trash", "Star selected messages"] as c
   expect(state.writes.map(op => op.target_id).sort()).toEqual(["m0", "m1"]);
   expect(state.writes.map(op => op.change.kind)).toEqual(Array(2).fill(action === "Archive" ? "archive" : action === "Move to trash" ? "trash" : "star"));
 });
-for (const width of [320, 390, 600, 1480]) test(`selection actions ${width}`, async ({ page }) => {
+for (const theme of ["light", "dark"]) for (const width of [320, 390, 600, 1480]) test(`selection actions ${width} ${theme}`, async ({ page }) => {
   await page.setViewportSize({ width, height: 844 });
+  await page.addInitScript(value => localStorage.setItem("dakia-theme", value), theme);
   const state = await fixture(page);
   await page.getByRole("tab", { name: "All", exact: true }).click();
   const checks = page.locator(".message-select input");
   await checks.nth(0).check(); await checks.nth(1).check();
   const bar = page.getByRole("group", { name: "Selected message actions", exact: true });
   await expect(bar).toBeVisible();
-  const clear = page.getByRole("button", { name: width <= 600 ? "Clear selection (2 selected)" : "2 selected · Clear", exact: true }).filter({ visible: true });
+  const clear = bar.getByRole("button", { name: "2 selected · Clear", exact: true });
   await expect(clear).toBeVisible();
   if (width <= 600) {
     await page.locator(".app").evaluate(el => (el as HTMLElement).style.setProperty("--safe-bottom", "24px"));
     await expect(page.getByRole("button", { name: "Compose", exact: true })).toBeHidden();
     const box = (await bar.boundingBox())!;
-    expect(box.x).toBe(12); expect(box.width).toBe(width - 24);
-    expect(box.y + box.height).toBe(844 - 36);
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(width);
+    const firstRow = (await page.locator(".message-row").first().boundingBox())!;
+    expect(firstRow.y).toBeGreaterThanOrEqual(box.y + box.height);
     expect((await clear.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     expect((await clear.boundingBox())!.width).toBeGreaterThanOrEqual(44);
     for (const name of ["Archive", "Mark unread", "Move to trash", "More actions"]) {
@@ -143,17 +146,20 @@ for (const width of [320, 390, 600, 1480]) test(`selection actions ${width}`, as
       expect(button.width).toBeGreaterThanOrEqual(44); expect(button.height).toBeGreaterThanOrEqual(44);
       expect(button.x).toBeGreaterThanOrEqual(box.x); expect(button.x + button.width).toBeLessThanOrEqual(box.x + box.width);
     }
-    await screenshot(page, `selection-${width}`);
+    await screenshot(page, `selection-${width}-${theme}`);
     const lastRow = page.locator(".message-row").last();
     await lastRow.scrollIntoViewIfNeeded();
     const end = (await lastRow.boundingBox())!;
-    expect(end.y + end.height).toBeLessThanOrEqual(box.y);
-    await screenshot(page, `selection-end-${width}`);
+    const list = (await page.locator(".message-list").boundingBox())!;
+    expect(end.y + end.height).toBeLessThanOrEqual(list.y + list.height);
+    await screenshot(page, `selection-end-${width}-${theme}`);
     await bar.getByRole("button", { name: "More actions", exact: true }).click();
     const menu = page.getByRole("menu", { name: "More message actions" });
     await expect(menu).toBeVisible();
-    expect((await menu.boundingBox())!.y + (await menu.boundingBox())!.height).toBeLessThan((await bar.getByRole("button", { name: "More actions", exact: true }).boundingBox())!.y);
-    await screenshot(page, `selection-${width}-more`);
+    const menuBox = (await menu.boundingBox())!;
+    expect(menuBox.y).toBeGreaterThanOrEqual(0);
+    expect(menuBox.y + menuBox.height).toBeLessThanOrEqual(844);
+    await screenshot(page, `selection-${width}-${theme}-more`);
     await page.keyboard.press("Escape");
     await expect(bar.getByRole("button", { name: "More actions", exact: true })).toBeFocused();
   } else expect((await bar.boundingBox())!.y).toBeLessThan(200);

@@ -1026,16 +1026,24 @@ impl MailRuntime {
         a: &AuthorizedAccount,
         id: &str,
     ) -> Result<MessageContent> {
-        store.request_classification(a, &[id.to_owned()]).await?;
         let lane = self.content_lane(a, id).await;
         let _guard = lane.lock().await;
-        if let Some(mut c) = store.cached_content(a, id).await? {
+        let content = if let Some(mut c) = store.cached_content(a, id).await? {
             // Re-evaluate legacy cached documents too, without fetching or mutating mail.
             c.detected_language = self.languages.detect(a.id(), id, &c.text, &c.html);
-            return Ok(c);
-        }
-        let raw = self.raw(store, a, id).await?;
-        self.cache_parsed_content(store, a, id, &raw).await
+            c
+        } else {
+            let raw = self.raw(store, a, id).await?;
+            self.cache_parsed_content(store, a, id, &raw).await?
+        };
+        // Classification must never hold up an authorized message read.
+        let (store, a, id) = (store.clone(), a.clone(), id.to_owned());
+        tokio::spawn(async move {
+            if let Err(error) = store.request_classification(&a, &[id]).await {
+                tracing::warn!(target: "dakia_server::diagnostics", operation = "classification_request", reason = %error.diagnostic_code(), outcome = "failed", "message classification request failed");
+            }
+        });
+        Ok(content)
     }
     async fn cache_parsed_content(
         &self,

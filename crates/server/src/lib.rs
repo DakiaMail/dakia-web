@@ -140,7 +140,10 @@ impl From<StorageError> for ApiFailure {
             ),
             StorageError::Invalid => Self(StatusCode::BAD_REQUEST, "invalid_input"),
             StorageError::AccountBusy => Self(StatusCode::CONFLICT, "account_has_pending_actions"),
-            _ => Self(StatusCode::INTERNAL_SERVER_ERROR, "storage_error"),
+            error => {
+                tracing::warn!(target: "dakia_server::diagnostics", operation = "storage", reason = %error.diagnostic_code(), "storage request failed");
+                Self(StatusCode::INTERNAL_SERVER_ERROR, "storage_error")
+            }
         }
     }
 }

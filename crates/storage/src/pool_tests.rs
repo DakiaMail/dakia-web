@@ -35,6 +35,50 @@ mod starred_cache_tests;
 mod store_backend_tests;
 
 #[tokio::test]
+async fn storage_diagnostic_codes_exclude_driver_details() {
+    let db = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+    let error = sqlx::query("SELECT private_fixture_value FROM missing_private_table")
+        .execute(&db)
+        .await
+        .unwrap_err();
+    assert_eq!(Error::Sql(error).diagnostic_code(), "1");
+    assert_eq!(
+        Error::Sql(sqlx::Error::InvalidSavePointStatement).diagnostic_code(),
+        "invalid_transaction_state"
+    );
+    assert_eq!(
+        Error::Sql(sqlx::Error::PoolTimedOut).diagnostic_code(),
+        "database_pool_timeout"
+    );
+    assert_eq!(
+        Error::Sql(sqlx::Error::Protocol("private fixture".into())).diagnostic_code(),
+        "database_error"
+    );
+    db.close().await;
+}
+
+#[tokio::test]
+async fn sqlite_pool_recovers_after_automatic_transaction_rollback() {
+    let dir = tempfile::tempdir().unwrap();
+    let db = pool(&dir.path().join("rollback.sqlite")).await.unwrap();
+    sqlx::raw_sql("CREATE TABLE rollback_fixture(value INTEGER); CREATE TRIGGER rollback_write BEFORE INSERT ON rollback_fixture BEGIN SELECT RAISE(ROLLBACK, 'fixture automatic rollback'); END;")
+        .execute(&db).await.unwrap();
+    let mut tx = db.begin_with("BEGIN IMMEDIATE").await.unwrap();
+    assert!(sqlx::query("INSERT INTO rollback_fixture VALUES(1)")
+        .execute(&mut *tx)
+        .await
+        .is_err());
+    drop(tx);
+    db.begin_with("BEGIN IMMEDIATE")
+        .await
+        .unwrap()
+        .rollback()
+        .await
+        .unwrap();
+    db.close().await;
+}
+
+#[tokio::test]
 async fn bundled_sqlite_keeps_concurrent_page_caches_independent() {
     let db = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
     // MEMORY_MANAGEMENT forces SQLite's global LRU mutex across otherwise

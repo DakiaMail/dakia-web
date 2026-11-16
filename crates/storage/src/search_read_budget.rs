@@ -12,14 +12,7 @@ use std::sync::{
 // Outage safeguard, not a search latency target.
 const TURN: std::time::Duration = std::time::Duration::from_secs(10);
 pub(super) fn sqlite_pool() -> SqlitePoolOptions {
-    SqlitePoolOptions::new()
-        .max_connections(4)
-        .after_release(|connection, _| {
-            Box::pin(async move {
-                connection.lock_handle().await?.remove_progress_handler();
-                Ok(true)
-            })
-        })
+    crate::sqlite_pool_options().max_connections(4)
 }
 pub(super) struct SqliteRead {
     connection: sqlx::pool::PoolConnection<sqlx::Sqlite>,
@@ -170,6 +163,12 @@ mod tests {
                     .unwrap(),
                 2
             );
+            sqlx::Connection::begin_with(&mut *connection, "BEGIN IMMEDIATE")
+                .await
+                .unwrap()
+                .rollback()
+                .await
+                .unwrap();
         }
         db.close().await;
     }

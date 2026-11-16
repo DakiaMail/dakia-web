@@ -95,6 +95,22 @@ pub enum Error {
     AccountBusy,
 }
 pub type Result<T> = std::result::Result<T, Error>;
+impl Error {
+    /// Keep driver details and stored mail out of diagnostic logs.
+    pub fn diagnostic_code(&self) -> std::borrow::Cow<'_, str> {
+        match self {
+            Self::Sql(sqlx::Error::Database(error)) => {
+                error.code().unwrap_or("database_error".into())
+            }
+            Self::Sql(sqlx::Error::InvalidSavePointStatement) => "invalid_transaction_state".into(),
+            Self::Sql(sqlx::Error::PoolTimedOut) => "database_pool_timeout".into(),
+            Self::Sql(_) => "database_error".into(),
+            Self::Io(_) => "filesystem_error".into(),
+            Self::Json(_) => "serialization_error".into(),
+            _ => "storage_error".into(),
+        }
+    }
+}
 /// Held for the process lifetime by the server or offline operator command.
 pub fn lock_data_directory(root: impl AsRef<Path>) -> Result<std::fs::File> {
     std::fs::create_dir_all(root.as_ref())?;
@@ -152,10 +168,22 @@ async fn pool(path: &Path) -> Result<SqlitePool> {
         .pragma("secure_delete", "ON")
         .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
         .busy_timeout(std::time::Duration::from_secs(5));
-    Ok(SqlitePoolOptions::new()
+    Ok(sqlite_pool_options().connect_with(options).await?)
+}
+fn sqlite_pool_options() -> SqlitePoolOptions {
+    SqlitePoolOptions::new()
         .max_connections(1)
-        .connect_with(options)
-        .await?)
+        .after_release(|connection, _| {
+            Box::pin(async move {
+                // Wait for queued rollbacks before checking SQLx's transaction state.
+                connection.lock_handle().await?.remove_progress_handler();
+                let reusable = !sqlx::Connection::is_in_transaction(connection);
+                if !reusable {
+                    tracing::warn!(target: "dakia_server::diagnostics", operation = "storage", reason = "invalid_transaction_state", "discarding unusable database connection");
+                }
+                Ok(reusable)
+            })
+        })
 }
 impl Store {
     pub async fn open(root: impl AsRef<Path>, key: [u8; 32]) -> Result<Self> {
@@ -225,10 +253,7 @@ impl Store {
                         .pragma("secure_delete", "ON")
                         .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
                         .busy_timeout(std::time::Duration::from_secs(5));
-                    SqlitePoolOptions::new()
-                        .max_connections(1)
-                        .connect_with(options)
-                        .await?
+                    sqlite_pool_options().connect_with(options).await?
                 }
                 Some(_) => return Err(Error::Invalid),
             };

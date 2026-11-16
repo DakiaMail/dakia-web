@@ -42,8 +42,8 @@ pub async fn run(app: App) {
                     next_snapshot = Instant::now() + Duration::from_secs(30);
                 }
             }
-            Err(_) => {
-                tracing::warn!(target:"dakia_server::diagnostics",operation="search_vectors",outcome="failed","local vector maintenance failed")
+            Err(error) => {
+                tracing::warn!(target:"dakia_server::diagnostics",operation="search_vectors",reason=%error.diagnostic_code(),outcome="failed","local vector maintenance failed")
             }
         }
         if let Ok(mut accounts) = app.store.indexing_accounts().await {
@@ -80,8 +80,8 @@ pub async fn run(app: App) {
                             .await
                         {
                             Ok(work) => progressed |= work,
-                            Err(_) => {
-                                tracing::warn!(target:"dakia_server::diagnostics",operation="search_embeddings",outcome="failed",account_key=crate::diagnostics::correlation(a.id()),"search embedding attempt failed")
+                            Err(error) => {
+                                tracing::warn!(target:"dakia_server::diagnostics",operation="search_embeddings",reason=%error.diagnostic_code(),outcome="failed",account_key=crate::diagnostics::correlation(a.id()),"search embedding attempt failed")
                             }
                         }
                     }
@@ -93,8 +93,12 @@ pub async fn run(app: App) {
                 .await
                 {
                     Ok(Ok(worked)) => progressed |= worked,
-                    _ => {
-                        tracing::warn!(target:"dakia_server::diagnostics",operation="search_completion",outcome="failed",account_key=crate::diagnostics::correlation(a.id()),"search completion delivery will retry")
+                    result => {
+                        let reason = match &result {
+                            Ok(Err(error)) => error.diagnostic_code(),
+                            _ => "deadline_exceeded".into(),
+                        };
+                        tracing::warn!(target:"dakia_server::diagnostics",operation="search_completion",reason=%reason,outcome="failed",account_key=crate::diagnostics::correlation(a.id()),"search completion delivery will retry")
                     }
                 }
                 if started.elapsed() >= Duration::from_secs(2) {

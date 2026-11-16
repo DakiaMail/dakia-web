@@ -612,6 +612,32 @@ async fn unchanged_inbox_refresh_uses_cached_bodies_and_does_not_emit_events() {
 }
 
 #[tokio::test]
+async fn classification_write_failure_does_not_block_fresh_or_cached_content() {
+    let (dir, app, _, a, provider) = controlled().await;
+    let page = app
+        .mail
+        .snapshot_page(&app.store, &a, "INBOX", None)
+        .await
+        .unwrap();
+    let id = &page.rows[0].id;
+    let db = database(&dir, &a).await;
+    sqlx::query("CREATE TRIGGER reject_classification BEFORE INSERT ON message_classifications BEGIN SELECT RAISE(ABORT, 'fixture classification failure'); END")
+        .execute(&db).await.unwrap();
+    assert!(app
+        .store
+        .request_classification(&a, std::slice::from_ref(id))
+        .await
+        .is_err());
+    let fresh = app.mail.content(&app.store, &a, id).await.unwrap();
+    *provider.failure.lock().await = Some(p::ErrorKind::Retryable);
+    let cached = app.mail.content(&app.store, &a, id).await.unwrap();
+    assert_eq!(cached.text, fresh.text);
+    assert_eq!(cached.html, fresh.html);
+    assert_eq!(provider.fetch_calls.load(Ordering::SeqCst), 1);
+    db.close().await;
+}
+
+#[tokio::test]
 async fn simultaneous_opens_share_one_body_fetch_and_attachment_identity() {
     let (_dir, app, _, a, provider) = controlled().await;
     let page = app

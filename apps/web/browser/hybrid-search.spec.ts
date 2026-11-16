@@ -63,8 +63,7 @@ for (const theme of ["light","dark"]) for (const viewport of [{width:1480,height
     });
     await page.addInitScript(value=>localStorage.setItem("dakia-theme",value),theme);
     await page.goto("/");
-    if(viewport.width<600){await page.getByRole("button",{name:"Open navigation"}).focus();await page.keyboard.press("Enter");}
-    const input=page.getByRole("textbox",{name:"Search all mail"});
+    const input=page.getByRole("combobox",{name:"Search all mail"});
     await input.focus();await input.dispatchEvent("compositionstart");
     await page.keyboard.type("parcel");await page.keyboard.press("Enter");
     await expect(page.getByRole("heading",{name:"Inbox",exact:true})).toBeVisible();
@@ -75,7 +74,7 @@ for (const theme of ["light","dark"]) for (const viewport of [{width:1480,height
     await expect(page.locator('[data-message-id="personal/provider"]')).toBeVisible();
     expect(requestOrder).toContain("work-provider");expect(requestOrder).toContain("personal-provider");
     await expect(page.getByText("Your parcel will arrive tomorrow.",{exact:true})).toBeVisible();
-    await expect(page.getByText("Some related matches and attachment text may be missing.",{exact:true})).toBeVisible();
+    await expect(page.getByText("Some related matches and attachment text may be missing.",{exact:true})).toHaveCount(0);
     // Prefetching may warm one local page, but provider work never waits for it
     // to be appended. A slow provider also cannot disable local keyboard paging.
     expect(await page.locator("[data-message-id]").evaluateAll(rows=>rows.map(row=>row.getAttribute("data-message-id")))).toEqual(["work/ranked","personal/provider"]);
@@ -88,15 +87,17 @@ for (const theme of ["light","dark"]) for (const viewport of [{width:1480,height
     await expect(page.locator('[data-message-id="work/ranked"]')).toHaveCount(1);
     await expect(input).toBeFocused();
     await page.keyboard.press("Tab");
-    await expect(page.getByRole("button",{name:"Search",exact:true})).toBeFocused();
+    await expect(page.getByRole("button",{name:"Clear search text",exact:true})).toBeFocused();
     await page.keyboard.press("Tab");
-    await expect(page.getByRole("region",{name:"Messages",exact:true})).toBeFocused();
+    await expect(page.getByRole("button",{name:"Search filters",exact:true})).toBeFocused();
+    await page.getByRole("region",{name:"Messages",exact:true}).focus();
     await page.keyboard.press("Tab");
     const checkbox=page.getByRole("checkbox",{name:"Select Older exact delivery match",exact:true});
     await expect(checkbox).toBeFocused();
     await page.keyboard.press("Space");await expect(checkbox).toBeChecked();
     await page.keyboard.press("Space");await expect(checkbox).not.toBeChecked();
-    await page.keyboard.press("Shift+Tab");await page.keyboard.press("Shift+Tab");await page.keyboard.press("Shift+Tab");
+    await page.keyboard.press("Shift+Tab");
+    await page.keyboard.press("/");
     await expect(input).toBeFocused();
     refreshed=true;
     await page.keyboard.press("Enter");
@@ -123,8 +124,7 @@ for (const theme of ["light","dark"]) for (const viewport of [{width:1480,height
     mkdirSync("artifacts/hybrid",{recursive:true});
     await page.screenshot({path:`artifacts/hybrid/${theme}-${viewport.width}.png`});
     await page.reload();
-    if(viewport.width<600){await page.getByRole("button",{name:"Open navigation"}).focus();await page.keyboard.press("Enter");}
-    const restoredInput=page.getByRole("textbox",{name:"Search all mail"});
+    const restoredInput=page.getByRole("combobox",{name:"Search all mail"});
     await restoredInput.focus();await page.keyboard.type("parcel");await page.keyboard.press("Enter");
     await expect(page.getByRole("heading",{name:"Search",exact:true})).toBeVisible();
     await expect(page.locator('[data-message-id="work/ranked"]')).toBeVisible();

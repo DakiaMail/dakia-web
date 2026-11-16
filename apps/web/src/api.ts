@@ -39,27 +39,41 @@ export async function request<T>(
   if (init.method && init.method !== "GET") headers.set("X-CSRF-Token", csrf);
   if (typeof init.body === "string")
     headers.set("Content-Type", "application/json");
-  let response: Response;
-  try {
-    response = await fetch(`/api${path}`, {
-      ...init,
-      headers,
-      credentials: "same-origin",
-      cache: "no-store",
-    });
-  } catch (error) {
-    // Cancellation is intentional, and must not become a connection warning.
-    if (init.signal?.aborted || (typeof error === "object" && error !== null && "name" in error && error.name === "AbortError")) throw error;
-    // No HTTP response was observed. Preserve the network-error category so
-    // lost acknowledgements still use read-only recovery, not rejection logic.
-    throw new TypeError("Can’t reach Dakia. Check your internet connection or VPN.");
+  const read = !init.method || init.method === "GET";
+  let response!: Response;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt) {
+      await new Promise(resolve => setTimeout(resolve, 300));
+      init.signal?.throwIfAborted();
+    }
+    try {
+      response = await fetch(`/api${path}`, {
+        ...init,
+        headers,
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+    } catch (error) {
+      // Cancellation is intentional, and must not become a connection warning.
+      if (init.signal?.aborted || (typeof error === "object" && error !== null && "name" in error && error.name === "AbortError")) throw error;
+      // Preserve network errors so lost acknowledgements use read-only recovery.
+      if (read && attempt === 0) continue;
+      throw new TypeError("Couldn’t connect to Dakia. Please try again.");
+    }
+    // Retry reads once after a transient gateway failure. Never replay writes:
+    // their acknowledgement may have been lost after the action was applied.
+    if (read && attempt === 0 && [502, 503, 504, 520, 521, 522, 523, 524].includes(response.status)) {
+      await response.body?.cancel();
+      continue;
+    }
+    break;
   }
   if (!response.ok) {
     if (response.status === 401) window.dispatchEvent(new CustomEvent("dakia-auth-expired", { detail: path }));
     const error = (await response.json().catch(() => ({
       code: "http_error",
       message: response.status >= 500
-        ? "Can’t reach Dakia. Check your internet connection or VPN."
+        ? "Dakia is temporarily unavailable. Please try again."
         : "Dakia couldn’t complete this request. Please try again.",
     }))) as ApiError;
     throw new ApiFailure(response.status, error.code, error.message);

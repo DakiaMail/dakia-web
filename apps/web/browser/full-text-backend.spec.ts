@@ -10,7 +10,7 @@ for (const width of [390, 1480]) {
     page.on("request", r => { if (r.method() !== "GET") writes.push(new URL(r.url()).pathname); });
     await page.goto("/");
     if (width < 800) await page.getByRole("button", { name: "Open navigation" }).click();
-    const input = page.getByRole("textbox", { name: "Search all mail" });
+    const input = page.getByRole("combobox", { name: "Search all mail" });
     const suggested = page.waitForResponse(r => new URL(r.url()).searchParams.get("suggest") === "true");
     const start = performance.now();
     await input.fill("cafe\u0301");

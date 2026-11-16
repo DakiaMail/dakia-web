@@ -45,7 +45,6 @@ import {
   Plus,
   RefreshCw,
 
-  Search,
   Send,
   ShieldAlert,
   Star,
@@ -64,7 +63,7 @@ import type {
 } from "@dakia/api-types";
 import { escapeHtml } from "@dakia/mail-renderer";
 import { api, ApiFailure, OperationQueue, optimistic } from "./api";
-import { SearchSuggestions } from "./SearchSuggestions";
+import { MailSearch } from "./MailSearch";
 import { Composer, newDraft } from "./Composer";
 import { AccountSetup } from "./AccountSetup";
 import { MailboxSettingsDialog } from "./MailboxSettings";
@@ -195,7 +194,6 @@ export function App() {
     try { if (session.data) localStorage.setItem(`dakia-inbox-tab:${session.data.user_id}`, tab); } catch { /* denied storage */ }
   }
   const [search, setSearch] = useState("");
-  const [searchFocused, setSearchFocused] = useState(false);
   const [q, setQ] = useState("");
   const inboxFilter: MailFilter = !q && nav === "INBOX" ? { ...(view !== "all" ? { inbox_kind: view } : {}), ...(view === "automated" && typeFilter ? typeFilter === "transactions" ? { transactions: true } : { email_type: typeFilter } : {}) } : !q && nav === "Needs attention" ? { attention: true } : {};
   const categoryFilter = JSON.stringify({ revision: "personal-first-4-attention-30d-transactions", ...inboxFilter });
@@ -254,7 +252,6 @@ export function App() {
   const [deepLinkError, setDeepLinkError] = useState<unknown>();
   const deepLinkPending = useRef(true);
   const [actionError, setActionError] = useState<unknown>();
-  const [readFailures, setReadFailures] = useState<Record<string, boolean>>({});
   const attemptedReads = useRef(new Set<string>());
   const [pendingTargets, setPendingTargets] = useState<Record<string, number>>({});
   const [submission, setSubmission] = useState<Submission | null>(null);
@@ -361,7 +358,6 @@ export function App() {
   const snoozedCount = Object.values(snoozedThreads).reduce((sum, row) => sum + row.message_count, 0);
   const listKey = ["mail", account, nav, q, categoryFilter, ids];
   const explicitRefresh = useRef(false);
-  const searchComposition=useRef(false);
   const mail = useInfiniteQuery<SearchPage, Error, InfiniteData<SearchPage>, typeof listKey, string | null>({
     queryKey: listKey,
     initialPageParam: null as string | null,
@@ -557,10 +553,6 @@ export function App() {
         positions.current[`${account}/${nav}/${q}/${view}/${typeFilter}`] || 0;
   }, [account, nav, q, view, typeFilter, mail.isPending, selected, listHeight]);
   useEffect(() => {
-    const t = setTimeout(() => applySearch(search.trim()), 350);
-    return () => clearTimeout(t);
-  }, [search, q]);
-  useEffect(() => {
     const restore = () => void reconcileMail();
     window.addEventListener("online", restore);
     window.addEventListener("focus", restore);
@@ -590,9 +582,9 @@ export function App() {
       if (key === "?") return consume(() => setShortcutHelp(true));
       if (key === "c" && !e.shiftKey) return consume(startCompose);
       if (key === "/" && !e.shiftKey) return consume(() => {
-        setSidebar(true);
-        setSearchFocused(true);
-        requestAnimationFrame(() => document.querySelector<HTMLInputElement>('.sidebar .search input')?.focus());
+        if (selected) navigation.push({ ...route, selected: null });
+        setSidebar(false);
+        requestAnimationFrame(() => document.querySelector<HTMLInputElement>('.mailbox .search input')?.focus());
       });
       if ((key === "j" || key === "k") && !e.shiftKey) return consume(() => navigateMessage(key === "j" ? 1 : -1, target));
       if (!targets.length || pending) return;
@@ -632,11 +624,6 @@ export function App() {
     if (!messages.length) return { applied: 0, failed: 0 };
     if (!background && change.kind === "read") {
       for (const message of messages) attemptedReads.current.delete(identity(message));
-      setReadFailures(old => {
-        const next = { ...old };
-        for (const message of messages) delete next[identity(message)];
-        return next;
-      });
     }
     const cacheAccounts = ["archive", "trash", "spam", "move", "snooze", "inbox_kind", "detected_type", "attention", "category"].includes(change.kind) ? [...new Set(messages.map(m => m.account_id))] : [];
     const cacheStarted = Date.now();
@@ -711,8 +698,7 @@ export function App() {
             setOverrides(old => ({ ...old, ...Object.fromEntries(senderTargets.filter(row => mutationTokens.current.get(identity(row)) === token).map(row => [identity(row), row])) }));
             if (mutationTokens.current.get(identity(m)) === token) setSelected(old => old && identity(old) === identity(m) ? m : old);
 
-            if (background) setReadFailures(old => ({ ...old, [identity(m)]: true }));
-            else {
+            if (!background) {
               setActionError(failureSummary(failures));
               setToast({ id: crypto.randomUUID(), message: `${failures.length === 1 ? "An email couldn’t" : `${failures.length} emails couldn’t`} be updated. Check the error details.`, error: true });
             }
@@ -864,72 +850,20 @@ export function App() {
   }
   function changeAccount(next: string) {
     if (account !== next || selected || workspace) navigation.push({ ...route, account: next, selected: null, workspace: false }, undefined, undefined, sidebar);
-    setSidebar(sidebar);
+    setSidebar(false);
+    if (sidebar) requestAnimationFrame(() => document.querySelector<HTMLElement>(".mailbox")?.focus());
   }
   function applySearch(next: string) {
     if (next === q) return;
+    positions.current[`${account}/${nav}/${q}/${view}/${typeFilter}`] = listRef.current?.scrollTop || 0;
     // A mobile search is submitted from a navigation history layer. Update its
     // underlying screen before closing it, or Back restores the previous query.
-    if (!!next !== !!q || sidebar) {
+    if (!!next !== !!q || sidebar || selected) {
       navigation.push({ ...route, q: next, search: next, selected: null, workspace: false }, undefined, { ...route, search: q }, sidebar);
       setSidebar(sidebar);
     }
     else setQ(next);
   }
-  const searchTerms: string[] = search.match(/(?:[^\s"]+|"(?:[^"\\]|\\.)*")+/g) || [];
-  const hasAttachment = searchTerms.includes("has:attachment");
-  const searchForm = <><form
-    className={`search ${q ? "results-search" : ""}`}
-    role="search"
-    onFocus={event => { if (!event.currentTarget.contains(event.relatedTarget)) setSearchFocused(true); }}
-    onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setSearchFocused(false); }}
-    onKeyDown={event => {
-      if (event.key !== "Escape" || !plainKey(event.nativeEvent) || event.repeat) return;
-      event.preventDefault(); event.stopPropagation();
-      setSearchFocused(false); setSidebar(false);
-      requestAnimationFrame(() => (listRef.current?.matches("[tabindex]") ? listRef.current : document.querySelector<HTMLElement>(".mailbox"))?.focus());
-    }}
-    onSubmit={event => {
-      event.preventDefault();
-      if(searchComposition.current)return;
-      if(search.trim()===q)void refreshMail();
-      applySearch(search.trim());
-      setSearchFocused(false);
-      setSidebar(false);
-      // Search moves from navigation into the results header. Keep keyboard
-      // focus on the visible field after that layout transition.
-      requestAnimationFrame(()=>{
-        const field=Array.from(document.querySelectorAll<HTMLInputElement>('form[role="search"] input')).find(input=>input.getClientRects().length>0);
-        (field || listRef.current || document.querySelector<HTMLElement>(".mailbox"))?.focus({preventScroll:true});
-        setSearchFocused(false);
-      });
-    }}
-  >
-    {!q && <Search size={16} />}
-    <input
-      placeholder="Search all mail"
-      aria-label="Search all mail"
-      onCompositionStart={()=>{searchComposition.current=true;}}
-      onCompositionEnd={()=>{searchComposition.current=false;}}
-      value={search}
-      autoFocus={searchFocused}
-      onChange={event => { setSearch(event.target.value); setSearchFocused(true); }}
-    />
-    <KeyHint keys="/" />
-    {q && <button title="Search" type="submit" aria-label="Search"><Search size={18} /></button>}
-    {searchFocused && <SearchSuggestions value={search} ids={ids} onOpen={message => { setSearchFocused(false); setSidebar(false); void open(message, message.account_id); }} />}
-  </form>
-    <div className="email-type-filters" role="group" aria-label="Search filters">
-      <button type="button" aria-pressed={hasAttachment} onClick={() => {
-        const next = (hasAttachment ? searchTerms.filter(term => term !== "has:attachment").join(" ") : `${search.trim()} has:attachment`.trim());
-        setSearch(next);
-        applySearch(next);
-        setSearchFocused(false);
-        setSidebar(false);
-        requestAnimationFrame(() => document.querySelector<HTMLButtonElement>(!next && matchMedia("(max-width: 600px)").matches ? '[aria-label="Open navigation"]' : '[aria-label="Search filters"] button')?.focus());
-      }}>Has attachment</button>
-    </div>
-  </>;
   const currentRows = new Map(rows.map(m => [identity(m), m]));
   const bulk = checked.size
     ? (allMatching || rows).filter((m) => checked.has(identity(m)) && !removed[identity(m)]).map(m => overrides[identity(m)] || currentRows.get(identity(m)) || m)
@@ -966,8 +900,7 @@ export function App() {
   const refreshStatus = refreshFailed
     ? "Couldn’t update mail. Try refreshing again."
     : updating ? (!q && nav === "INBOX" ? "Updating inbox…" : "Updating mail…")
-    : inboxCoverage?.coverage.some(c => c.state === "partial") ? "Inbox refreshed. Provider coverage is limited; some mail may not be exposed."
-    : inboxCoverage?.coverage.some(c => c.state !== "complete") ? "Inbox refresh is pending." : "Refresh mail";
+    : "Refresh mail";
   const signedInUser = useRef<string | undefined>(undefined);
   if (!signedInUser.current && session.data?.user_id) signedInUser.current = session.data.user_id;
   const identityChanged = !!signedInUser.current && !!session.data?.user_id && signedInUser.current !== session.data.user_id;
@@ -978,7 +911,7 @@ export function App() {
   const connectionNotice = connectionProblem && !sessionExpired && (
     <div role="status" className="connection-state session-connection-state">
       <span>{online
-        ? "Can’t reach Dakia. Check your internet connection or VPN."
+        ? (session.error instanceof Error ? session.error.message : "Couldn’t connect to Dakia. Please try again.")
         : "You’re offline. Connect to the internet to load or change mail."}</span>
       {online && <button title="Retry connection" disabled={session.isFetching} onClick={() => void session.refetch()}>
         {session.isFetching ? "Retrying…" : "Retry connection"}
@@ -991,8 +924,8 @@ export function App() {
     return (
       <div className="login connection-recovery">
         <img src="/dakia-icon-512.png" alt="Dakia" width="72" height="72" />
-        <h1>{online ? "Can’t reach Dakia" : "You’re offline"}</h1>
-        <p role="status">Check your internet connection or VPN, then try again.</p>
+        <h1>{online ? "Dakia is unavailable" : "You’re offline"}</h1>
+        <p role="status">{online ? (session.error instanceof Error ? session.error.message : "Please try again.") : "Connect to the internet to load your mail."}</p>
         <button title="Retry connection" className="primary" disabled={session.isFetching || !online} onClick={() => void session.refetch()}>
           {session.isFetching ? "Retrying…" : "Retry connection"}
         </button>
@@ -1028,7 +961,6 @@ export function App() {
             <X size={18} />
           </button>
         </div>
-        {(!q || sidebar) && searchForm}
 
         <nav aria-label="Mailboxes">
           {navs.map(({ id, label, icon: Icon }) => (
@@ -1069,7 +1001,6 @@ export function App() {
             <div className="account-entry" key={a.id}>
             <AccountIndexingProgress account={a} online={online}>
             <button
-              aria-describedby={`indexing-${a.id}-status`}
               className={account === a.id ? "selected" : ""}
               onClick={() => {
                 changeAccount(a.id);
@@ -1128,7 +1059,7 @@ export function App() {
       )}
       {workspace && <Workspace updatesFocus={updatesFocus} userId={session.data?.user_id} accounts={accounts.data || []} blockHiddenImages={blockHiddenImages} onHiddenImagesChange={setBlockHiddenImages} keyboardHints={keyboardPreferences.hints} onKeyboardHintsChange={keyboardPreferences.setHints} keyboardShortcuts={keyboardPreferences.shortcuts} onKeyboardShortcutsChange={keyboardPreferences.setShortcuts} onShortcutHelp={() => setShortcutHelp(true)} alwaysLoadImages={alwaysLoadImages} onImagePrivacyChange={setAlwaysLoadImages} onBack={() => { navigation.backTo(previous => !previous.workspace); requestAnimationFrame(() => { if (matchMedia("(max-width: 600px)").matches) document.querySelector<HTMLButtonElement>('[aria-label="Open navigation"]')?.focus(); else document.querySelector<HTMLButtonElement>('[aria-label="Manage workspace"]')?.focus(); }); }} onConnect={() => setSetup(true)} onSettings={setSettingsAccount} onRemove={setRemovingAccount} onReconnect={(account) => { setReconnect(account); setSetup(true); }} />}
       <main tabIndex={-1} className={`mailbox ${(nav === "INBOX" || nav === "Needs attention") && !q ? "compact-inbox" : ""} ${checked.size ? "has-selection" : ""}`}>
-        <header className="pane-header">
+        <header className="pane-header mail-search-toolbar">
           <button title="Open navigation"
             className="mobile"
             aria-label="Open navigation"
@@ -1136,31 +1067,17 @@ export function App() {
           >
             <Menu size={20} />
           </button>
-          <h1>{q ? "Search" : nav === "INBOX" ? "Inbox" : nav}</h1>
-          <button title="Compose"
-            className="primary list-compose"
-            aria-label="Compose"
-            onClick={startCompose}
-          >
-            <Pencil size={16} />
-          </button>
-          <select title="Account filter"
-            aria-label="Account filter"
-            value={account}
-            onChange={(e) => {
-              changeAccount(e.target.value);
-            }}
-          >
-            <option value="all">All accounts</option>
-            {(accounts.data || []).map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.display_name}
-              </option>
-            ))}
-          </select>
-          <RefreshButton updating={updating} failed={refreshFailed} status={refreshStatus} onRefresh={() => void refreshMail()} />
+          <h1 className="dakia-sr-only">{q ? "Search" : nav === "INBOX" ? "Inbox" : nav}</h1>
+          <MailSearch value={search} committed={q} ids={ids} accounts={accounts.data || []}
+            onChange={setSearch} onSearch={next => { if (next === q) void refreshMail(); applySearch(next); setSidebar(false); }}
+            onOpen={message => { setSidebar(false); void open(message, message.account_id); requestAnimationFrame(() => document.querySelector<HTMLElement>(".reader")?.focus()); }}
+            backLabel={nav === "INBOX" ? "Back to inbox" : `Back to ${nav.toLowerCase()}`}
+            onBack={() => { navigation.backTo(previous => !previous.q && !previous.selected); requestAnimationFrame(() => document.querySelector<HTMLElement>(".mailbox")?.focus()); }}
+            actions={<>
+              <RefreshButton updating={updating} failed={refreshFailed} status={refreshStatus} onRefresh={() => void refreshMail()} />
+              <button title="Compose" className="primary list-compose" aria-label="Compose" onClick={startCompose}><Pencil size={16} /></button>
+            </>} />
         </header>
-        {q && !sidebar && searchForm}
         {nav === "INBOX" && !q && <AttentionStrip account={account} ids={ids} overrides={overrides} removed={{...removed,...cleanupRows}} snoozed={snoozedThreads} showAll={() => navigate("Needs attention")} open={message => void open(message)} act={(messages, change) => void act(messages, change)} />}
         <div className="view-toolbar">
           {nav === "INBOX" && !q && <div role="tablist" aria-label="Inbox view" onKeyDown={(event) => {
@@ -1269,9 +1186,6 @@ export function App() {
         {q && [...mail.data?.pages||[],...supplements.pages].some(page=>page.coverage.some(c=>c.state==="error")) && (
           <p role="alert" className="inbox-sync-status">Some accounts couldn’t be searched completely. Try searching again.</p>
         )}
-        {q && [...(mail.data?.pages || []), ...supplements.pages].some(page => (page.search?.degradation.length || page.pending && page.cache_preview)) && (
-          <p role="status" className="inbox-sync-status">Some related matches and attachment text may be missing.</p>
-        )}
         {!(accounts.data || []).length && !accounts.isPending ? (
           <Empty title="Welcome to Dakia">
             <p>Connect your first mailbox to get started.</p>
@@ -1289,9 +1203,9 @@ export function App() {
         ) : mail.isPending ? (
           <Empty title="Loading mail…" />
         ) : !rows.length && !mail.error && !hasNext && !supplements.isFetching && !paginationStalled ? (
-          <div className="message-list" ref={listRef}><Empty title={q ? coverage?.coverage.some(c => c.state !== "complete") ? "No matches in checked mail" : "No matches" : nav === "INBOX" && coverage?.coverage.some(c => c.state !== "complete") ? "Checking for mail…" : nav === "INBOX" ? view === "personal" ? "No personal mail" : view === "automated" ? "No matching automated mail" : "All caught up" : "All caught up"}>
+          <div className="message-list" ref={listRef}><Empty title={q ? coverage?.coverage.some(c => c.state !== "complete") ? "No matches yet" : "No matches" : nav === "INBOX" && coverage?.coverage.some(c => c.state !== "complete") ? "Checking for mail…" : nav === "INBOX" ? view === "personal" ? "No personal mail" : view === "automated" ? "No matching automated mail" : "All caught up" : "All caught up"}>
             <p>
-              {q ? coverage?.coverage.some(c => c.state !== "complete") ? "Search coverage is incomplete. Try searching again when the provider is available." : "Try a different search." : nav === "INBOX" && coverage?.coverage.some(c => c.state !== "complete") ? "Your inbox will update as mail arrives." : "New mail will appear here."}
+              {q ? coverage?.coverage.some(c => c.state !== "complete") ? "Try searching again in a moment." : "Try a different search." : nav === "INBOX" && coverage?.coverage.some(c => c.state !== "complete") ? "Your inbox will update as mail arrives." : "New mail will appear here."}
             </p>
           </Empty></div>
         ) : (
@@ -1461,18 +1375,18 @@ export function App() {
               </button>
             )}
             <p className="mail-load-status" role="status">
-              {mail.isFetchNextPageError ? "Couldn’t load more mail. Your loaded messages are still available." : fetchingMore ? "Loading more mail…" : paginationStalled ? "Paging stopped because the mailbox returned a repeated page. Refresh mail to try again." : !hasNext && rows.length ? "End of loaded mail" : ""}
+              {mail.isFetchNextPageError ? "Couldn’t load more mail. Your loaded messages are still available." : fetchingMore ? "Loading more mail…" : paginationStalled ? "Paging stopped because the mailbox returned a repeated page. Refresh mail to try again." : ""}
             </p>
             {(mail.isFetchNextPageError || supplements.hasError) && <button title="Retry loading mail" className="load-more" disabled={mail.isFetching} onClick={() => loadMore()}>Retry loading mail</button>}
           </div>
         )}
-        <div className="keyboard-hints">
+        {keyboardPreferences.hints && <div className="keyboard-hints">
           <span><kbd>Tab</kbd> Navigate controls</span><span><kbd>Enter</kbd> Activate</span>
-          {keyboardPreferences.hints && keyboardPreferences.shortcuts && <>
+          {keyboardPreferences.shortcuts && <>
             <span><kbd>J</kbd> / <kbd>K</kbd> Next / previous</span><span><kbd>E</kbd> Archive</span><span><kbd>R</kbd> Reply</span>
             <button title="Keyboard shortcuts" onClick={() => setShortcutHelp(true)} aria-label="Keyboard shortcuts"><kbd>?</kbd> All shortcuts</button>
           </>}
-        </div>
+        </div>}
       </main>
       <section className="reader" aria-label="Reading pane" tabIndex={-1}>
         <header className="pane-header">
@@ -1503,7 +1417,6 @@ export function App() {
         {active && snoozedThreads[`${active.account_id}/${active.thread_id}`] && <p className="snooze-notice">Snoozed until {snoozeTime(snoozedThreads[`${active.account_id}/${active.thread_id}`].until)}</p>}
         {active ? (
           <Conversation key={identity(active)} selected={active} accounts={accounts.data || []} cleanupRows={cleanupRows}
-            readFailed={!!readFailures[identity(active)] && active.unread}
             dark={dark} alwaysLoadImages={alwaysLoadImages} blockHiddenImages={blockHiddenImages} onReply={reply}
             onDraft={(draft) => setCompose({ draft })}
             onCleanup={targets => { clearSelection(); if (active && targets.some(m => identity(m) === identity(active))) closeReader(); }} />

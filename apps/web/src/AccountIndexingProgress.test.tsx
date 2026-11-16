@@ -14,14 +14,15 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.useRealTimers(); });
 
 it("waits before showing work, distinguishes discovery, and disappears without shifting focus", async () => {
   vi.useFakeTimers();
-  vi.spyOn(api, "indexingStatus").mockResolvedValue(initial);
+  vi.spyOn(api, "indexingStatus").mockResolvedValue({ ...initial, gaps: 3 });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(<DakiaProvider><QueryClientProvider client={client}><AccountIndexingProgress account={account} online><button>Work account</button></AccountIndexingProgress></QueryClientProvider></DakiaProvider>);
+  expect(screen.queryByText(/indexed|unreadable|Preparing search/i)).toBeNull();
   const button = screen.getByRole("button");button.focus();
   await act(async () => { await vi.advanceTimersByTimeAsync(100); });
   expect(screen.queryByRole("progressbar")).toBeNull();
   await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
-  const bar = screen.getByRole("progressbar", { name: "Indexing Work" });
+  const bar = screen.getByRole("progressbar", { name: "Updating Work" });
   expect(bar.getAttribute("aria-valuenow")).toBeNull();
   expect(bar.getAttribute("tabindex")).toBeNull();
   act(() => client.setQueryData(["indexing", account.id], { ...initial, state: "indexing", discovery_complete: true }));
@@ -29,7 +30,7 @@ it("waits before showing work, distinguishes discovery, and disappears without s
   expect(screen.getByRole("progressbar").getAttribute("aria-valuenow")).toBe("20");
   act(() => client.setQueryData(["indexing", account.id], { ...initial, state: "error", discovery_complete: true }));
   await act(async () => { await vi.advanceTimersByTimeAsync(1); });
-  expect(screen.getByRole("progressbar").getAttribute("aria-valuetext")).toBe("Indexing will retry");
+  expect(screen.getByRole("progressbar").getAttribute("aria-valuetext")).toBe("Updating paused");
   expect(document.activeElement).toBe(button);
   act(() => client.setQueryData(["indexing", account.id], { ...initial, state: "complete", processed: 10, backlog: 0, discovery_complete: true }));
   await act(async () => { await vi.advanceTimersByTimeAsync(1); });
@@ -51,7 +52,7 @@ it("suppresses quick updates and preserves paused progress offline", async () =>
   act(() => client.setQueryData(["indexing", account.id], { ...initial, state: "indexing", discovery_complete: true }));
   await act(async () => { await vi.advanceTimersByTimeAsync(2100); });
   view.rerender(ui(false));
-  expect(screen.getByRole("progressbar").getAttribute("aria-valuetext")).toBe("Indexing paused");
+  expect(screen.getByRole("progressbar").getAttribute("aria-valuetext")).toBe("Updating paused");
   client.clear();
 });
 
@@ -62,11 +63,11 @@ it("keeps polling local progress through a provider reconnect and hides complete
   render(<DakiaProvider><QueryClientProvider client={client}><AccountIndexingProgress account={{...account,state:"reconnect"}} online><button>Work account</button></AccountIndexingProgress></QueryClientProvider></DakiaProvider>);
   const button=screen.getByRole("button");button.focus();
   await act(async()=>{await vi.advanceTimersByTimeAsync(2100);});
-  expect(screen.getByRole("progressbar").getAttribute("aria-valuetext")).toBe("20% indexed");
+  expect(screen.getByRole("progressbar").getAttribute("aria-valuetext")).toBe("Updating mail");
   poll.mockResolvedValue({...initial,state:"indexing",discovery_complete:true,processed:10,backlog:1});
   await act(async()=>{await vi.advanceTimersByTimeAsync(5100);});
   expect(poll).toHaveBeenCalledTimes(2);
-  expect(screen.getByRole("progressbar").getAttribute("aria-valuetext")).toBe("Finishing search");
+  expect(screen.getByRole("progressbar").getAttribute("aria-valuetext")).toBe("Updating mail");
   expect(document.activeElement).toBe(button);
   poll.mockResolvedValue({...initial,state:"complete",discovery_complete:true,processed:10,backlog:0});
   await act(async()=>{await vi.advanceTimersByTimeAsync(5100);});

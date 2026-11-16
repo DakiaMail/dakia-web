@@ -63,7 +63,7 @@ export function InstallApp() {
   }
   return <section className="workspace-notifications install-app" aria-label="Install Dakia">
     <span className="workspace-account-icon"><Download size={20} /></span>
-    <div><h2>Install Dakia</h2><p>Open your mail from your home screen. An internet connection is required.</p>
+    <div><h2>Install Dakia</h2><p>Open your mail from your home screen.</p>
       {ios || /Android/.test(navigator.userAgent) ? <div><button onClick={showGuide}>Install Dakia</button>{ios && <p>Open Dakia from your home screen before enabling notifications.</p>}</div> : prompt ? <button title="Install Dakia" disabled={busy} onClick={() => void install()}>Install Dakia</button> :
         <details><summary>How to install</summary><p>{/Mac/.test(navigator.platform) && safari
           ? "In Safari, open File and choose Add to Dock. In Chrome or Edge, use the browser’s install option."

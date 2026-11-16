@@ -1,3 +1,4 @@
+import type { Page } from "@playwright/test";
 import type {
   Account,
   Message,
@@ -116,3 +117,11 @@ export type FixtureState = {
   drafts: Map<string, Draft>;
   submissions: Submission[];
 };
+
+export async function selectAccount(page: Page, id: string) {
+  const navigation = page.getByRole("navigation", { name: "Accounts", exact: true });
+  const open = page.getByRole("button", { name: "Open navigation", exact: true });
+  if (await open.isVisible() && !await page.locator(".app").evaluate(element => element.classList.contains("nav-open"))) await open.click();
+  const label = id === "all" ? "All accounts" : accounts.find(account => account.id === id)?.display_name || id;
+  await navigation.getByRole("button", { name: id === "all" ? label : new RegExp(`^${label} `), exact: id === "all" }).click();
+}

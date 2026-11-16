@@ -154,7 +154,8 @@ test("body timeout offers a working explicit retry and never hides available con
 for (const nav of ["Starred", "Search"]) test(`removal is immediate outside Inbox: ${nav}`, async ({ page }) => {
   const f = await fixture(page);
   if (nav === "Search") {
-    await page.getByRole("textbox", { name: "Search all mail" }).fill("Quiet");
+    await page.getByRole("combobox", { name: "Search all mail" }).fill("Quiet");
+    await page.getByRole("combobox", { name: "Search all mail" }).press("Enter");
     await expect.poll(() => f.state.reads).toBeGreaterThan(1);
   } else await page.getByRole("button", { name: "Starred", exact: true }).click();
   await page.getByRole("checkbox", { name: "Select Quiet work" }).check();

@@ -107,7 +107,7 @@ it("uses host fallback only when the administrator permits it", async () => {
   render(<QueryClientProvider client={client}><Translation message={messages[0]} html={content.html} text={content.text} dark={false} detectedLanguage="et" /></QueryClientProvider>);
   fireEvent.click(screen.getByRole("button", { name: "Translate to English" }));
   await waitFor(() => expect(host).toHaveBeenCalledTimes(1));
-  expect(screen.getByText("Using host translation because this device could not finish.")).toBeTruthy(); client.clear();
+  expect(screen.queryByText("Using host translation because this device could not finish.")).toBeNull(); client.clear();
 });
 
 it("does not fall back or show late local results after cancellation", async () => {

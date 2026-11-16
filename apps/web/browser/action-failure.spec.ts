@@ -2,10 +2,11 @@ import { test, expect } from "@playwright/test";
 import { accounts, content, page as mail } from "./fixtures";
 import type { Operation } from "@dakia/api-types";
 
-for (const width of [390, 1480]) test(`opening unread mail identifies failed automatic read action ${width}`, async ({ page }) => {
+for (const width of [390, 1480]) test(`failed automatic read stays quiet and preserves unread state ${width}`, async ({ page }) => {
   await page.setViewportSize({ width, height: 980 });
   const message = { ...mail.rows[0], unread: true, subject: "Synthetic newsletter", revision: 1 };
   const operations = new Map<string, Operation>();
+  let failureChecks = 0;
   await page.route("**/api/**", async route => {
     const path = new URL(route.request().url()).pathname;
     const respond = (value: unknown) => route.fulfill({ contentType: "application/json", body: JSON.stringify(value) });
@@ -16,7 +17,7 @@ for (const width of [390, 1480]) test(`opening unread mail identifies failed aut
       const op = { ...route.request().postDataJSON(), status: "pending", revision: 2 } as Operation;
       operations.set(op.id, op); return respond(op);
     }
-    if (path.includes("/operations/")) return respond({ ...operations.get(path.split("/").at(-1)!), status: "failed", revision: 3 });
+    if (path.includes("/operations/")) { failureChecks++; return respond({ ...operations.get(path.split("/").at(-1)!), status: "failed", revision: 3 }); }
     if (path === "/api/search" || path.endsWith("/messages")) return respond({ ...mail, rows: [message], continuation: null });
     if (path.endsWith("/conversation")) return respond({ rows: [message], complete: true, continuation: null });
     if (path.endsWith("/unsubscribe")) return respond({ kind: "unavailable" });
@@ -26,14 +27,16 @@ for (const width of [390, 1480]) test(`opening unread mail identifies failed aut
   await page.goto("/");
   await page.getByRole("tab", { name: "All", exact: true }).click();
   await page.locator(".message-open").filter({ hasText: message.subject }).click();
-  await expect(page.getByRole("status").filter({ hasText: "Still marked unread" })).toBeVisible();
+  await expect.poll(() => failureChecks).toBeGreaterThan(0);
+  await expect(page.getByRole("status").filter({ hasText: "Still marked unread" })).toHaveCount(0);
   await expect(page.getByRole("alert")).toHaveCount(0);
   expect([...operations.values()].map(op => op.change)).toEqual([{ kind: "read", value: true }]);
   await expect(page.locator(".conversation-message")).toHaveCount(1);
   await page.screenshot({ path: `artifacts/action-failure-${width}.png`, fullPage: true });
   await page.keyboard.press("Escape");
+  await expect(page.locator(".message-row")).toHaveClass(/unread/);
   await page.locator(".message-open").filter({ hasText: message.subject }).click();
-  await expect(page.getByRole("status").filter({ hasText: "Still marked unread" })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "Still marked unread" })).toHaveCount(0);
   await expect(page.getByRole("alert")).toHaveCount(0);
   expect(operations.size).toBe(1);
 });

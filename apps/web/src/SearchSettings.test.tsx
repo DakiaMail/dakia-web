@@ -17,7 +17,7 @@ it("saves the override and shows the effective state", async () => {
   const save = vi.spyOn(searchSettingsApi, "save").mockResolvedValue(saved);
   const client = show();
   expect(screen.getByText("Search by meaning is off.")).toBeTruthy();
-  fireEvent.click(screen.getByRole("radio", { name: /^On Enable/ }));
+  fireEvent.click(screen.getByRole("radio", { name: /^On Find/ }));
   fireEvent.click(screen.getByRole("button", { name: "Save search settings" }));
   await screen.findByText("Search by meaning is enabled.");
   expect(save).toHaveBeenCalledWith("on", expect.anything());
@@ -26,7 +26,7 @@ it("saves the override and shows the effective state", async () => {
 it("keeps the saved mode and draft visible when saving fails", async () => {
   vi.spyOn(searchSettingsApi, "save").mockRejectedValue(new Error("unavailable"));
   const client = show();
-  fireEvent.click(screen.getByRole("radio", { name: /^On Enable/ }));
+  fireEvent.click(screen.getByRole("radio", { name: /^On Find/ }));
   fireEvent.click(screen.getByRole("button", { name: "Save search settings" }));
   await screen.findByRole("alert");
   expect(screen.getByText("Search by meaning is off.")).toBeTruthy();

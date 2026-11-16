@@ -1,7 +1,6 @@
 import { useEffect, useState, type ReactElement } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { Account } from "@dakia/api-types";
-import { Tooltip } from "@dakia/ui";
 import { api } from "./api";
 
 export function AccountIndexingProgress({ account, online, children }: { account: Account; online: boolean; children: ReactElement }) {
@@ -21,27 +20,18 @@ export function AccountIndexingProgress({ account, online, children }: { account
     const timer = setTimeout(() => setVisible(true), 2000);
     return () => clearTimeout(timer);
   }, [active, account.id]);
-  const gaps = valid ? status.data?.gaps || 0 : 0;
-  const gapMessage = gaps === 1 ? "1 message has unreadable content." : `${gaps} messages have unreadable content.`;
-  const gapStatus = <span className="sr-only" id={`indexing-${account.id}-status`}>{gaps > 0 ? gapMessage : ""}</span>;
   const data = valid ? status.data : undefined;
   const paused = !online || status.isError || data?.state === "paused" || data?.state === "error";
   const percent = data?.discovery_complete && data.eligible > 0
     ? Math.min(100, Math.floor(data.processed / data.eligible * 100)) : undefined;
-  const description = !online ? "Indexing paused" : data?.state === "error" ? "Indexing will retry" : paused ? "Indexing paused"
-    : percent === undefined ? "Preparing search" : percent === 100 && data?.backlog ? "Finishing search" : `${percent}% indexed`;
-  const detail = gaps ? `${description}. ${gapMessage}` : description;
-  const summary = data?.state === "complete" ? "Search ready" : description;
-  const progress = data ? `${data.processed.toLocaleString()} of ${data.eligible.toLocaleString()} emails indexed.` : "";
-  const tooltip = data ? `${summary}. ${progress}${gaps ? ` ${gapMessage}` : ""}`
-    : status.isError ? "Search progress unavailable" : "Checking search progress";
-  return <><Tooltip label={tooltip}>{children}</Tooltip>{gapStatus}{active && visible && data && <div
+  const description = paused ? "Updating paused" : "Updating mail";
+  return <>{children}{active && visible && data && <div
     className={`account-indexing${paused ? " paused" : ""}${percent === undefined ? " indeterminate" : ""}`}
     role="progressbar"
-    aria-label={`Indexing ${account.display_name}`}
+    aria-label={`Updating ${account.display_name}`}
     aria-valuemin={0}
     aria-valuemax={100}
     aria-valuenow={percent}
-    aria-valuetext={detail}
+    aria-valuetext={description}
   ><span style={percent === undefined ? undefined : { width: `${percent}%` }} /></div>}</>;
 }

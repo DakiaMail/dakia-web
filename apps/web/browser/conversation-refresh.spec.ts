@@ -102,19 +102,13 @@ test("events during slow verification keep the count stable and final local catc
   await expect(page.getByText("Finding messages…",{exact:true})).toHaveCount(0);
 });
 
-test("reading does not poll the provider and explicit refresh preserves known cards on failure",async({page})=>{
+test("reading does not poll the provider or show conversation refresh controls",async({page})=>{
   await page.clock.install();
   const state = await fixture(page);
-  await page.waitForTimeout(100);
   const before = state.discovery;
   await page.clock.fastForward(121000);
   await expect.poll(()=>state.discovery).toBe(before);
-  state.fail = true;
-  await page.getByRole("button",{name:"Check for more messages",exact:true}).click();
-  await expect(page.getByText("Couldn’t check for more messages",{exact:false})).toBeVisible();
+  await expect(page.getByRole("button",{name:"Check for more messages",exact:true})).toHaveCount(0);
+  await expect(page.getByRole("button",{name:"Retry conversation"})).toHaveCount(0);
   await expect(page.locator(".conversation-message")).toHaveCount(1);
-  state.fail = false;
-  await page.getByRole("button",{name:"Retry conversation"}).click();
-  await expect(page.getByText("Couldn’t check for more messages",{exact:false})).toHaveCount(0);
-  expect(state.discovery).toBe(before+2);
 });

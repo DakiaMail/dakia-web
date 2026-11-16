@@ -6,6 +6,7 @@ for (const theme of ["light", "dark"]) for (const viewport of [{width:1480,heigh
   test(`indexing progress ${theme} ${viewport.width}`, async ({page}) => {
     test.setTimeout(45000);
     await page.setViewportSize(viewport);
+    await page.clock.install();
     const reducedMotion=theme==="dark" && viewport.width<600;
     if(reducedMotion) await page.emulateMedia({reducedMotion:"reduce"});
     let state="discovering";
@@ -25,28 +26,20 @@ for (const theme of ["light", "dark"]) for (const viewport of [{width:1480,heigh
     if(viewport.width<600) { await page.getByRole("button",{name:"Open navigation"}).focus();await page.keyboard.press("Enter"); }
     const work=page.getByRole("navigation",{name:"Accounts"}).getByRole("button",{name:/Work/});
     await work.focus();
-    const bar=page.getByRole("progressbar",{name:"Indexing Work"});
+    const bar=page.getByRole("progressbar",{name:"Updating Work"});
     await expect(bar).toBeVisible();
     await expect(bar).not.toHaveAttribute("aria-valuenow");
     if(reducedMotion) expect(await bar.locator("span").evaluate(element=>getComputedStyle(element).animationName)).toBe("none");
     await expect(work).toBeFocused();
-    const tooltip=page.getByRole("tooltip");
-    await expect(tooltip).toContainText("Preparing search. 37 of 100 emails indexed.");
+    await expect(page.getByRole("tooltip")).toHaveCount(0);
     await expect(work).not.toHaveAttribute("title");
-    await page.keyboard.press("Escape");
-    await expect(tooltip).toBeHidden();
-    await expect(work).toBeFocused();
-    await work.hover();
-    await expect(tooltip).toBeVisible();
-    const bounds=await tooltip.boundingBox();
-    expect(bounds!.x).toBeGreaterThanOrEqual(0);
-    expect(bounds!.x+bounds!.width).toBeLessThanOrEqual(viewport.width);
+    await expect(page.getByText(/emails indexed|unreadable content/)).toHaveCount(0);
     state="indexing";
+    await page.clock.fastForward(5100);
     await expect(bar).toHaveAttribute("aria-valuenow","37",{timeout:7000});
     await expect(work).toBeFocused();
-    await expect(tooltip).toContainText("37% indexed. 37 of 100 emails indexed.");
+    await expect(bar).toHaveAttribute("aria-valuetext", "Updating mail");
     mkdirSync("artifacts/indexing",{recursive:true});
-    await page.screenshot({path:`artifacts/indexing/tooltip-${theme}-${viewport.width}.png`});
     await page.mouse.move(viewport.width-1,0);
     await page.keyboard.press("Tab");
     await expect(page.getByRole("navigation",{name:"Accounts"}).getByRole("button",{name:/Personal/})).toBeFocused();
@@ -54,23 +47,29 @@ for (const theme of ["light", "dark"]) for (const viewport of [{width:1480,heigh
     mkdirSync("artifacts/indexing",{recursive:true});
     await page.screenshot({path:`artifacts/indexing/${theme}-${viewport.width}.png`});
     state="paused";
-    await expect(bar).toHaveAttribute("aria-valuetext","Indexing paused",{timeout:7000});
+    await page.clock.fastForward(5100);
+    await expect(bar).toHaveAttribute("aria-valuetext","Updating paused",{timeout:7000});
     await page.reload();
     if(viewport.width<600) { await page.getByRole("button",{name:"Open navigation"}).focus();await page.keyboard.press("Enter"); }
-    await expect(bar).toHaveAttribute("aria-valuetext","Indexing paused");
+    await expect(bar).toHaveAttribute("aria-valuetext","Updating paused");
     state="error";
-    await expect(bar).toHaveAttribute("aria-valuetext","Indexing will retry",{timeout:7000});
+    await page.clock.fastForward(5100);
+    await expect(bar).toHaveAttribute("aria-valuetext","Updating paused",{timeout:7000});
     state="indexing";
+    await page.clock.fastForward(5100);
     finishing=true;
-    await expect(bar).toHaveAttribute("aria-valuetext","Finishing search",{timeout:7000});
+    await page.clock.fastForward(5100);
+    await expect(bar).toHaveAttribute("aria-valuetext","Updating mail",{timeout:7000});
     await expect(bar).toHaveAttribute("aria-valuenow","100");
     await page.screenshot({path:`artifacts/indexing/finishing-${theme}-${viewport.width}.png`});
     await work.focus();
     const before=(await work.locator("..").boundingBox())!.height;
     state="complete";
+    await page.clock.fastForward(5100);
     await expect(bar).toHaveCount(0,{timeout:7000});
     await expect(work).toBeFocused();
     expect((await work.locator("..").boundingBox())!.height).toBeLessThan(before);
-    await expect(tooltip).toContainText("Search ready. 100 of 100 emails indexed. 2 messages have unreadable content.");
+    await expect(page.getByRole("tooltip")).toHaveCount(0);
+    await expect(page.getByText(/emails indexed|unreadable content/)).toHaveCount(0);
   });
 }

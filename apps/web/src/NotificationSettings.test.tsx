@@ -28,7 +28,7 @@ it("checks configuration without asking permission, enables, tests locally and r
   await screen.findByRole("button", { name: "Disable notifications" });
   expect(extraApi.subscribe).toHaveBeenCalledWith({ endpoint: "synthetic" });
   fireEvent.click(screen.getByRole("button", { name: "Test notification" }));
-  await screen.findByText(/This checks this device/); expect(showNotification).toHaveBeenCalledOnce();
+  await screen.findByText(/Test notification shown on this device/); expect(showNotification).toHaveBeenCalledOnce();
   registered = true;
   fireEvent.click(screen.getByRole("button", { name: "Disable notifications" }));
   await screen.findByRole("button", { name: "Enable notifications" });

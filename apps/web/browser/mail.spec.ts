@@ -1,3 +1,4 @@
+import { selectAccount } from "./fixtures";
 import { test, expect, type Page } from "@playwright/test";
 import { Buffer } from "node:buffer";
 import type { Submission, ScheduledMessage } from "@dakia/api-types";
@@ -179,7 +180,7 @@ test("scheduled view shows useful pending mail and hides history and inbox-only 
   await expect(page.getByRole("button", { name: "Edit scheduled" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Cancel send" })).toBeVisible();
   await page.getByRole("button", { name: "Dismiss send status" }).click();
-  await page.getByRole("combobox", { name: "Account filter" }).selectOption("personal");
+  await selectAccount(page, "personal");
   await expect(page.getByRole("heading", { name: "No scheduled messages" })).toBeVisible();
   await page.screenshot({ path: "artifacts/scheduled-mobile-dark-empty.png", fullPage: true });
   await page.setViewportSize({ width: 1480, height: 980 });
@@ -267,7 +268,7 @@ test("workspace management consolidates accounts, settings and notification cont
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.getByRole("button", { name: "Close", exact: true }).click();
   await workspace.getByRole("button", { name: "Back to mail" }).click();
-  await expect(page.getByRole("combobox", { name: "Account filter" })).toHaveValue("work");
+  await expect(page.locator('nav[aria-label="Accounts"] button.selected')).toContainText("Work");
   await expect(page.getByRole("tab", { name: "Personal" })).toBeVisible();
 });
 test("mobile compact toolbar, FAB and real touch pull refresh have bounded requests", async ({ page, context }) => {
@@ -798,8 +799,9 @@ test("search retains pagination without provider diagnostics", async ({
   );
   await page.goto("/");
   await page
-    .getByRole("textbox", { name: "Search all mail" })
+    .getByRole("combobox", { name: "Search all mail" })
     .fill("old uncached subject");
+  await page.getByRole("combobox", { name: "Search all mail" }).press("Enter");
   await expect(page.getByLabel("Search category")).toHaveCount(0);
   await expect(page.getByText("Provider search", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Provider unavailable", { exact: false })).toHaveCount(0);
@@ -1025,8 +1027,8 @@ test("notification deep link selects the owned account and message", async ({
     page.getByRole("heading", { name: "A few thoughts on the launch" }),
   ).toBeVisible();
   await expect(
-    page.getByRole("combobox", { name: "Account filter" }),
-  ).toHaveValue("work");
+    page.locator('nav[aria-label="Accounts"] button.selected'),
+  ).toContainText("Work");
 });
 test("inbox tabs retain the reader and separate scroll positions", async ({
   page,

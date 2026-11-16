@@ -33,7 +33,7 @@ test("general search uses saved matches through real Rust HTTP and SQLite", asyn
     const u = new URL(r.url());
     return u.pathname === "/api/search" && u.searchParams.get("q") === "subject:Synthetic" && u.searchParams.has("continuation");
   });
-  const input = page.getByRole("textbox", { name: "Search all mail" });
+  const input = page.getByRole("combobox", { name: "Search all mail" });
   await input.fill("subject:Synthetic"); await input.press("Enter");
   const preview = await (await previewResponse).json();
   expect(preview.cache_preview).toBe(true);

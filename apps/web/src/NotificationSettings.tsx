@@ -82,7 +82,7 @@ export function NotificationSettings() {
       } else {
         const registration = await pushRegistration();
         await registration.showNotification("Dakia", { body: "Notifications are working on this device.", icon: "/dakia-icon-192.png", tag: "dakia-test", data: { path: "/" } });
-        setStatus("Test notification shown. This checks this device, not server delivery.");
+        setStatus("Test notification shown on this device.");
       }
     } catch (error) { setError(error instanceof Error ? error.message : "Couldn’t change notifications. Try again."); }
     finally {

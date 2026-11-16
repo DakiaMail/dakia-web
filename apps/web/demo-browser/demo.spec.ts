@@ -55,7 +55,7 @@ test("local search, reading, download, translation, unsubscribe, and blocked ext
   const requests: string[] = [];
   page.on("request", req => { if (/\/api\/|\/auth\//.test(req.url())) requests.push(req.url()); });
   await page.goto("/");
-  const search = page.getByRole("textbox", { name: "Search all mail" });
+  const search = page.getByRole("combobox", { name: "Search all mail" });
   await search.fill('subject:"Les maquettes"'); await search.press("Enter");
   await page.getByRole("region", { name: "Messages", exact: true }).getByRole("button", { name: /Sofia Laurent/ }).first().click();
   await page.getByRole("button", { name: "Translate to English", exact: true }).click();

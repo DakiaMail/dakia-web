@@ -61,7 +61,7 @@ test("browser/OS modifier matrix never composes, navigates, archives or cancels 
   await expect(page.locator(".message-row.selected .message-open")).toContainText(mail.rows[0].subject);
   expect(writes).toEqual([]);
   await expect(page.locator(".search kbd")).toHaveCount(0);
-  await expect(page.locator(".keyboard-hints")).toHaveText(/Tab Navigate controls.*Enter Activate/);
+  await expect(page.locator(".keyboard-hints")).toHaveCount(0);
 });
 
 test("native copy preserves selected message text; editable copy/cut/paste/select-all/undo work", async ({ page, context }) => {
@@ -147,7 +147,7 @@ test("tab and range keys only act without OS modifiers and leave native focus na
     expect(await checks.nth(1).evaluate((el, ctrl) => el.dispatchEvent(new KeyboardEvent("keydown", { key: " ", shiftKey: true, [ctrl]: true, bubbles: true, cancelable: true })), ctrl)).toBe(true);
   }
   await expect(page.locator(".message-select input:checked")).toHaveCount(3);
-  await page.locator("h1").click(); await page.keyboard.press("Escape");
+  await page.locator(".mailbox").focus(); await page.keyboard.press("Escape");
   await expect(page.locator(".message-select input:checked")).toHaveCount(0);
   await expect(page.locator(".conversation-message")).toHaveCount(0);
 });
@@ -192,7 +192,7 @@ test("mail navigation, selection, read, unread, stars and removal use the intend
 
 test("reply, reply all, forward, compose and field navigation work without a pointer", async ({ page }) => {
   await fixture(page);
-  await page.locator("h1").click();
+  await page.locator(".mailbox").focus();
   for (const key of ["r", "Shift+r", "f", "c"]) {
     await page.keyboard.press(key);
     const dialog = page.getByRole("dialog");
@@ -221,7 +221,7 @@ test("reply, reply all, forward, compose and field navigation work without a poi
     await expect(dialog).toHaveCount(0);
   }
   await page.keyboard.press("/");
-  await expect(page.getByRole("textbox", { name: "Search all mail" }).filter({ visible: true })).toBeFocused();
+  await expect(page.getByRole("combobox", { name: "Search all mail" }).filter({ visible: true })).toBeFocused();
 });
 
 test("keyboard hints and shortcut opt-out persist, and the shortcut reference is accessible", async ({ page }) => {
@@ -229,12 +229,13 @@ test("keyboard hints and shortcut opt-out persist, and the shortcut reference is
   await page.getByRole("button", { name: "Manage workspace" }).click();
   const hints = page.getByRole("checkbox", { name: "Show extra keyboard hints" });
   await expect(hints).not.toBeChecked();
+  await expect(page.locator(".keyboard-hints")).toHaveCount(0);
   await hints.focus(); await page.keyboard.press("Space");
   await expect(hints).toBeChecked();
   await page.getByRole("button", { name: "Back to mail", exact: true }).click();
   await expect(page.locator(".keyboard-hints")).toContainText("Next / previous");
   await expect(page.getByRole("button", { name: "Archive", exact: true }).locator("kbd")).toHaveText("E");
-  await page.locator("h1").click(); await page.keyboard.press("?");
+  await page.locator(".mailbox").focus(); await page.keyboard.press("?");
   await expect(page.getByRole("dialog", { name: "Keyboard shortcuts" }).getByLabel("Shift+R", { exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
   await page.reload();
@@ -242,7 +243,7 @@ test("keyboard hints and shortcut opt-out persist, and the shortcut reference is
   await expect(hints).toBeChecked();
   await page.getByRole("checkbox", { name: "Enable mail keyboard shortcuts" }).uncheck();
   await page.getByRole("button", { name: "Back to mail", exact: true }).click();
-  await page.locator("h1").click();
+  await page.locator(".mailbox").focus();
   for (const key of ["j", "e", "Delete", "c"]) await page.keyboard.press(key);
   await expect(page.getByRole("dialog")).toHaveCount(0);
   expect(writes).toEqual([]);
@@ -250,12 +251,18 @@ test("keyboard hints and shortcut opt-out persist, and the shortcut reference is
   await page.reload();
   await page.getByRole("button", { name: "Manage workspace" }).click();
   await expect(page.getByRole("checkbox", { name: "Enable mail keyboard shortcuts" })).not.toBeChecked();
+  await hints.focus(); await page.keyboard.press("Space");
+  await expect(hints).not.toBeChecked();
+  await page.getByRole("button", { name: "Back to mail", exact: true }).click();
+  await expect(page.locator(".keyboard-hints")).toHaveCount(0);
+  await page.reload();
+  await expect(page.locator(".keyboard-hints")).toHaveCount(0);
 });
 
 
 test("move and snooze open keyboard-operable dialogs, and spam uses the current message", async ({ page }) => {
   const writes = await fixture(page);
-  await page.locator("h1").click();
+  await page.locator(".mailbox").focus();
   for (const [key, title] of [["m", "Move messages"], ["b", "Snooze until"]]) {
     await page.keyboard.press(key);
     const dialog = page.getByRole("dialog", { name: title, exact: true });
@@ -291,11 +298,13 @@ test("help returns focus to its opener and search Escape returns to the list", a
   await expect(help).toBeFocused();
   await page.getByRole("button", { name: "Back to mail", exact: true }).focus(); await page.keyboard.press("Enter");
   await page.keyboard.press("/");
-  const search = page.getByRole("textbox", { name: "Search all mail" }).filter({ visible: true });
+  const search = page.getByRole("combobox", { name: "Search all mail" }).filter({ visible: true });
   await expect(search).toBeFocused();
   await page.keyboard.type("Synthetic");
   await page.keyboard.press("Escape");
-  await expect(page.getByRole("region", { name: "Messages", exact: true })).toBeFocused();
+  await expect(search).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".mailbox")).toBeFocused();
   await page.keyboard.press("j");
   await expect(search).not.toHaveValue(/j$/);
 });

@@ -1,0 +1,52 @@
+.dakia-search-field { position: relative; min-width: 0; flex: 1; margin: 0; font: var(--ui-font-size)/1.4 var(--ui-font-family); }
+.dakia-search-control { display: flex; align-items: center; min-width: 0; height: var(--ui-search-height); gap: 4px; padding: 0 5px; background: var(--color-subtle); border: 1px solid transparent; border-radius: var(--ui-control-radius); transition: background var(--ui-motion-duration), border-color var(--ui-motion-duration), box-shadow var(--ui-motion-duration); }
+.dakia-search-control:hover { border-color: var(--ui-button-border); }
+.dakia-search-control:focus-within { background: var(--ui-surface); border-color: var(--ui-focus-color); box-shadow: 0 0 0 1px var(--ui-focus-color); }
+.dakia-search-control > input { flex: 1; width: 100%; min-width: 0; height: 100%; padding: 0 4px; border: 0; border-radius: 0; background: transparent; color: var(--color-text); font: inherit; outline: none; box-shadow: none; }
+.dakia-search-control > input:focus-visible { outline: none; }
+.dakia-search-control > input::placeholder { color: var(--ui-muted); opacity: 1; }
+.dakia-search-control > button { display: inline-flex; flex-shrink: 0; align-items: center; justify-content: center; min-height: 32px; width: 32px; padding: 6px; border: 0; border-radius: 4px; background: transparent; color: var(--ui-muted); cursor: pointer; }
+.dakia-search-control > button:hover { background: var(--ui-button-ghost-hover); color: var(--color-text); }
+.dakia-search-control > button:focus-visible, .dakia-filter-chip > button:focus-visible { outline: 2px solid var(--ui-focus-color); outline-offset: 1px; }
+.dakia-search-control > kbd { flex-shrink: 0; margin-right: 8px; }
+.dakia-search-popup { position: absolute; z-index: 30; top: calc(100% + 7px); left: 0; right: 0; min-width: 0; background: var(--ui-surface-raised); color: var(--color-text); border: 1px solid var(--ui-surface-border); border-radius: var(--ui-panel-radius); box-shadow: var(--ui-panel-shadow); overflow: hidden; animation: dakia-search-in var(--ui-motion-duration) ease-out; }
+.dakia-search-popup [role="listbox"] { padding: 5px; max-height: min(380px, 48dvh); overflow-y: auto; overscroll-behavior: contain; }
+.dakia-search-option { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 8px 10px; border-radius: 5px; cursor: pointer; }
+.dakia-search-option:hover, .dakia-search-option[aria-selected="true"] { background: var(--ui-button-ghost-hover); }
+.dakia-search-option > svg { flex-shrink: 0; color: var(--ui-muted); }
+.dakia-search-option-text { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.dakia-search-option-text > span, .dakia-search-option-text > small, .dakia-search-all > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dakia-search-option-text > small, .dakia-search-detail { color: var(--ui-muted); font-size: 11px; }
+.dakia-search-detail { flex-shrink: 0; }
+.dakia-search-all { min-height: 40px; }
+.dakia-search-all > span { flex: 1; }
+.dakia-search-all > kbd { flex-shrink: 0; }
+.dakia-search-group { font-size: 11px; font-weight: 500; color: var(--ui-muted); padding: 10px 10px 4px; }
+.dakia-search-footer { padding: 9px 14px; border-top: 1px solid var(--ui-surface-border); color: var(--ui-muted); font-size: 11px; }
+.dakia-filter-popover { max-height: calc(100dvh - 16px); overflow-y: auto; padding: 6px; max-width: calc(100vw - 16px); color: var(--color-text); background: var(--ui-surface-raised); border: 1px solid var(--ui-surface-border); border-radius: var(--ui-panel-radius); box-shadow: var(--ui-panel-shadow); font: var(--ui-font-size)/1.4 var(--ui-font-family); }
+.dakia-filter-chip { display: inline-flex; align-items: stretch; max-width: 100%; border: 1px solid var(--color-border); background: var(--ui-button-ghost-hover); border-radius: 5px; }
+.dakia-filter-chip > button { border: 0; background: transparent; color: var(--color-text); font: inherit; font-size: 12px; min-height: 28px; padding: 3px 8px; cursor: pointer; }
+.dakia-filter-chip > button:first-child { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.dakia-filter-chip > button:last-child { display: inline-flex; align-items: center; flex-shrink: 0; padding: 3px 6px; }
+.dakia-filter-chip > button:hover { background: var(--ui-button-ghost-hover); }
+@keyframes dakia-search-in { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
+@media (pointer: coarse), (max-width: 600px) { .dakia-search-control { height: 44px; } .dakia-search-control > button { min-height: 40px; width: 40px; } .dakia-filter-chip > button { min-height: 44px; } .dakia-filter-chip > button:last-child { min-width: 36px; justify-content: center; } }
+@media (prefers-reduced-motion: reduce) { .dakia-search-control { transition: none; } .dakia-search-popup { animation: none; } }
+
+.dakia-search-option mark { background: transparent; color: inherit; font-weight: 600; }
+
+.dakia-filter-list-search { display: flex; align-items: center; gap: 8px; margin: 2px 2px 5px; padding: 0 8px; border-bottom: 1px solid var(--ui-surface-border); color: var(--ui-muted); }
+.dakia-filter-list-search > svg { flex-shrink: 0; }
+.dakia-filter-list-search > input { width: 100%; min-width: 0; height: 38px; padding: 0; color: var(--color-text); background: transparent; border: 0; font: inherit; outline: none; }
+.dakia-filter-list-search:focus-within { border-color: var(--ui-focus-color); }
+.dakia-filter-list-search > input:focus-visible { outline: none; }
+.dakia-filter-list-search > input::placeholder { color: var(--ui-muted); }
+.dakia-filter-list-options { display: flex; flex-direction: column; max-height: min(320px, 60dvh); overflow-y: auto; }
+.dakia-filter-list-options > button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 34px; padding: 7px 10px; border: 0; border-radius: 5px; background: transparent; color: var(--color-text); font: inherit; text-align: left; cursor: pointer; }
+.dakia-filter-list-options > button:hover, .dakia-filter-list-options > button:focus-visible { background: var(--ui-button-ghost-hover); }
+.dakia-filter-list-options > button:focus-visible { outline: 2px solid var(--ui-focus-color); outline-offset: -2px; }
+.dakia-filter-list-options > button > svg { flex-shrink: 0; color: var(--ui-muted); }
+.dakia-filter-list-options > button > span { flex: 1; }
+.dakia-filter-list-options > button > small { max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ui-muted); font-size: 11px; }
+.dakia-filter-list-options > p { padding: 10px; margin: 0; color: var(--ui-muted); }
+@media (pointer: coarse), (max-width: 600px) { .dakia-filter-list-options > button { min-height: 44px; } }

@@ -101,11 +101,11 @@ export function MailSearch({ value, committed, ids, accounts, onChange, onSearch
     {(filters.length > 0 || !!committed) && <div className="mail-search-refinements" role="group" aria-label="Applied search filters">
       {committed && <Button variant="tertiary" className="mail-search-back" aria-label={backLabel} title={backLabel} onClick={onBack} leftSection={<ArrowLeft size={14} />}><span>{backLabel}</span></Button>}
       {filters.map(filter => <FilterChip key={filter.key} label={filterLabel(filter)} onEdit={() => edit(filter)} removeIcon={<X size={12} />} onRemove={() => {
-        submit(text, filters.filter(item => item.key !== filter.key)); requestAnimationFrame(() => filterButton.current?.focus());
+        submit(text, filters.filter(item => item.key !== filter.key)); requestAnimationFrame(() => { if (document.activeElement === document.body) filterButton.current?.focus(); });
       }} />)}
       {filters.length > 0 && <>
         <Button className="mail-search-add-filter" variant="tertiary" onClick={() => edit()} leftSection={<Plus size={13} />}>Add filter</Button>
-        <Button variant="tertiary" aria-label="Clear filters" onClick={() => { submit(text, []); requestAnimationFrame(() => filterButton.current?.focus()); }}>Clear</Button>
+        <Button variant="tertiary" aria-label="Clear filters" onClick={() => { submit(text, []); requestAnimationFrame(() => { if (document.activeElement === document.body) filterButton.current?.focus(); }); }}>Clear</Button>
       </>}
     </div>}
   </>;

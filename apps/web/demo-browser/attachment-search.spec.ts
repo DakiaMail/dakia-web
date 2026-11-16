@@ -33,7 +33,9 @@ for (const width of [320, 1480]) test(`attachment search keyboard journey ${widt
   await tabToButton(page, "Remove Has attachment filter");
   await page.keyboard.press("Enter");
   await expect(page.getByRole("button", { name: "Remove Has attachment filter" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Search filters", exact: true })).toBeFocused();
   await page.keyboard.press("/");
+  await expect(search).toBeFocused();
   await page.keyboard.type('subject:"launch"');
   await addAttachment(page);
   await expect(page.getByRole("button", { name: "Edit Subject launch filter" })).toBeVisible();

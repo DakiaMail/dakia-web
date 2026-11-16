@@ -17,6 +17,7 @@ async function fixture(page: Page, theme = "light", withAttention = false) {
     const respond = (json: unknown) => route.fulfill({ json });
     if (path === "/api/session") return respond({ user_id: "search-toolbar-fixture", csrf_token: "synthetic" });
     if (path === "/api/accounts") return respond(accounts);
+    if (path.endsWith("/mailbox-counts")) return respond({ starred: 0, attention: withAttention ? rows.length : 0 });
     if (path.endsWith("/events")) return route.fulfill({ contentType: "text/event-stream", body: ": ready\n\n" });
     if (path.endsWith("/conversation")) return respond({ rows: [rows[0]], continuation: null, complete: true });
     if (path.includes("/messages/") && !path.endsWith("/messages")) return respond({ ...content, message: rows[0] });

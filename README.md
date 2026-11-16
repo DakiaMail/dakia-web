@@ -62,7 +62,7 @@ Archive, star, snooze, move, or clean up mail in bulk. Unsubscribe from supporte
 Use the responsive web app or install it as a PWA. Sign in with the same Dakia login to use your mailboxes on another device. Recent mail is saved in your browser for faster reopening.
 
 <p align="center">
-  <img src="docs/images/inbox-mobile.webp" alt="Personal inbox on a mobile browser with attention items above the tabs" width="320">
+  <img src="docs/images/inbox-mobile.webp" alt="Personal inbox on a mobile browser with an expandable attention summary" width="320">
   &nbsp;&nbsp;
   <img src="docs/images/reader-mobile.webp" alt="Mobile conversation reader in dark theme with an attachment and reply controls" width="320">
 </p>

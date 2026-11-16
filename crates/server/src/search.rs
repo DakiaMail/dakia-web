@@ -69,12 +69,13 @@ struct Cursor {
 fn invalid() -> ApiFailure {
     ApiFailure(StatusCode::BAD_REQUEST, "invalid_search")
 }
-fn parse(q: &str) -> Result<(Search, Option<String>)> {
+fn parse(q: &str) -> Result<(Search, Option<String>, bool)> {
     if q.len() > 4096 || q.contains('\0') {
         return Err(invalid());
     }
     let mut search = Search::default();
     let mut folder = None;
+    let mut has_attachment = false;
     let mut text = vec![];
     let mut terms = Vec::new();
     let mut token = String::new();
@@ -108,6 +109,7 @@ fn parse(q: &str) -> Result<(Search, Option<String>)> {
             Some(("from", value)) => search.from = Some(value.into()),
             Some(("to", value)) => search.to = Some(value.into()),
             Some(("subject", value)) => search.subject = Some(value.into()),
+            Some(("has", "attachment")) => has_attachment = true,
             Some(("is", "starred")) => search.starred = Some(true),
             Some(("is", "read")) => search.seen = Some(true),
             Some(("is", "unread")) => search.seen = Some(false),
@@ -121,7 +123,7 @@ fn parse(q: &str) -> Result<(Search, Option<String>)> {
         search.text = Some(text.join(" "));
     }
     search.imap_query().map_err(|_| invalid())?;
-    Ok((search, folder))
+    Ok((search, folder, has_attachment))
 }
 fn date(value: &str) -> Result<String> {
     if let Ok(date) = chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d") {
@@ -175,7 +177,7 @@ pub(super) async fn search(
     for id in &accounts {
         scopes.push(app.store.authorize(&user.user, id).await?);
     }
-    let (query, wanted) = parse(&r.q)?;
+    let (query, wanted, has_attachment) = parse(&r.q)?;
     if r.suggest {
         if r.continuation.is_some() {
             return Err(invalid());
@@ -186,6 +188,7 @@ pub(super) async fn search(
             &r,
             &scopes,
             &query,
+            has_attachment,
             wanted.as_deref(),
             &mut Cursor::default(),
         )
@@ -255,6 +258,7 @@ pub(super) async fn search(
             &r,
             &scopes,
             &query,
+            has_attachment,
             wanted.as_deref(),
             &mut cursor,
         )
@@ -262,8 +266,17 @@ pub(super) async fn search(
         {
             return Ok(Json(page));
         }
-        if let Some(page) =
-            preview::cached(&app, &user, &r, &scopes, &query, wanted.as_deref(), &cursor).await?
+        if let Some(page) = preview::cached(
+            &app,
+            &user,
+            &r,
+            &scopes,
+            &query,
+            has_attachment,
+            wanted.as_deref(),
+            &cursor,
+        )
+        .await?
         {
             return Ok(Json(page));
         }
@@ -278,6 +291,7 @@ pub(super) async fn search(
             &r,
             &scopes,
             &query,
+            has_attachment,
             wanted.as_deref(),
             &mut cursor,
         )
@@ -345,6 +359,12 @@ pub(super) async fn search(
                         })
                     {
                         continue;
+                    }
+                    if has_attachment {
+                        let content = app.mail.content(&app.store, &a, &row.id).await?;
+                        if content.attachments.is_empty() {
+                            continue;
+                        }
                     }
                     let snoozed = app.store.is_snoozed(&a, &row.thread_id).await?;
                     if (r.q.split_whitespace().any(|t| t == "is:snoozed") && !snoozed)
@@ -558,9 +578,11 @@ mod tests {
     use super::*;
     #[test]
     fn navigation_and_fields_are_not_literal_body_terms() {
-        let (q, f) = parse("folder:Sent is:starred from:owner@example.com hello").unwrap();
+        let (q, f, has_attachment) =
+            parse("folder:Sent is:starred has:attachment from:owner@example.com hello").unwrap();
         assert_eq!(f.as_deref(), Some("Sent"));
         assert_eq!(q.starred, Some(true));
+        assert!(has_attachment);
         assert_eq!(q.text.as_deref(), Some("hello"));
     }
     #[test]

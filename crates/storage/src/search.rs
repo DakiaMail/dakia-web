@@ -7,6 +7,7 @@ pub struct CachedSearchFilter<'a> {
     pub text: Option<&'a str>,
     pub seen: Option<bool>,
     pub starred: Option<bool>,
+    pub has_attachment: bool,
     pub folders: Option<&'a [String]>,
     pub classification: ClassificationFilter,
     pub category: Option<&'a str>,
@@ -31,6 +32,7 @@ impl Store {
              AND (? IS NULL OR EXISTS(SELECT 1 FROM json_each(m.document,'$.to') t WHERE instr(lower(json_extract(t.value,'$.email')),lower(?))>0 OR instr(lower(COALESCE(json_extract(t.value,'$.name'),'')),lower(?))>0))
              AND (? IS NULL OR instr(lower(json_extract(m.document,'$.subject')),lower(?))>0 OR instr(lower(json_extract(m.document,'$.sender.email')),lower(?))>0 OR instr(lower(COALESCE(json_extract(m.document,'$.sender.name'),'')),lower(?))>0 OR EXISTS(SELECT 1 FROM json_each(m.document,'$.to') t WHERE instr(lower(json_extract(t.value,'$.email')),lower(?))>0 OR instr(lower(COALESCE(json_extract(t.value,'$.name'),'')),lower(?))>0))
              AND (? IS NULL OR json_extract(m.document,'$.unread')<>?)
+             AND (?=0 OR EXISTS(SELECT 1 FROM search_documents d WHERE d.message_id=m.id AND d.source=json_extract(m.document,'$.provider_id') AND d.has_attachment=1))
              AND (? IS NULL OR json_extract(m.document,'$.starred')=?)
              AND (? IS NULL OR EXISTS(SELECT 1 FROM json_each(m.document,'$.folder_ids') f WHERE f.value IN (SELECT value FROM json_each(?))))
              {CLASSIFICATION_SQL}
@@ -44,7 +46,7 @@ impl Store {
         .bind(filter.from).bind(filter.from).bind(filter.from)
         .bind(filter.to).bind(filter.to).bind(filter.to)
         .bind(filter.text).bind(filter.text).bind(filter.text).bind(filter.text).bind(filter.text).bind(filter.text)
-        .bind(filter.seen).bind(filter.seen).bind(filter.starred).bind(filter.starred)
+        .bind(filter.seen).bind(filter.seen).bind(filter.has_attachment).bind(filter.starred).bind(filter.starred)
         .bind(&folders).bind(&folders).bind(filter.category).bind(filter.category)
         .bind(filter.snoozed_only).bind(now()).bind(filter.hide_snoozed).bind(now())
         .fetch_all(&db).await?;

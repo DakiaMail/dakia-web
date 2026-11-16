@@ -856,7 +856,9 @@ export function App() {
     }
     else setQ(next);
   }
-  const searchForm = <form
+  const searchTerms: string[] = search.match(/(?:[^\s"]+|"(?:[^"\\]|\\.)*")+/g) || [];
+  const hasAttachment = searchTerms.includes("has:attachment");
+  const searchForm = <><form
     className={`search ${q ? "results-search" : ""}`}
     role="search"
     onFocus={() => setSearchFocused(true)}
@@ -885,7 +887,18 @@ export function App() {
     <KeyHint keys="/" />
     {q && <button title="Search" type="submit" aria-label="Search"><Search size={18} /></button>}
     {searchFocused && <SearchSuggestions value={search} ids={ids} onOpen={message => { setSearchFocused(false); setSidebar(false); void open(message, message.account_id); }} />}
-  </form>;
+  </form>
+    <div className="email-type-filters" role="group" aria-label="Search filters">
+      <button type="button" aria-pressed={hasAttachment} onClick={() => {
+        const next = (hasAttachment ? searchTerms.filter(term => term !== "has:attachment").join(" ") : `${search.trim()} has:attachment`.trim());
+        setSearch(next);
+        applySearch(next);
+        setSearchFocused(false);
+        setSidebar(false);
+        requestAnimationFrame(() => document.querySelector<HTMLButtonElement>(!next && matchMedia("(max-width: 600px)").matches ? '[aria-label="Open navigation"]' : '[aria-label="Search filters"] button')?.focus());
+      }}>Has attachment</button>
+    </div>
+  </>;
   const currentRows = new Map(rows.map(m => [identity(m), m]));
   const bulk = checked.size
     ? (allMatching || rows).filter((m) => checked.has(identity(m)) && !removed[identity(m)]).map(m => overrides[identity(m)] || currentRows.get(identity(m)) || m)

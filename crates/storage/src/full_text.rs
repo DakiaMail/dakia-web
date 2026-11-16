@@ -22,6 +22,8 @@ pub struct TextCoverage {
     pub gaps: i64,
     pub bytes: i64,
     pub dirty: i64,
+    #[serde(default)]
+    pub attachment_pending: i64,
 }
 use serde::{Deserialize, Serialize};
 const SEARCH_BUDGET: i64 = 512 * 1024 * 1024;
@@ -41,7 +43,7 @@ impl Store {
                 let address =
                     |v: &Address| format!("{} {}", v.email, v.name.as_deref().unwrap_or(""));
                 let to = m.to.iter().map(address).collect::<Vec<_>>().join("\n");
-                sqlx::query("INSERT INTO search_documents(message_id,source,sender,recipients,subject,received_at) VALUES(?,?,?,?,?,?) ON CONFLICT(message_id) DO UPDATE SET source=excluded.source,sender=excluded.sender,recipients=excluded.recipients,subject=excluded.subject,received_at=excluded.received_at,body=CASE WHEN source=excluded.source THEN body ELSE '' END,body_state=CASE WHEN source=excluded.source THEN body_state ELSE 'pending' END,retry_at=CASE WHEN source=excluded.source THEN retry_at ELSE 0 END WHERE source<>excluded.source OR sender<>excluded.sender OR recipients<>excluded.recipients OR subject<>excluded.subject OR received_at<>excluded.received_at")
+                sqlx::query("INSERT INTO search_documents(message_id,source,sender,recipients,subject,received_at) VALUES(?,?,?,?,?,?) ON CONFLICT(message_id) DO UPDATE SET source=excluded.source,sender=excluded.sender,recipients=excluded.recipients,subject=excluded.subject,received_at=excluded.received_at,has_attachment=CASE WHEN source=excluded.source THEN has_attachment ELSE NULL END,body=CASE WHEN source=excluded.source THEN body ELSE '' END,body_state=CASE WHEN source=excluded.source THEN body_state ELSE 'pending' END,retry_at=CASE WHEN source=excluded.source THEN retry_at ELSE 0 END WHERE source<>excluded.source OR sender<>excluded.sender OR recipients<>excluded.recipients OR subject<>excluded.subject OR received_at<>excluded.received_at")
                     .bind(&m.id).bind(&m.provider_id).bind(normalize_search(&address(&m.sender))).bind(normalize_search(&to)).bind(normalize_search(&m.subject)).bind(&m.received_at).execute(&mut *tx).await?;
             } else {
                 sqlx::query("DELETE FROM search_documents WHERE message_id=?")
@@ -59,9 +61,10 @@ impl Store {
     }
     pub async fn text_coverage(&self, a: &AuthorizedAccount) -> Result<TextCoverage> {
         let db = self.db(a).await?;
-        let row = sqlx::query("SELECT COUNT(*) headers,COALESCE(SUM(body_state='ready'),0) bodies,COALESCE(SUM(body_state='pending'),0) pending,COALESCE(SUM(body_state NOT IN ('ready','pending')),0) gaps,COALESCE(SUM(length(CAST(body AS BLOB))),0) bytes,(SELECT COUNT(*) FROM search_dirty) dirty FROM search_documents").fetch_one(&db).await?;
+        let row = sqlx::query("SELECT COUNT(*) headers,COALESCE(SUM(has_attachment IS NULL),0) attachment_pending,COALESCE(SUM(body_state='ready'),0) bodies,COALESCE(SUM(body_state='pending'),0) pending,COALESCE(SUM(body_state NOT IN ('ready','pending')),0) gaps,COALESCE(SUM(length(CAST(body AS BLOB))),0) bytes,(SELECT COUNT(*) FROM search_dirty) dirty FROM search_documents").fetch_one(&db).await?;
         Ok(TextCoverage {
             headers: row.get("headers"),
+            attachment_pending: row.get("attachment_pending"),
             bodies: row.get("bodies"),
             pending: row.get("pending"),
             gaps: row.get("gaps"),
@@ -101,7 +104,7 @@ impl Store {
         } else {
             "json_extract(m.document,'$.received_at') DESC,d.message_id"
         };
-        let rows: Vec<String> = sqlx::query_scalar(&format!("SELECT m.document FROM search_documents d JOIN messages m ON m.id=d.message_id WHERE d.body_state IN ('pending','fetch_error','quota') AND (d.body_state<>'quota' OR (SELECT body_bytes FROM search_totals WHERE id=1)<=?) AND d.retry_at<=? AND json_array_length(m.document,'$.folder_ids')>0 ORDER BY {order} LIMIT ?"))
+        let rows: Vec<String> = sqlx::query_scalar(&format!("SELECT m.document FROM search_documents d JOIN messages m ON m.id=d.message_id WHERE (d.body_state IN ('pending','fetch_error','quota') OR (d.body_state='ready' AND d.has_attachment IS NULL)) AND (d.body_state<>'quota' OR (SELECT body_bytes FROM search_totals WHERE id=1)<=?) AND d.retry_at<=? AND json_array_length(m.document,'$.folder_ids')>0 ORDER BY {order} LIMIT ?"))
             .bind(SEARCH_BUDGET - 1024 * 1024).bind(Utc::now().timestamp()).bind(limit as i64).fetch_all(&db).await?;
         rows.into_iter()
             .map(|raw| serde_json::from_str(&raw).map_err(Error::from))
@@ -115,19 +118,21 @@ impl Store {
         m: &Message,
         text: &str,
         state: &str,
+        has_attachment: Option<bool>,
     ) -> Result<()> {
-        self.put_search_bodies(a, &[(m, text, state)]).await
+        self.put_search_bodies(a, &[(m, text, state, has_attachment)])
+            .await
     }
     /// One atomic bounded body-index commit, retaining per-message identity,
     /// membership and incremental quota checks inside the writer transaction.
     pub async fn put_search_bodies(
         &self,
         a: &AuthorizedAccount,
-        rows: &[(&Message, &str, &str)],
+        rows: &[(&Message, &str, &str, Option<bool>)],
     ) -> Result<()> {
         if rows.len() > 200
-            || rows.iter().map(|(_, text, _)| text.len()).sum::<usize>() > 8 * 1024 * 1024
-            || rows.iter().any(|(m, _, state)| {
+            || rows.iter().map(|(_, text, _, _)| text.len()).sum::<usize>() > 8 * 1024 * 1024
+            || rows.iter().any(|(m, _, state, _)| {
                 m.account_id != a.id
                     || !matches!(
                         *state,
@@ -145,7 +150,7 @@ impl Store {
         let _guard = self.gate.read().await;
         let db = self.db(a).await?;
         let mut tx = db.begin().await?;
-        for (m, text, state) in rows {
+        for (m, text, state, has_attachment) in rows {
             let state = *state;
             let text = normalize_search(text);
             let bytes: i64 = sqlx::query_scalar("SELECT body_bytes-COALESCE((SELECT length(CAST(body AS BLOB)) FROM search_documents WHERE message_id=?),0) FROM search_totals WHERE id=1").bind(&m.id).fetch_one(&mut *tx).await?;
@@ -156,8 +161,8 @@ impl Store {
             } else {
                 state
             };
-            sqlx::query("UPDATE search_documents SET body=?,body_state=?,retry_at=?,updated_at=? WHERE message_id=? AND source=? AND EXISTS(SELECT 1 FROM messages WHERE id=? AND json_array_length(document,'$.folder_ids')>0 AND json_extract(document,'$.provider_id')=?)")
-            .bind(if state=="ready" { text.as_str() } else { "" }).bind(state).bind(if state=="fetch_error" { Utc::now().timestamp()+3600 } else { 0 }).bind(Utc::now().timestamp()).bind(&m.id).bind(&m.provider_id).bind(&m.id).bind(&m.provider_id).execute(&mut *tx).await?;
+            sqlx::query("UPDATE search_documents SET has_attachment=?,body=?,body_state=?,retry_at=?,updated_at=? WHERE message_id=? AND source=? AND EXISTS(SELECT 1 FROM messages WHERE id=? AND json_array_length(document,'$.folder_ids')>0 AND json_extract(document,'$.provider_id')=?)")
+            .bind(has_attachment).bind(if state=="ready" { text.as_str() } else { "" }).bind(state).bind(if state=="fetch_error" { Utc::now().timestamp()+3600 } else { 0 }).bind(Utc::now().timestamp()).bind(&m.id).bind(&m.provider_id).bind(&m.id).bind(&m.provider_id).execute(&mut *tx).await?;
         }
         tx.commit().await?;
         Ok(())
@@ -248,6 +253,9 @@ impl Store {
                 .push(")>0 OR instr(d.body,")
                 .push_bind(value)
                 .push(")>0)");
+        }
+        if filter.has_attachment {
+            q.push(" AND d.has_attachment=1");
         }
         if let Some(value) = filter.seen {
             q.push(" AND json_extract(m.document,'$.unread')<>")

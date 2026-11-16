@@ -224,13 +224,14 @@ async fn browser_release_fixture() {
         app.store.index_search_headers(&a).await.unwrap();
         for m in app.store.inbox_rows(&a, None, None).await.unwrap() {
             let raw = provider.raw.lock().await.clone();
-            let (text, state) = crate::sync::full_text::extract(&raw);
+            let (text, state, has_attachment) = crate::sync::full_text::extract(&raw);
             app.store
                 .put_search_body(
                     &a,
                     &m,
                     &format!("{text}\nbody-only-historical café 東京"),
                     state,
+                    has_attachment,
                 )
                 .await
                 .unwrap();

@@ -14,8 +14,8 @@ impl Store {
         if confirmation != account.email {
             return Err(Error::Invalid);
         }
-        // Never discard uncertain delivery evidence, scheduled sends, or in-flight mail actions.
-        let busy: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM submissions WHERE state IN ('scheduled','claimed','submitting','delivery_unknown') OR (state='accepted' AND filing_status IN ('pending','failed'))) OR EXISTS(SELECT 1 FROM outbox WHERE kind='mutation' AND state IN ('pending','running'))")
+        // Queued mailbox changes leave with the account; protect deliveries and running writes.
+        let busy: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM submissions WHERE state IN ('scheduled','claimed','submitting','delivery_unknown') OR (state='accepted' AND filing_status IN ('pending','failed'))) OR EXISTS(SELECT 1 FROM outbox WHERE kind='mutation' AND state='running')")
             .fetch_one(&db).await?;
         if busy {
             return Err(Error::AccountBusy);

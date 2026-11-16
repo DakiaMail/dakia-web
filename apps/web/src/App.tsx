@@ -239,6 +239,10 @@ export function App() {
       mismatch: "Choose the Google account that matches the email you entered.",
       permission: "Allow mail access when connecting your Google account.",
       offline: "Google didn’t grant ongoing access. Try connecting again.",
+      exchange: "Dakia couldn’t finish Google sign-in. Try connecting again in Workspace.",
+      profile: "Dakia couldn’t confirm your Google account. Try connecting again in Workspace.",
+      authentication: "Google sign-in finished, but Gmail rejected the connection. Reconnect in Workspace and allow mail access.",
+      connection: "Google sign-in finished, but Dakia couldn’t reach Gmail. Try connecting again in Workspace.",
     };
     return new Error(messages[reason] || "Couldn’t finish connecting Gmail. Check your account in Workspace and try again.");
   });

@@ -1,3 +1,4 @@
+import { selectAccount } from "./fixtures";
 import { test, expect, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { accounts, content, page as mail } from "./fixtures";
@@ -90,7 +91,7 @@ for (const theme of ["light", "dark"]) for (const width of [1480, 900, 390, 320]
     await page.getByRole("button", { name: "Remove Unread filter" }).focus(); await page.keyboard.press("Enter");
     await expect(page.getByRole("button", { name: "Remove Unread filter" })).toHaveCount(0);
     await expect(input).toHaveValue("launch");
-    await page.getByRole("combobox", { name: "Account filter" }).selectOption("work");
+    await selectAccount(page, "work");
     await expect(input).toHaveValue("launch");
     await expect(page.locator('nav[aria-label="Accounts"] button.selected')).toHaveText(/Work/);
     await page.getByRole("button", { name: "Back to inbox", exact: true }).focus(); await page.keyboard.press("Enter");
@@ -182,14 +183,14 @@ for (const theme of ["light", "dark"]) for (const width of [320, 390]) {
     await page.setViewportSize({ width, height: 560 });
     await fixture(page, theme, true);
     const input = page.getByRole("combobox", { name: "Search all mail" });
-    const account = page.getByRole("combobox", { name: "Account filter" });
     const filters = page.getByRole("button", { name: "Search filters", exact: true });
     const toggle = page.getByRole("button", { name: "Needs attention 5", exact: true });
     await expect(toggle).toHaveAttribute("aria-expanded", "false");
     await expect(page.locator(".attention-open").first()).toBeHidden();
-    expect((await page.locator(".message-list").boundingBox())!.y).toBeLessThanOrEqual(210);
-    await input.focus(); await page.keyboard.press("Tab"); await expect(account).toBeFocused();
-    await page.keyboard.press("Tab"); await expect(filters).toBeFocused();
+    expect((await page.locator(".message-list").boundingBox())!.y).toBeLessThanOrEqual(160);
+    await expect(page.getByRole("combobox", { name: "Account filter" })).toHaveCount(0);
+    expect((await page.locator(".mail-search-toolbar").boundingBox())!.height).toBeLessThanOrEqual(64);
+    await input.focus(); await page.keyboard.press("Tab"); await expect(filters).toBeFocused();
     await page.keyboard.press("Enter");
     const dialog = page.getByRole("dialog", { name: "Search filters", exact: true });
     await expect(dialog.getByRole("textbox", { name: "Find a filter" })).toBeFocused();
@@ -205,7 +206,9 @@ for (const theme of ["light", "dark"]) for (const width of [320, 390]) {
     await page.setViewportSize({ width: 1480, height: 980 });
     await expect(toggle).toBeHidden(); await expect(page.locator(".attention-open").first()).toBeVisible();
     await page.setViewportSize({ width, height: 560 });
-    await account.selectOption(accounts[0].id); await expect(account).toHaveValue(accounts[0].id);
+    await selectAccount(page, accounts[0].id);
+    await expect(page.locator('nav[aria-label="Accounts"] button.selected')).toContainText(accounts[0].display_name);
+    await expect(page.locator(".mailbox")).toBeFocused();
     await page.getByRole("tab", { name: "Automated", exact: true }).click(); await page.reload();
     await expect(page.getByRole("tab", { name: "Automated", exact: true })).toHaveAttribute("aria-selected", "true");
     await expect(page.locator("html")).toHaveAttribute("data-theme", theme);

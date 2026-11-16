@@ -1,3 +1,4 @@
+import { selectAccount } from "./fixtures";
 import { test, expect, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
@@ -135,13 +136,13 @@ test("keyboard Space, Shift+Space and Shift+Enter select without opening", async
 test("account, mailbox and search changes clear selection and anchor", async ({ page }) => {
   await fixture(page); await list(page);
   await checkbox(page, 0).click();
-  await page.getByRole("combobox", { name: "Account filter" }).selectOption("personal");
+  await selectAccount(page, "personal");
   await selected(page, []);
   await checkbox(page, 5).click({ modifiers: ["Shift"] }); await selected(page, [5]);
   await page.getByRole("button", { name: "Starred", exact: true }).click();
   await selected(page, []);
   await page.getByRole("button", { name: "Unified inbox", exact: true }).click();
-  await page.getByRole("combobox", { name: "Account filter" }).selectOption("all");
+  await selectAccount(page, "all");
   await checkbox(page, 0).click();
   await page.getByRole("combobox", { name: "Search all mail" }).fill("range");
   await page.getByRole("combobox", { name: "Search all mail" }).press("Enter");

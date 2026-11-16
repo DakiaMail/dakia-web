@@ -8,9 +8,9 @@ import { filterFields, filterLabel, mergeSearch, readSearch, type SearchFilter }
 
 const filterIcons = { from: UserRound, to: Send, subject: Type, folder: Folder, is: Mail, after: CalendarDays, before: CalendarDays };
 
-export function MailSearch({ value, committed, ids, accounts, onChange, onSearch, onOpen, onBack, accountControl, actions, backLabel }: {
+export function MailSearch({ value, committed, ids, accounts, onChange, onSearch, onOpen, onBack, actions, backLabel }: {
   value: string; committed: string; ids: string[]; accounts: Account[];
-  accountControl: ReactNode; actions: ReactNode; backLabel: string;
+  actions: ReactNode; backLabel: string;
   onChange: (value: string) => void; onSearch: (value: string) => void; onOpen: (message: Message) => void; onBack: () => void;
 }) {
   const initial = readSearch(value);
@@ -71,7 +71,6 @@ export function MailSearch({ value, committed, ids, accounts, onChange, onSearch
         options={options} loading={suggestions.loading}
         status={suggestions.error ? "Quick matches unavailable. Press Enter to search all mail." : !suggestions.rows.length ? "Press Enter to search all mail." : undefined} />
     </div>
-    {accountControl}
     <FilterPopover opened={editing} onChange={setEditing} label="Search filters" trigger={<Button ref={filterButton} className="mail-search-filter-trigger" variant="tertiary" aria-label="Search filters" aria-expanded={editing} onClick={() => editing ? setEditing(false) : edit()} leftSection={<SlidersHorizontal size={16} />}>
       <span>Filters{filters.length ? ` · ${filters.length}` : ""}</span>
     </Button>}>

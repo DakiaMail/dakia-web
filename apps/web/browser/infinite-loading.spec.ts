@@ -1,3 +1,4 @@
+import { selectAccount } from "./fixtures";
 import { test, expect, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
@@ -83,7 +84,7 @@ for (const width of [390, 1480]) {
     const beforeRefresh = state.calls.length;
     await page.locator(".header-refresh").click();
     await expect.poll(() => state.calls.length).toBe(beforeRefresh + 3);
-    await page.getByRole("combobox", { name: "Account filter" }).selectOption("personal");
+    await selectAccount(page, "personal");
     await expect(check(page, "Personal twin")).toBeVisible();
     await expect(check(page, "Fictional mail 0")).toHaveCount(0);
     expect(state.writes).toEqual([]);
@@ -174,7 +175,7 @@ test("switching accounts during provider paging cannot leak the previous page", 
   const state = await fixture(page, { delay: 900 });
   await bottom(page);
   await expect.poll(() => state.calls.includes("1")).toBe(true);
-  await page.getByRole("combobox", { name: "Account filter" }).selectOption("personal");
+  await selectAccount(page, "personal");
   await expect(check(page, "Personal twin")).toBeVisible();
   await page.waitForTimeout(1200);
   await expect(page.locator(".message-row")).toHaveCount(1);

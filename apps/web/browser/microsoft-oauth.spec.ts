@@ -76,9 +76,9 @@ for (const [theme, width, height] of [
     await page.keyboard.press("Enter");
     await expect.poll(() => submitted).toEqual({ email: "fixture@tenant.test", display_name: "Disposable", account_id: null });
     await expect.poll(() => connected).toBe(true);
-    await expect(page.getByRole("combobox", { name: "Account filter" })).toContainText("Disposable");
+    await expect(page.locator('nav[aria-label="Accounts"]')).toContainText("Disposable");
     await page.reload();
-    await expect(page.getByRole("combobox", { name: "Account filter" })).toContainText("Disposable");
+    await expect(page.locator('nav[aria-label="Accounts"]')).toContainText("Disposable");
     needsReconnect = true;
     await page.reload();
     if (width < 601) {

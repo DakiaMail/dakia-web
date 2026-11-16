@@ -1,3 +1,4 @@
+import { selectAccount } from "./fixtures";
 import { test, expect } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { accounts, page as mail } from "./fixtures";
@@ -70,14 +71,14 @@ for (const width of [320, 390, 1480]) test(`search results chrome ${width}`, asy
   await page.goForward();
   await expect(page.locator(".results-search input")).toHaveValue(longQuery);
   await expect(page.locator(".results-search input")).toBeVisible();
-  await page.getByRole("combobox", { name: "Account filter" }).selectOption(accounts[0].id);
+  await selectAccount(page, accounts[0].id);
   const scopedRequest = page.waitForRequest(request => {
     const url = new URL(request.url());
     return url.pathname === "/api/search" && url.searchParams.get("q") === "planning scoped" && url.searchParams.get("accounts") === accounts[0].id;
   });
   await input.fill("planning scoped"); await input.press("Enter");
   await scopedRequest;
-  await expect(page.getByRole("combobox", { name: "Account filter" })).toHaveValue(accounts[0].id);
+  await expect(page.locator('nav[aria-label="Accounts"] button.selected')).toContainText(accounts[0].display_name);
   await input.fill("planning after Enter");
   await expect(page.getByRole("listbox", { name: "Search suggestions" }).getByText("Project planning 1", { exact: true })).toBeVisible();
   await input.press("Enter");

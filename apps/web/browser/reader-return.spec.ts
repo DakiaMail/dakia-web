@@ -1,3 +1,4 @@
+import { selectAccount } from "./fixtures";
 import { test, expect, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { accounts, content, page as mail } from "./fixtures";
@@ -46,7 +47,7 @@ for (const width of [1480, 390]) for (const action of ["Archive", "Move to trash
     await page.setViewportSize({ width, height: 980 });
     const state = await fixture(page, { thread });
     // Change account, folder and search before opening the reader.
-    await page.getByRole("combobox", { name: "Account filter" }).selectOption(accounts[0].id);
+    await selectAccount(page, accounts[0].id);
     if (width === 390) await page.getByRole("button", { name: "Open navigation" }).click();
     await page.getByRole("button", { name: "Sent", exact: true }).click();
     await page.getByRole("combobox", { name: "Search all mail" }).fill("Return");
@@ -74,7 +75,7 @@ for (const width of [1480, 390]) for (const action of ["Archive", "Move to trash
     await expect(page.getByRole("alert")).toHaveCount(0);
     await capture(page, `${width}-${action}-${thread}-after`);
     if (width === 390) await page.getByRole("button", { name: "Open navigation" }).click();
-    await expect(page.getByRole("combobox", { name: "Account filter" })).toHaveValue(accounts[0].id);
+    await expect(page.locator('nav[aria-label="Accounts"] button.selected')).toContainText(accounts[0].display_name);
     await expect(page.getByRole("combobox", { name: "Search all mail" })).toHaveValue("Return");
   });
 }

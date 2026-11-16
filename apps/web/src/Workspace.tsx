@@ -1,6 +1,7 @@
 import { ArrowLeft, Keyboard, Mail, Plus, Settings2, Shield } from "lucide-react";
 import type { Account } from "@dakia/api-types";
 import { useEffect, useRef, useState } from "react";
+import { SearchSettings } from "./SearchSettings";
 import { TranslationSettings } from "./TranslationSettings";
 import { Invitations } from "./Invitations";
 import { BlockedSenders } from "./BlockedSenders";
@@ -64,6 +65,7 @@ export function Workspace({ updatesFocus = 0, userId, accounts, onBack, onConnec
           {keyboardError && <p role="alert">{keyboardError}</p>}
         </div>
       </section>
+      {userId && <SearchSettings userId={userId} />}
       {userId && <TranslationSettings userId={userId} />}
       <InstallApp />
       <MailLinkSettings />

@@ -6,12 +6,7 @@ pub(super) async fn is_owner(app: &App, user: &str) -> Result<bool> {
     if !app.config.issuer.is_empty() {
         return Ok(false);
     }
-    sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM local_login WHERE user_id=? AND is_owner=1)")
-        .bind(user)
-        .fetch_one(app.store.control())
-        .await
-        .map_err(StorageError::from)
-        .map_err(Into::into)
+    Ok(app.store.control_repository().is_owner(user).await?)
 }
 pub(super) async fn require_owner(app: &App, id: &Identity) -> Result<()> {
     if !is_owner(app, &id.user).await? {
@@ -37,12 +32,16 @@ pub async fn list(
     Extension(id): Extension<Identity>,
 ) -> Result<Json<Vec<Invitation>>> {
     require_owner(&app, &id).await?;
-    let rows=sqlx::query("SELECT id,expires_at FROM local_invitations WHERE created_by=? AND expires_at>? ORDER BY expires_at").bind(id.user).bind(Utc::now().timestamp()).fetch_all(app.store.control()).await.map_err(StorageError::from)?;
+    let rows = app
+        .store
+        .control_repository()
+        .invitations(&id.user, Utc::now().timestamp())
+        .await?;
     Ok(Json(
         rows.into_iter()
             .map(|r| Invitation {
-                id: r.get("id"),
-                expires_at: r.get("expires_at"),
+                id: r.id,
+                expires_at: r.expires_at,
             })
             .collect(),
     ))
@@ -56,38 +55,17 @@ pub async fn create(
     let token = random();
     let invite = uuid::Uuid::new_v4().to_string();
     let expiry = now + 86400;
-    let mut tx = app
+    if !app
         .store
-        .control()
-        .begin()
-        .await
-        .map_err(StorageError::from)?;
-    sqlx::query("DELETE FROM local_invitations WHERE expires_at<=?")
-        .bind(now)
-        .execute(&mut *tx)
-        .await
-        .map_err(StorageError::from)?;
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM local_invitations")
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(StorageError::from)?;
-    if count >= 20 {
+        .control_repository()
+        .create_invitation(&invite, &hash(&token), &id.user, now, expiry)
+        .await?
+    {
         return Err(ApiFailure(
             StatusCode::TOO_MANY_REQUESTS,
             "invitation_limit",
         ));
     }
-    sqlx::query(
-        "INSERT INTO local_invitations(id,token_hash,created_by,expires_at) VALUES(?,?,?,?)",
-    )
-    .bind(&invite)
-    .bind(hash(&token))
-    .bind(id.user)
-    .bind(expiry)
-    .execute(&mut *tx)
-    .await
-    .map_err(StorageError::from)?;
-    tx.commit().await.map_err(StorageError::from)?;
     // Fragment tokens are not sent in GET URLs, proxy logs or referrers.
     Ok(Json(
         serde_json::json!({"id":invite,"expires_at":expiry,"url":format!("{}/auth/join#{}",app.config.origin,token)}),
@@ -99,13 +77,12 @@ pub async fn revoke(
     Path(invite): Path<String>,
 ) -> Result<StatusCode> {
     require_owner(&app, &id).await?;
-    let r = sqlx::query("DELETE FROM local_invitations WHERE id=? AND created_by=?")
-        .bind(invite)
-        .bind(id.user)
-        .execute(app.store.control())
-        .await
-        .map_err(StorageError::from)?;
-    if r.rows_affected() != 1 {
+    if !app
+        .store
+        .control_repository()
+        .revoke_invitation(&invite, &id.user)
+        .await?
+    {
         return Err(ApiFailure(StatusCode::NOT_FOUND, "not_found"));
     }
     Ok(StatusCode::NO_CONTENT)
@@ -121,57 +98,29 @@ pub(super) async fn accept(
     }
     let digest = hash(code);
     let now = Utc::now().timestamp();
-    let exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM local_invitations WHERE token_hash=? AND expires_at>?)",
-    )
-    .bind(&digest)
-    .bind(now)
-    .fetch_one(app.store.control())
-    .await
-    .map_err(StorageError::from)?;
+    let exists = app
+        .store
+        .control_repository()
+        .invitation_valid(&digest, now)
+        .await?;
     if !exists {
         return Err(ApiFailure(StatusCode::UNAUTHORIZED, "invalid_invitation"));
     }
     let encoded = crate::local_auth::password_hash(password).await?;
-    let mut tx = app
-        .store
-        .control()
-        .begin()
-        .await
-        .map_err(StorageError::from)?;
-    let taken: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM users WHERE issuer='dakia:local' AND subject=?)",
-    )
-    .bind(username)
-    .fetch_one(&mut *tx)
-    .await
-    .map_err(StorageError::from)?;
-    if taken {
-        return Err(ApiFailure(StatusCode::CONFLICT, "username_taken"));
-    }
-    let consumed = sqlx::query("DELETE FROM local_invitations WHERE token_hash=? AND expires_at>?")
-        .bind(&digest)
-        .bind(Utc::now().timestamp())
-        .execute(&mut *tx)
-        .await
-        .map_err(StorageError::from)?;
-    if consumed.rows_affected() != 1 {
-        return Err(ApiFailure(StatusCode::UNAUTHORIZED, "invalid_invitation"));
-    }
     let user = uuid::Uuid::new_v4().to_string();
-    sqlx::query("INSERT INTO users(id,issuer,subject) VALUES(?,'dakia:local',?)")
-        .bind(&user)
-        .bind(username)
-        .execute(&mut *tx)
-        .await
-        .map_err(StorageError::from)?;
-    sqlx::query("INSERT INTO local_login(user_id,username,password_hash,is_owner) VALUES(?,?,?,0)")
-        .bind(&user)
-        .bind(username)
-        .bind(encoded)
-        .execute(&mut *tx)
-        .await
-        .map_err(StorageError::from)?;
-    tx.commit().await.map_err(StorageError::from)?;
+    match app
+        .store
+        .control_repository()
+        .accept_invitation(&digest, Utc::now().timestamp(), &user, username, &encoded)
+        .await?
+    {
+        dakia_storage::control_repository::InvitationClaim::Created => {}
+        dakia_storage::control_repository::InvitationClaim::UsernameTaken => {
+            return Err(ApiFailure(StatusCode::CONFLICT, "username_taken"))
+        }
+        dakia_storage::control_repository::InvitationClaim::InvalidInvitation => {
+            return Err(ApiFailure(StatusCode::UNAUTHORIZED, "invalid_invitation"))
+        }
+    }
     Ok(user)
 }

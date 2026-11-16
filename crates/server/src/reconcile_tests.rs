@@ -477,6 +477,8 @@ async fn completed_folder_checks_charge_one_scheduler_turn_and_failures_do_not_s
             counts_exact: false,
             cache_preview: None,
             index_page: None,
+            search: None,
+            supplement: None,
         };
         app.store
             .record_scan(&a, &folder.name, generation, &page)

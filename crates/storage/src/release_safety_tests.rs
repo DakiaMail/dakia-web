@@ -56,6 +56,8 @@ fn page(
         counts_exact: false,
         cache_preview: None,
         index_page: None,
+        search: None,
+        supplement: None,
     }
 }
 

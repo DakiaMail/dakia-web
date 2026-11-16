@@ -48,48 +48,17 @@ impl Store {
                 tokio::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).await?;
             }
         }
-        sqlx::query("VACUUM INTO ?")
-            .bind(
-                destination
-                    .join("control.sqlite")
-                    .to_string_lossy()
-                    .as_ref(),
-            )
-            .execute(&self.control)
-            .await?;
-        let rows = sqlx::query("SELECT id,user_id FROM accounts ORDER BY id")
-            .fetch_all(&self.control)
+        self.control_repository()
+            .snapshot_sqlite(&destination.join("control.sqlite"))
             .await?;
         let mut accounts = vec![];
-        for row in rows {
-            let id: String = row.get("id");
-            let scope = self.authorize(row.get("user_id"), &id).await?;
-            let db = self.db(&scope).await?;
-            sqlx::query("VACUUM INTO ?")
-                .bind(
-                    destination
-                        .join("accounts")
-                        .join(format!("{id}.sqlite"))
-                        .to_string_lossy()
-                        .as_ref(),
-                )
-                .execute(&db)
+        for (user, account) in self.control_repository().all_accounts().await? {
+            let id = account.id;
+            let scope = self.authorize(&user, &id).await?;
+            self.account_repository(&scope)
+                .await?
+                .snapshot_sqlite(&destination.join("accounts").join(format!("{id}.sqlite")))
                 .await?;
-            // Search is rebuildable private text, not durable owner state.
-            // Remove it from the independent snapshot, including freed pages
-            // and WAL, rather than extending its lifetime through backups.
-            let snapshot = pool(&destination.join("accounts").join(format!("{id}.sqlite"))).await?;
-            sqlx::query("DELETE FROM search_documents")
-                .execute(&snapshot)
-                .await?;
-            sqlx::query("INSERT OR IGNORE INTO search_dirty SELECT id FROM messages")
-                .execute(&snapshot)
-                .await?;
-            sqlx::query("VACUUM").execute(&snapshot).await?;
-            sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
-                .execute(&snapshot)
-                .await?;
-            snapshot.close().await;
             accounts.push(id);
         }
         copy_tree(&self.root.join("durable"), &destination.join("durable")).await?;
@@ -141,29 +110,18 @@ impl Store {
         }
         copy_tree(&source.join("durable"), &destination.join("durable")).await?;
         let store = Self::open(destination, key).await?;
-        sqlx::query("DELETE FROM sessions")
-            .execute(&store.control)
-            .await?;
-        sqlx::query("DELETE FROM local_invitations")
-            .execute(&store.control)
-            .await?;
-        sqlx::query("DELETE FROM oidc_flows")
-            .execute(&store.control)
-            .await?;
-        sqlx::query("INSERT OR REPLACE INTO settings(key,value) VALUES('jobs_enabled','false')")
-            .execute(&store.control)
-            .await?;
+        store.control_repository().reset_restored_auth().await?;
         for id in &manifest.accounts {
-            let user: String = sqlx::query_scalar("SELECT user_id FROM accounts WHERE id=?")
-                .bind(id)
-                .fetch_one(&store.control)
-                .await?;
+            let user = store.control_repository().account_owner(id).await?;
             let a = store.authorize(&user, id).await?;
             // Verify the separately supplied key before allowing operator handover.
             store.credential(&a).await?;
             let db = store.db(&a).await?;
             // Derived mail search must not resurrect provider-deleted content
             // from a snapshot. Rebuild it only after provider reconciliation.
+            sqlx::query("DELETE FROM provider_documents WHERE key='search:database'")
+                .execute(&db)
+                .await?;
             sqlx::query("DELETE FROM search_documents")
                 .execute(&db)
                 .await?;
@@ -190,10 +148,163 @@ impl Store {
         Ok(store)
     }
     pub async fn jobs_enabled(&self) -> Result<bool> {
-        let value: Option<String> =
-            sqlx::query_scalar("SELECT value FROM settings WHERE key='jobs_enabled'")
-                .fetch_optional(&self.control)
-                .await?;
+        let value = self.control_repository().setting("jobs_enabled").await?;
         Ok(value.as_deref() != Some("false"))
+    }
+}
+impl Store {
+    /// Offline backend transfer. Preserve durable state and ciphertext exactly;
+    /// pause workers and rebuild search instead of carrying a derived index.
+    pub async fn import_backend(
+        source: impl AsRef<Path>,
+        destination: impl AsRef<Path>,
+        key: [u8; 32],
+        url: Option<&str>,
+    ) -> Result<Self> {
+        let source = source.as_ref();
+        let destination = destination.as_ref();
+        if destination.exists() {
+            return Err(Error::Invalid);
+        }
+        let manifest: Manifest =
+            serde_json::from_slice(&tokio::fs::read(source.join("manifest.json")).await?)?;
+        if manifest.format != 1 || !manifest.jobs_disabled {
+            return Err(Error::Invalid);
+        }
+        let mut ids = manifest.accounts.clone();
+        ids.sort();
+        ids.dedup();
+        if ids.len() != manifest.accounts.len() {
+            return Err(Error::Invalid);
+        }
+        for id in &ids {
+            Uuid::parse_str(id).map_err(|_| Error::Invalid)?;
+        }
+        let mut files = vec![PathBuf::from("control.sqlite")];
+        files.extend(
+            ids.iter()
+                .map(|id| PathBuf::from("accounts").join(format!("{id}.sqlite"))),
+        );
+        for path in &files {
+            if !tokio::fs::symlink_metadata(source.join(path))
+                .await?
+                .is_file()
+            {
+                return Err(Error::Invalid);
+            }
+        }
+        tokio::fs::create_dir_all(destination).await?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            tokio::fs::set_permissions(destination, std::fs::Permissions::from_mode(0o700)).await?;
+        }
+        // A failed transfer leaves a visible durable guard, so startup cannot
+        // quietly use a partial import. No existing destination is overwritten.
+        let marker = destination.join("backend-import-in-progress");
+        tokio::fs::write(&marker, b"incomplete\n").await?;
+        let staging = destination.join("import-staging");
+        tokio::fs::create_dir_all(staging.join("accounts")).await?;
+        for path in &files {
+            tokio::fs::copy(source.join(path), staging.join(path)).await?;
+        }
+        let staged = Store::open(&staging, key).await?;
+        let accounts = staged.control_repository().all_accounts().await?;
+        let mut actual: Vec<_> = accounts
+            .iter()
+            .map(|(_, account)| account.id.clone())
+            .collect();
+        actual.sort();
+        if actual != ids {
+            return Err(Error::Invalid);
+        }
+        // Verify the supplied key against every original AAD before writing any
+        // external destination. The archive itself remains untouched.
+        for (user, account) in &accounts {
+            let a = staged.authorize(user, &account.id).await?;
+            staged.credential(&a).await?;
+        }
+        let postgres = url.is_some_and(|value| {
+            value.starts_with("postgresql://") || value.starts_with("postgres://")
+        });
+        let mut imported = if postgres {
+            let lease = account_repository::DatabaseLease::acquire(url.unwrap(), true).await?;
+            let control =
+                control_repository::ControlRepository::open_postgres(url.unwrap()).await?;
+            control
+                .import_sqlite(&staging.join("control.sqlite"))
+                .await?;
+            let mut store =
+                Store::from_control(destination.to_owned(), key, 1024 * 1024 * 1024, control)
+                    .await?;
+            store.application_database = Some(
+                account_repository::ApplicationDatabase::open_with_lease(url.unwrap(), lease)
+                    .await?,
+            );
+            store.default_search_url = Some(Arc::from(url.unwrap()));
+            for (user, account) in &accounts {
+                let a = store.authorize(user, &account.id).await?;
+                let repository = store.account_repository(&a).await?;
+                repository.initialize_account().await?;
+                repository
+                    .import_sqlite(
+                        &staging
+                            .join("accounts")
+                            .join(format!("{}.sqlite", account.id)),
+                    )
+                    .await?;
+            }
+            store
+        } else {
+            let path = match url {
+                None => destination.join("control.sqlite"),
+                Some(value) if value.starts_with("sqlite:") => {
+                    let options = SqliteConnectOptions::from_str(value)?;
+                    if options.get_filename() == Path::new(":memory:") {
+                        return Err(Error::Invalid);
+                    }
+                    options.get_filename().to_owned()
+                }
+                Some(_) => return Err(Error::Invalid),
+            };
+            if path.exists() {
+                return Err(Error::Invalid);
+            }
+            staged.control_repository().snapshot_sqlite(&path).await?;
+            tokio::fs::create_dir_all(destination.join("accounts")).await?;
+            for (user, account) in &accounts {
+                let a = staged.authorize(user, &account.id).await?;
+                staged
+                    .account_repository(&a)
+                    .await?
+                    .snapshot_sqlite(
+                        &destination
+                            .join("accounts")
+                            .join(format!("{}.sqlite", account.id)),
+                    )
+                    .await?;
+            }
+            let control = control_repository::ControlRepository::sqlite(pool(&path).await?);
+            control.put_setting("backend_import", "incomplete").await?;
+            Store::from_control(destination.to_owned(), key, 1024 * 1024 * 1024, control).await?
+        };
+        copy_tree(&source.join("durable"), &destination.join("durable")).await?;
+        imported
+            .control_repository()
+            .put_setting("jobs_enabled", "false")
+            .await?;
+        // End every temporary SQLite connection before deleting staging files.
+        for pool in staged.account_pools.lock().await.values() {
+            pool.close().await;
+        }
+        staged.control_repository().close_for_archive().await;
+        tokio::fs::remove_dir_all(&staging).await?;
+        imported.configure_search_database(None).await?;
+        imported
+            .control_repository()
+            .put_setting("backend_import", "complete")
+            .await?;
+        tokio::fs::remove_file(marker).await?;
+        Ok(imported)
     }
 }

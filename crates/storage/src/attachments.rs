@@ -40,7 +40,7 @@ impl Store {
         {
             return Err(Error::Invalid);
         }
-        let db = self.db(a).await?;
+        let repository = self.account_repository(a).await?;
         let attachment = Attachment {
             id: id.to_owned(),
             filename,
@@ -49,7 +49,7 @@ impl Store {
         };
         let directory = self.root.join("durable").join(&a.id);
         tokio::fs::create_dir_all(&directory).await?;
-        // Count actual bytes, including interrupted writes not yet indexed in SQLite.
+        // Count actual bytes, including interrupted writes not yet recorded in storage.
         let mut used = 0_u64;
         let mut entries = tokio::fs::read_dir(&directory).await?;
         while let Some(entry) = entries.next_entry().await? {
@@ -71,45 +71,16 @@ impl Store {
             .await?;
         file.write_all(bytes).await?;
         file.sync_all().await?;
-        let mut tx = db.begin().await?;
-        sqlx::query("INSERT INTO blobs(id,size_bytes,pinned,last_access) VALUES(?,?,1,?)")
-            .bind(&attachment.id)
-            .bind(attachment.size_bytes)
-            .bind(now())
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("INSERT INTO attachment_metadata(id,document) VALUES(?,?)")
-            .bind(&attachment.id)
-            .bind(serde_json::to_string(&attachment)?)
-            .execute(&mut *tx)
-            .await?;
-        tx.commit().await?;
+        repository.put_attachment_metadata(&attachment).await?;
         Ok(attachment)
     }
     /// Collect abandoned uploads only after a day. Every immutable submission,
     /// including uncertain/accepted records, keeps its snapshot attachments.
     pub async fn cleanup_orphan_attachments(&self, a: &AuthorizedAccount) -> Result<u32> {
         let _guard = self.gate.write().await;
-        let db = self.db(a).await?;
+        let repository = self.account_repository(a).await?;
         let cutoff = (Utc::now() - Duration::days(1)).to_rfc3339_opts(SecondsFormat::Millis, true);
-        let mut tx = db.begin().await?;
-        sqlx::query("UPDATE blobs SET pinned=pinned WHERE 0")
-            .execute(&mut *tx)
-            .await?;
-        let ids: Vec<String> = sqlx::query_scalar("SELECT id FROM blobs WHERE last_access<? AND NOT EXISTS(SELECT 1 FROM draft_blobs WHERE blob_id=blobs.id) AND NOT EXISTS(SELECT 1 FROM submissions,json_each(submissions.snapshot,'$.attachments') part WHERE json_extract(part.value,'$.id')=blobs.id) LIMIT 100")
-            .bind(cutoff).fetch_all(&mut *tx).await?;
-        for id in &ids {
-            Uuid::parse_str(id).map_err(|_| Error::Invalid)?;
-            sqlx::query("DELETE FROM attachment_metadata WHERE id=?")
-                .bind(id)
-                .execute(&mut *tx)
-                .await?;
-            sqlx::query("DELETE FROM blobs WHERE id=?")
-                .bind(id)
-                .execute(&mut *tx)
-                .await?;
-        }
-        tx.commit().await?;
+        let ids = repository.cleanup_attachment_metadata(&cutoff).await?;
         for id in &ids {
             match tokio::fs::remove_file(self.root.join("durable").join(&a.id).join(id)).await {
                 Ok(()) => {}
@@ -142,8 +113,7 @@ impl Store {
             {
                 continue;
             }
-            let retained: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM blobs WHERE id=?) OR EXISTS(SELECT 1 FROM attachment_metadata WHERE id=?) OR EXISTS(SELECT 1 FROM draft_blobs WHERE blob_id=?) OR EXISTS(SELECT 1 FROM submissions,json_each(submissions.snapshot,'$.attachments') part WHERE json_extract(part.value,'$.id')=?)")
-                .bind(&id).bind(&id).bind(&id).bind(&id).fetch_one(&db).await?;
+            let retained = repository.attachment_retained(&id).await?;
             if !retained {
                 tokio::fs::remove_file(entry.path()).await?;
                 removed += 1;
@@ -156,14 +126,9 @@ impl Store {
         a: &AuthorizedAccount,
         id: &str,
     ) -> Result<(Attachment, Vec<u8>)> {
-        let db = self.db(a).await?;
+        let repository = self.account_repository(a).await?;
         Uuid::parse_str(id).map_err(|_| Error::NotFound)?;
-        let raw: Option<String> =
-            sqlx::query_scalar("SELECT document FROM attachment_metadata WHERE id=?")
-                .bind(id)
-                .fetch_optional(&db)
-                .await?;
-        let metadata = serde_json::from_str(&raw.ok_or(Error::NotFound)?)?;
+        let metadata = repository.attachment_metadata(id).await?;
         let bytes = tokio::fs::read(self.root.join("durable").join(&a.id).join(id)).await?;
         Ok((metadata, bytes))
     }

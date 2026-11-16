@@ -16,7 +16,7 @@ async fn google_reconnect_replaces_expired_grant_only_after_valid_callback() {
         .bind(&user)
         .bind(&identity.csrf)
         .bind(4102444800_i64)
-        .execute(store.control())
+        .execute(store.sqlite_control_for_test())
         .await
         .unwrap();
     let app = App {

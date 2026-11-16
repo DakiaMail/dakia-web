@@ -3,10 +3,10 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 macro_rules! dto {
-    ($name:ident { $($field:ident : $ty:ty),* $(,)? }) => {
+    ($name:ident { $( $(#[$attr:meta])* $field:ident : $ty:ty),* $(,)? }) => {
         #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
         #[ts(export, export_to = "../../../packages/api-types/src/generated/")]
-        pub struct $name { $(pub $field: $ty),* }
+        pub struct $name { $( $(#[$attr])* pub $field: $ty),* }
     };
 }
 macro_rules! values {
@@ -115,6 +115,9 @@ pub struct Message {
     pub subject: String,
     pub preview: String,
     pub received_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub received_date: Option<String>,
     pub unread: bool,
     pub starred: bool,
     pub category: Option<String>,
@@ -201,10 +204,38 @@ pub struct AccountCoverage {
     #[ts(optional)]
     pub inbox: Option<InboxFreshness>,
 }
+values!(IndexingState {
+    Discovering,
+    Indexing,
+    Paused,
+    Error,
+    Complete
+});
+dto!(IndexingStatus {
+    account_id: String,
+    state: IndexingState,
+    discovery_complete: bool,
+    eligible: u32,
+    processed: u32,
+    backlog: u32,
+    gaps: u32
+});
 dto!(ClassificationCoverage {
     classified: u32,
     total: u32
 });
+dto!(SearchMatch {
+    account_id:String,message_id:String,score:f64,excerpt:Option<String>,attachment:Option<String>
+});
+dto!(SearchSupplement {
+    account_id: String,
+    continuation: String
+});
+dto!(SearchDegradation {
+    account_id: String,
+    code: String
+});
+dto!(SearchMetadata {ranked:bool,matches:Vec<SearchMatch>,degradation:Vec<SearchDegradation>});
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
 #[ts(export, export_to = "../../../packages/api-types/src/generated/")]
 pub struct SearchPage {
@@ -220,6 +251,12 @@ pub struct SearchPage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub index_page: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub search: Option<SearchMetadata>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub supplement: Option<Vec<SearchSupplement>>,
 }
 dto!(Event {
     account_id: String,
@@ -355,3 +392,5 @@ dto!(RuleActivity {
     pending: u32,
     failed: u32
 });
+
+pub mod mailbox_query;

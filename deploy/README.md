@@ -37,6 +37,8 @@ A restart alone doesn't apply changed environment variables. Don't replace your 
 
 ## Backup and restore
 
+The Docker commands below use default SQLite storage. PostgreSQL offline tools also need the source `DAKIA_DATABASE_URL` and database network access; use the [database transfer guidance](#database-transfers) for that backend.
+
 Back up regularly, not only when upgrading. A backup contains private mail and credentials. Keep an encrypted copy off the host, retain the matching image, and test restoration. Never copy a live SQLite directory as your only backup, and never use `docker compose down -v` on an installation you want to keep.
 
 The following procedure is for the supplied `/data` and `/secrets` mounts. If you added OIDC, provider secret-file mounts, private VAPID configuration, or other extra bind mounts, save those original files privately too. Don't print them or commit them to Git. Keep backup storage outside the repository.
@@ -162,7 +164,10 @@ The root image already supplies the data, key, web, worker, and model paths. For
 | Variable | Root image default / purpose |
 | --- | --- |
 | `DAKIA_ORIGIN` | Required external HTTPS origin, without a path or trailing slash |
-| `DAKIA_DATA_DIR` | `/data`; persistent control/account databases, mail and blobs |
+| `DAKIA_DATA_DIR` | `/data`; persistent local data, SQLite account files and blobs |
+| `SQLITE_TMPDIR` | `/data`; disk-backed SQLite temporary files for large upgrades and queries |
+| `DAKIA_DATABASE_URL` | Optional application backend; unset/empty keeps SQLite; PostgreSQL uses native control/account schemas |
+| `DAKIA_SEARCH_DATABASE_URL` | Optional independent search backend; unset/empty follows application storage |
 | `DAKIA_CREDENTIAL_KEY_FILE` | `/secrets/credential-key`; exactly 32 raw bytes, generated on a fresh installation if absent |
 | `DAKIA_OIDC_ISSUER` | Unset for local login; exact HTTPS issuer when using OIDC |
 | `DAKIA_OIDC_CLIENT_ID` | Required with OIDC; confidential client with PKCE and callback `<origin>/auth/callback` |
@@ -170,7 +175,7 @@ The root image already supplies the data, key, web, worker, and model paths. For
 
 A standalone server outside the supplied image needs explicit data and key paths. On first start, the key's parent directory must exist and be writable. Missing keys on an existing installation fail startup instead of being replaced.
 
-Compose passes only the variables declared in its configuration. The supplied file already forwards origin, provider OAuth credentials, release checks, and administrator IDs. Other runtime settings need explicit `environment` entries and any mounts. Adding a value to `.env` alone doesn't forward it.
+Compose passes only the variables declared in its configuration. The supplied file already forwards origin, database settings, provider OAuth credentials, release checks, and administrator IDs. Other runtime settings need explicit `environment` entries and any mounts. Adding a value to `.env` alone doesn't forward it.
 
 For OIDC, merge the following `dakia` service settings into `compose.override.yaml`, retaining any existing Caddy service. Set the issuer, client ID, and host secret-file path in `.env`. Put `dakia` under the existing top-level `services`, alongside `caddy`; keep the top-level `volumes` section separate. Use one `services` key. Plain Compose commands load the override automatically; explicit `-f` commands must name it too:
 
@@ -203,7 +208,7 @@ Optional/runtime settings:
 | `DAKIA_MODEL_CACHE` | Writable cache for public translation models |
 | `DAKIA_VAPID_FILE` | Private VAPID JSON file for Web Push; see `workers/README.md` |
 
-Preserve key bytes across upgrades. Restrict secret directory/file permissions. New local setup needs writable `/secrets` to create its key. Existing provisioned secret files, such as an OIDC client secret, can be mounted read-only. Never put credentials in command arguments, URLs, Git or logs. Give the service UID access to its data/model cache, not other application stores. Keep live SQLite on a local filesystem, not a network share. Run only one server/operator against a data directory; an exclusive lock enforces this.
+Preserve key bytes across upgrades. Restrict secret directory/file permissions. New local setup needs writable `/secrets` to create its key. Existing provisioned secret files, such as an OIDC client secret, can be mounted read-only. Never put credentials in command arguments, public URLs, Git or logs. Treat database connection URLs and populated environment files as secrets. Give the service UID access to its data/model cache, not other application stores. Keep live SQLite on a local filesystem, not a network share. Run only one server/operator against a data directory; an exclusive lock enforces this.
 
 ## Local users
 
@@ -218,3 +223,30 @@ The owner chooses the translation location in Workspace → Translation. OIDC op
 Private bounded mail diagnostics live under `DAKIA_DATA_DIR/diagnostics`. Keep Docker stdout rotation bounded too. Preserve logs privately before replacing a failing container. Don't post raw mail, tokens, or credentials in public issues.
 
 IMAP failures back off per account, initially for five seconds and up to five minutes. A successful connection doesn't establish that a mail operation succeeded. Inspect diagnostics and provider state before retrying uncertain writes. Worker checks and image smoke commands belong to the [maintainer build guide](building.md).
+
+## Database transfers
+
+Backup coordinates portable control/account snapshots and durable blobs. PostgreSQL snapshots use the same SQLite archive format. Derived search text, received cache and public models are excluded.
+
+For a backend transfer, use the same credential key and a build containing the
+dual-database implementation. Set `DAKIA_DATABASE_URL` to the stopped source for
+export, then to the new destination for import. An unset value selects SQLite.
+The currently published image is not proof of this work-in-progress feature.
+
+```sh
+dakia-admin export DATA_DIR NEW_ARCHIVE_DIR KEY_FILE
+dakia-admin import ARCHIVE_DIR NEW_DATA_DIR KEY_FILE
+```
+
+Import preserves IDs, ciphertext, revisions, queue ordering and durable jobs; it
+pauses jobs without changing submission states. Search is rebuilt through normal
+background acquisition. `restore` remains the disaster-recovery path and resets
+authentication and uncertain sends as described above. PostgreSQL offline commands
+hold an exclusive database-wide lease, so all online instances must be stopped,
+even when they use other data directories or hosts. A populated target is refused.
+Do not reuse a failed import directory. Its `backend-import-in-progress` marker
+and PostgreSQL `backend_import=incomplete` setting prevent startup with partial
+state. Preserve that evidence and inspect the isolated destination before retrying
+into a fresh database and directory. Do not remove the guards to force startup.
+
+See [database and search storage](../docs/dual-database-search.md) for backend details.

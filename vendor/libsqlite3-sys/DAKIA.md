@@ -1,7 +1,7 @@
 # Dakia SQLite engine pin
 
 Rust wrapper: crates.io libsqlite3-sys 0.30.1, MIT, preserved LICENSE and source.
-Only sqlite3/sqlite3.c, sqlite3.h and sqlite3ext.h are replaced with unmodified
+The sqlite3/sqlite3.c, sqlite3.h and sqlite3ext.h files are unmodified
 SQLite 3.54.1, public domain, from:
 https://www.sqlite.org/2026/sqlite-amalgamation-3540100.zip
 
@@ -26,3 +26,11 @@ unused SQLCipher sources and registry metadata are intentionally excluded.
 Do not enable SQLCipher features on this local package. Remove this local patch
 when SQLx supports an appropriately current engine directly, after running the
 secure-delete churn regression and storage/server suites.
+
+The bundled build also omits the wrapper's optional
+`SQLITE_ENABLE_MEMORY_MANAGEMENT` flag. That option forces every connection's
+page cache into one process-wide LRU mutex, including otherwise independent
+account and search read pools. Dakia uses SQLite's ordinary bounded private
+page caches and does not call the optional global `sqlite3_release_memory()`
+API. Per-connection cache release, connection locking and database transactions
+remain available. The storage suite checks the actual linked build option.

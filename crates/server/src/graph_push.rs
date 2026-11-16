@@ -9,7 +9,6 @@ use chrono::{SecondsFormat, Utc};
 use dakia_mail_provider::{ErrorKind, GraphProvider};
 use dakia_storage::{AuthorizedAccount, Error, Store};
 use serde::Deserialize;
-use sqlx::Row;
 
 #[derive(Deserialize)]
 pub(crate) struct Validation {
@@ -65,10 +64,17 @@ pub(crate) async fn notify(
         } else {
             Utc::now()
         };
-        let account: Option<String> = sqlx::query_scalar("UPDATE microsoft_subscriptions SET wake_version=wake_version+1,next_attempt=CASE WHEN ? THEN 0 ELSE next_attempt END,expires_at=CASE WHEN ? THEN ? ELSE expires_at END WHERE subscription_id=? AND client_state_hash=? AND expires_at>? AND EXISTS(SELECT 1 FROM accounts a WHERE a.id=account_id AND json_extract(a.metadata,'$.state')='ready') RETURNING account_id")
-            .bind(renew).bind(renew).bind(expires.to_rfc3339_opts(SecondsFormat::Secs,true))
-            .bind(event.subscription_id).bind(hash(&secret)).bind(Utc::now().to_rfc3339_opts(SecondsFormat::Secs,true))
-            .fetch_optional(app.store.control()).await.map_err(Error::from)?;
+        let account = app
+            .store
+            .control_repository()
+            .wake_microsoft_subscription(
+                renew,
+                &expires.to_rfc3339_opts(SecondsFormat::Secs, true),
+                &event.subscription_id,
+                &hash(&secret),
+                &Utc::now().to_rfc3339_opts(SecondsFormat::Secs, true),
+            )
+            .await?;
         if let Some(account) = account {
             app.mail.wake_graph(&account).await;
         }
@@ -76,14 +82,13 @@ pub(crate) async fn notify(
     Ok(StatusCode::ACCEPTED.into_response())
 }
 pub(crate) async fn wake_version(store: &Store, a: &AuthorizedAccount) -> Result<i64, Error> {
-    Ok(
-        sqlx::query_scalar("SELECT wake_version FROM microsoft_subscriptions WHERE account_id=?")
-            .bind(a.id())
-            .fetch_optional(store.control())
-            .await?
-            .unwrap_or(0),
-    )
+    store.authorize(a.user_id(), a.id()).await?;
+    store
+        .control_repository()
+        .microsoft_wake_version(a.id())
+        .await
 }
+
 fn public_origin(origin: &str) -> bool {
     let Ok(url) = url::Url::parse(origin) else {
         return false;
@@ -127,26 +132,34 @@ pub(crate) async fn maintain(
         return Ok(());
     }
     let now = Utc::now();
-    let row = sqlx::query("SELECT subscription_id,expires_at,next_attempt FROM microsoft_subscriptions WHERE account_id=?")
-        .bind(a.id()).fetch_optional(app.store.control()).await.map_err(Error::from)?;
+    let row = app
+        .store
+        .control_repository()
+        .microsoft_subscription(a.id())
+        .await?;
     if let Some(row) = &row {
-        let expires = chrono::DateTime::parse_from_rfc3339(row.get::<&str, _>("expires_at")).ok();
-        if row.get::<i64, _>("next_attempt") > now.timestamp()
+        let expires = chrono::DateTime::parse_from_rfc3339(&row.expires_at).ok();
+        if row.next_attempt > now.timestamp()
             || expires.is_some_and(|at| at > now + chrono::Duration::hours(12))
         {
             return Ok(());
         }
     }
     let secret = random();
-    let existing: Option<String> = row.as_ref().and_then(|r| r.get("subscription_id"));
+    let existing: Option<String> = row.as_ref().and_then(|r| r.id.clone());
     let live = row.as_ref().is_some_and(|r| {
-        chrono::DateTime::parse_from_rfc3339(r.get::<&str, _>("expires_at"))
-            .is_ok_and(|at| at > now)
+        chrono::DateTime::parse_from_rfc3339(&r.expires_at).is_ok_and(|at| at > now)
     });
     // Back off registration failures without claiming push is available.
-    sqlx::query("INSERT INTO microsoft_subscriptions(account_id,client_state_hash,expires_at,next_attempt) VALUES(?,?,?,?) ON CONFLICT(account_id) DO UPDATE SET next_attempt=excluded.next_attempt")
-        .bind(a.id()).bind(hash(&secret)).bind(now.to_rfc3339_opts(SecondsFormat::Secs,true)).bind(now.timestamp()+3600)
-        .execute(app.store.control()).await.map_err(Error::from)?;
+    app.store
+        .control_repository()
+        .backoff_microsoft_subscription(
+            a.id(),
+            &hash(&secret),
+            &now.to_rfc3339_opts(SecondsFormat::Secs, true),
+            now.timestamp() + 3600,
+        )
+        .await?;
     let notification_url = format!("{}/api/microsoft/notifications", app.config.origin);
     let result = graph
         .subscription(
@@ -162,18 +175,47 @@ pub(crate) async fn maintain(
                     let _ = graph.unsubscribe(id).await;
                 }
             }
-            sqlx::query("UPDATE microsoft_subscriptions SET subscription_id=?,client_state_hash=CASE WHEN ? THEN client_state_hash ELSE ? END,expires_at=?,next_attempt=0 WHERE account_id=?")
-                .bind(subscription.id).bind(existing.is_some() && live).bind(hash(&secret)).bind(subscription.expiration_date_time).bind(a.id())
-                .execute(app.store.control()).await.map_err(Error::from)?;
+            app.store
+                .control_repository()
+                .save_microsoft_subscription(
+                    a.id(),
+                    &subscription.id,
+                    existing.is_some() && live,
+                    &hash(&secret),
+                    &subscription.expiration_date_time,
+                )
+                .await?;
         }
         Err(error) if error.kind == ErrorKind::StaleReference => {
-            sqlx::query("UPDATE microsoft_subscriptions SET subscription_id=NULL,expires_at=?,next_attempt=0 WHERE account_id=?")
-                .bind(now.to_rfc3339_opts(SecondsFormat::Secs,true)).bind(a.id()).execute(app.store.control()).await.map_err(Error::from)?;
+            app.store
+                .control_repository()
+                .expire_microsoft_subscription(
+                    a.id(),
+                    &now.to_rfc3339_opts(SecondsFormat::Secs, true),
+                )
+                .await?;
         }
         Err(_) => {} // Polling and the last valid subscription remain intact.
     }
     Ok(())
 }
+pub(crate) async fn prepare_removal(
+    store: &Store,
+    a: &AuthorizedAccount,
+    graph: &GraphProvider,
+) -> Option<reqwest::RequestBuilder> {
+    if let Ok(Some(row)) = store
+        .control_repository()
+        .microsoft_subscription(a.id())
+        .await
+    {
+        if let Some(id) = row.id {
+            return graph.prepare_unsubscribe(&id).await.ok();
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -201,14 +243,4 @@ mod tests {
             assert!(!public_origin(origin), "{origin}");
         }
     }
-}
-pub(crate) async fn prepare_removal(
-    store: &Store,
-    a: &AuthorizedAccount,
-    graph: &GraphProvider,
-) -> Option<reqwest::RequestBuilder> {
-    if let Ok(Some(id)) = sqlx::query_scalar::<_,String>("SELECT subscription_id FROM microsoft_subscriptions WHERE account_id=? AND subscription_id IS NOT NULL").bind(a.id()).fetch_optional(store.control()).await {
-        return graph.prepare_unsubscribe(&id).await.ok();
-    }
-    None
 }

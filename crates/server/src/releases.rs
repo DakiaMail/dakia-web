@@ -59,7 +59,7 @@ fn select(releases: Vec<Published>) -> Option<Published> {
         .into_iter()
         .filter_map(|r| {
             let v = version(&r.tag_name)?;
-            (!r.draft && r.prerelease == !v.pre.is_empty()).then_some((v, r))
+            (!r.draft && r.prerelease != v.pre.is_empty()).then_some((v, r))
         })
         .collect();
     if candidates.iter().any(|(v, _)| v.pre.is_empty()) {

@@ -19,3 +19,5 @@ deploy/bundle
 **/dist-demo
 
 .dakia-upgrades
+
+crates/inference/assets/multilingual-e5-small/.download-*

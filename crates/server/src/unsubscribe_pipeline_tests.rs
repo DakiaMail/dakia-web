@@ -396,7 +396,7 @@ async fn browser_unsubscribe_fixture() {
         .bind(user)
         .bind("release-browser-csrf")
         .bind(4102444800_i64)
-        .execute(app.store.control())
+        .execute(app.store.sqlite_control_for_test())
         .await
         .unwrap();
     let worker_app = app.clone();

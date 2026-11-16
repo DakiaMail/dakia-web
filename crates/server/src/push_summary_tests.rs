@@ -199,6 +199,7 @@ async fn notification_summary_is_authorized_bounded_local_and_read_only() {
                 subject: "😀".repeat(500),
                 preview: "Preview ".repeat(100),
                 received_at: "2026-10-30T00:00:00Z".into(),
+                received_date: None,
                 unread: true,
                 starred: false,
                 category: None,
@@ -214,7 +215,7 @@ async fn notification_summary_is_authorized_bounded_local_and_read_only() {
         .bind(&user)
         .bind("fixture")
         .bind(4102444800_i64)
-        .execute(store.control())
+        .execute(store.sqlite_control_for_test())
         .await
         .unwrap();
     let app = App {
@@ -278,7 +279,7 @@ async fn subscription_controls_require_owner_and_csrf_and_remove_only_this_devic
         .bind(&user)
         .bind("fixture")
         .bind(4102444800_i64)
-        .execute(store.control())
+        .execute(store.sqlite_control_for_test())
         .await
         .unwrap();
     let app = App {

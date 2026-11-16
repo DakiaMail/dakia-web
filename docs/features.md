@@ -32,6 +32,8 @@ The installation owner chooses **On devices**, **On devices with host fallback**
 
 ## Search and conversations
 
+Search by meaning is enabled automatically when Dakia has at least 8 GB RAM and 4 CPUs allocated to it, including container limits. An administrator can choose Automatic, On, or Off in Workspace → Search; changes take effect without a restart. On overrides the resource check. Off releases the search models and keeps the existing semantic index for later use. Keyword search and its indexing continue independently, including when the semantic model is unavailable. Unknown resource capacity keeps Automatic off.
+
 Search across your connected accounts or narrow the scope to one mailbox. Choose **Has attachment** to find mail with files, or add `has:attachment` to your search. Follow replies in conversations, download attachments, star messages, and switch between folders. Recent folders and message bodies are saved in a bounded browser cache for faster reopening after session checks. See [saved mail and offline limits](persistent-local-cache.md).
 
 ## Write now, send later

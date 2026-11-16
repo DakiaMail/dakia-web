@@ -81,7 +81,7 @@ async fn renewal_is_single_flight_cached_and_rotates_encrypted_refresh_tokens_be
     );
     let sealed: Vec<u8> = sqlx::query_scalar("SELECT credential FROM accounts WHERE id=?")
         .bind(source.account.id())
-        .fetch_one(source.store.control())
+        .fetch_one(source.store.sqlite_control_for_test())
         .await
         .unwrap();
     assert!(!String::from_utf8_lossy(&sealed).contains("rotated-1"));
@@ -122,7 +122,7 @@ async fn authorization_code_profile_and_persistence_use_the_mailbox_and_reconnec
         .bind(&user)
         .bind(&identity.csrf)
         .bind(4102444800i64)
-        .execute(store.control())
+        .execute(store.sqlite_control_for_test())
         .await
         .unwrap();
     let app = App {

@@ -106,6 +106,7 @@ jobs:
           image="$IMAGE@$DIGEST"
           docker pull "$image"
           docker run --rm --network none --read-only --entrypoint /app/dakia-classifier-check "$image"
+          docker run --rm --network none --read-only --entrypoint /app/dakia-search-model-check "$image"
           docker run --rm --network none --entrypoint node "$image" /app/workers/translation/smoke.mjs
           name="dakia-smoke-${{ matrix.arch }}"
           trap 'docker rm -f "$name" >/dev/null' EXIT
@@ -134,8 +135,43 @@ jobs:
           test "$ready" = true
           test "$before" = "$(docker exec "$name" sha256sum /secrets/credential-key)"
           docker exec -i "$name" node --input-type=module - --resume < scripts/image-oauth-smoke.mjs
+  repair-image:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/repair.Dockerfile
+          platforms: linux/${{ matrix.arch }}
+          load: true
+          tags: dakia-search-repair:check
+          cache-from: type=gha,scope=repair-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=repair-${{ matrix.arch }}
+      - name: Check copied repair tools without network access
+        run: |
+          docker run --rm --network none --read-only \
+            --tmpfs /tmp:rw,nosuid,nodev,size=64m \
+            --entrypoint python3 dakia-search-repair:check \
+            /opt/dakia-repair/check-search-repair-package.py
+          docker run --rm --network none --read-only \
+            --tmpfs /tmp:rw,nosuid,nodev,size=64m \
+            -v "$GITHUB_WORKSPACE:/src:ro" \
+            -e SQLITE_REPAIR_CLI=/usr/local/bin/sqlite3 \
+            -e DAKIA_TEST_REPAIR_TOOLS_DIR=/opt/dakia-repair \
+            --entrypoint python3 dakia-search-repair:check \
+            /src/scripts/test_repair_search_index.py
   manifest:
-    needs: image
+    needs: [image, repair-image]
     runs-on: ubuntu-24.04
     permissions:
       packages: write

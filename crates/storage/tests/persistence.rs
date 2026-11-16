@@ -116,6 +116,7 @@ async fn operation_dedup_reordering_and_manual_category_survive_refresh() {
         subject: "test".into(),
         preview: "test".into(),
         received_at: "2026-10-28T00:00:00Z".into(),
+        received_date: None,
         unread: true,
         starred: false,
         category: None,
@@ -354,8 +355,14 @@ async fn isolated_accounts_credentials_drafts_and_restart() {
         store.credential(&scope).await.unwrap().password,
         account().password
     );
+    let control = sqlx::SqlitePool::connect(&format!(
+        "sqlite:{}",
+        dir.path().join("control.sqlite").display()
+    ))
+    .await
+    .unwrap();
     let ciphertext: Vec<u8> = sqlx::query_scalar("SELECT credential FROM accounts")
-        .fetch_one(store.control())
+        .fetch_one(&control)
         .await
         .unwrap();
     assert!(!ciphertext

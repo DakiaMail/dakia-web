@@ -10,6 +10,11 @@ pub fn classification_signals(mail: &Message<'_>, gmail_labels: &[String]) -> St
             "Mailing-list unsubscribe header present",
         ),
         ("List-Id", "Mailing-list identifier header present"),
+        ("List-Help", "Mailing-list identifier header present"),
+        ("List-Subscribe", "Mailing-list identifier header present"),
+        ("List-Post", "Mailing-list identifier header present"),
+        ("List-Owner", "Mailing-list identifier header present"),
+        ("List-Archive", "Mailing-list identifier header present"),
     ] {
         if mail.header_raw(header).is_some() {
             signals.push(signal);
@@ -19,6 +24,7 @@ pub fn classification_signals(mail: &Message<'_>, gmail_labels: &[String]) -> St
         signals.push(match value.trim().to_ascii_lowercase().as_str() {
             "bulk" => "Bulk-mail precedence header",
             "list" => "Mailing-list precedence header",
+            "auto_reply" => "Automatically replied message header",
             _ => "Precedence header present",
         });
     }

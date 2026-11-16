@@ -7,7 +7,7 @@ use serde_json::Value;
 use std::sync::LazyLock;
 use url::Url;
 
-pub const POLICY_REVISION: &str = "personal-first-4";
+pub const POLICY_REVISION: &str = "personal-first-5";
 const MAX_TEXT: usize = 16_000;
 #[derive(Debug, Clone)]
 pub struct EmailClassificationInput {
@@ -461,10 +461,11 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
     let subject = input.subject.to_lowercase();
     let reply_context =
         signals.iter().any(|s| s == "reply thread header present") || subject.starts_with("re:");
-    let receipt_subject =
-        Regex::new(r"(?i)\byour(?: [\p{L}\p{N}'’-]+){0,4} receipt\b|\byour recent purchase\b")
-            .unwrap()
-            .is_match(&input.subject);
+    let receipt_subject = Regex::new(
+        r"(?i)\byour(?: [\p{L}\p{N}'’-]+){0,4} receipt\b|\byour recent purchase\b|^(?:thank you|thanks) for your(?: [\p{L}\p{N}'’-]+){0,4} purchase[!.]?\s*$",
+    )
+    .unwrap()
+    .is_match(&input.subject);
     if receipt_subject {
         add(&mut out, DetectedType::Receipt);
     }
@@ -490,6 +491,19 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
     let delivery_service = signals
         .iter()
         .any(|s| s == "bulk delivery service header present");
+    static AUTOMATED_SENDER: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(concat!(
+            r"(?i)^(?:(?:no[-_.]?(?:reply|replies|response)|do[-_.]?not[-_.]?(?:reply|respond)|",
+            r"auto(?:mated|matic)?[-_.]?(?:repl(?:y|ies)|response|mail(?:er)?|notifications?)|",
+            r"automated|autoresponder|unmonitored|notifications?|alerts?|updates?|newsletters?|",
+            r"news|announcements?|bulletins?|digests?|reminders?|mailing[-_.]?list|",
+            r"mailer[-_.]?daemon|postmaster|bounces?|robot|bot)[0-9]*(?:[+._-].*)?|",
+            r".+[._-](?:no[-_.]?reply|do[-_.]?not[-_.]?reply)[0-9]*)$",
+        ))
+        .unwrap()
+    });
+    let automated_sender =
+        AUTOMATED_SENDER.is_match(input.from_address.split('@').next().unwrap_or("").trim());
     let role_sender = Regex::new(r"(?i)^(?:no[-_.]?reply|do[-_.]?not[-_.]?reply|notifications?|billing|invoices?|receipts?)(?:[+._-].*)?$").unwrap().is_match(input.from_address.split('@').next().unwrap_or(""));
     let delivered_notice = role_sender && delivery_service;
     let generated_document = signals
@@ -536,8 +550,11 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
         )
     }) || payment_failure;
     // Ambiguous replies remain visible; sender history alone never protects a notice.
-    let direct_reply = reply_context && !generated && !list && !delivered_notice;
+    let direct_reply =
+        reply_context && !generated && !list && !delivered_notice && !automated_sender;
     let personal_invitation = input.known_correspondence
+        && !automated_sender
+        && !generated
         && out.types.contains(&DetectedType::EventInvitation)
         && !machine_transaction
         && !list
@@ -545,7 +562,8 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
         && !out.types.contains(&DetectedType::Offer);
     if !direct_reply
         && !personal_invitation
-        && (generated
+        && (automated_sender
+            || generated
             || list
             || unsubscribe
             || out
@@ -799,7 +817,7 @@ mod tests {
         assert_eq!(
             detect(&EmailClassificationInput::new(
                 Some("Service"),
-                "no-reply@service.test",
+                "support@service.test",
                 "A note",
                 "Hello",
                 ""
@@ -927,6 +945,38 @@ mod tests {
         assert_eq!(c.kind, InboxKind::Personal);
     }
     #[test]
+    fn purchase_confirmations_are_receipts_but_replies_stay_personal() {
+        for subject in [
+            "Thank you for your Steam purchase!",
+            "THANK YOU FOR YOUR PURCHASE",
+            "Thanks for your Example Store purchase.",
+            "Thanks for your recent purchase at Example",
+        ] {
+            let m = mail(subject, "Thank you for your recent transaction.")
+                .with_known_correspondence(true);
+            let c = detect(&m);
+            assert_eq!(c.kind, InboxKind::Automated, "{subject}");
+            assert!(c.types.contains(&DetectedType::Receipt), "{subject}");
+        }
+        let mut reply = mail(
+            "Thank you for your Steam purchase!",
+            "Can you help with this?",
+        );
+        reply.classification_signals = "Reply thread header present".into();
+        assert_eq!(detect(&reply).kind, InboxKind::Personal);
+        for subject in [
+            "Re: Thank you for your Steam purchase!",
+            "Can you check my Steam purchase?",
+            "Thank you for your purchase advice",
+        ] {
+            assert_eq!(
+                detect(&mail(subject, "Thanks, Alex")).kind,
+                InboxKind::Personal,
+                "{subject}"
+            );
+        }
+    }
+    #[test]
     fn generated_notices_branded_receipts_and_real_replies() {
         for subject in [
             "[Action required] Restore nameservers for example.test",
@@ -981,10 +1031,128 @@ mod tests {
         .is_empty());
     }
     #[test]
+    fn automated_senders_do_not_need_headers_and_stay_automated_in_threads() {
+        for sender in [
+            "noreply",
+            "NO-REPLY",
+            "no_reply",
+            "no.reply",
+            "no-replies",
+            "noresponse",
+            "donotreply",
+            "do-not-reply",
+            "do_not_reply",
+            "do.not.respond",
+            "noreply+account",
+            "noreply123",
+            "no-reply.orders",
+            "noreply-alerts",
+            "accounts-noreply",
+            "service.no-reply",
+            "accounts-do-not-reply2",
+            "automated",
+            "automated-mail",
+            "automatic-reply",
+            "autoreply",
+            "autoresponder",
+            "unmonitored",
+            "notification",
+            "notifications",
+            "notifications+project",
+            "alerts",
+            "updates",
+            "newsletter",
+            "newsletters",
+            "news",
+            "announcements",
+            "bulletin",
+            "digest",
+            "digests-weekly",
+            "reminder",
+            "reminders",
+            "mailing-list",
+            "mailer-daemon",
+            "postmaster",
+            "bounce",
+            "bounces+token",
+            "robot",
+            "bot",
+        ] {
+            for subject in ["Teade", "Re: Hello", "Invitation: lunch"] {
+                let mut m = mail(subject, "You have been invited").with_known_correspondence(true);
+                m.from_address = format!("{sender}@example.test");
+                m.classification_signals = "Reply thread header present".into();
+                assert_eq!(detect(&m).kind, InboxKind::Automated, "{sender}: {subject}");
+            }
+            let mut m = mail("Teade", "Teie konto");
+            m.from_address = format!("{sender}@example.test");
+            let c = detect(&m);
+            assert_eq!(c.kind, InboxKind::Automated, "{sender}");
+            assert!(c.types.is_empty(), "{sender}");
+            assert!(c.attention.is_empty(), "{sender}");
+        }
+        for sender in [
+            "alex",
+            "support",
+            "billing",
+            "sales",
+            "info",
+            "hello",
+            "contact",
+            "admin",
+            "team",
+            "orders",
+            "robotics",
+            "bottcher",
+            "noreplyperson",
+            "alex+noreply",
+        ] {
+            let mut m = mail("Re: Hello", "Can we talk?").with_known_correspondence(true);
+            m.from_name = Some("No Reply Notifications".into());
+            m.from_address = format!("{sender}@noreply.example.test");
+            assert_eq!(detect(&m).kind, InboxKind::Personal, "{sender}");
+        }
+    }
+    #[test]
+    fn list_and_autoreply_headers_classify_without_sender_or_content_hints() {
+        for header in [
+            "List-Help: <mailto:help@example.test>",
+            "List-Subscribe: <mailto:join@example.test>",
+            "List-Post: NO",
+            "List-Owner: <mailto:owner@example.test>",
+            "List-Archive: <https://example.test/archive>",
+            "Precedence: auto_reply",
+            "Auto-Submitted: auto-generated; owner-email=private@example.test",
+            "Auto-Submitted: auto-replied",
+        ] {
+            let raw = format!("{header}\r\nIn-Reply-To: <opaque@example.test>\r\n\r\nTeade");
+            let parsed = mail_parser::MessageParser::default()
+                .parse(raw.as_bytes())
+                .unwrap();
+            let mut m =
+                mail("Invitation: lunch", "You have been invited").with_known_correspondence(true);
+            m.classification_signals = crate::signals::classification_signals(&parsed, &[]);
+            assert_eq!(detect(&m).kind, InboxKind::Automated, "{header}");
+        }
+        for header in [
+            "Auto-Submitted: no",
+            "Precedence: normal",
+            "X-Auto-Response-Suppress: All",
+        ] {
+            let raw = format!("{header}\r\n\r\nHello");
+            let parsed = mail_parser::MessageParser::default()
+                .parse(raw.as_bytes())
+                .unwrap();
+            let mut m = mail("Hello", "Can we talk?");
+            m.classification_signals = crate::signals::classification_signals(&parsed, &[]);
+            assert_eq!(detect(&m).kind, InboxKind::Personal, "{header}");
+        }
+    }
+    #[test]
     fn language_independent_delivery_and_footer_evidence_stay_message_specific() {
         let mut m = mail("Teade", "Teie konto");
         m.from_address = "no-reply@example.test".into();
-        assert_eq!(detect(&m).kind, InboxKind::Personal);
+        assert_eq!(detect(&m).kind, InboxKind::Automated);
         m.classification_signals = "Bulk delivery service header present".into();
         assert_eq!(detect(&m).kind, InboxKind::Automated);
         m.from_address = "alex@example.test".into();

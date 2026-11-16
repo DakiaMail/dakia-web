@@ -1,14 +1,22 @@
 # Build and publish Dakia
 
-For running a published image, use [hosting](../docs/hosting.md) and [operations](README.md). This page is for maintainers building images and runtime bundles.
+For running a published image, use [hosting](../docs/hosting.md) and [operations](README.md). For a prebuilt native runtime, use [native setup](../docs/native-hosting.md). This page is for maintainers building images and runtime bundles.
 
 ## Published images
 
-GitHub Actions builds application source changes on `main` for Linux AMD64 and ARM64. Source images use `ghcr.io/dakiamail/dakia-web:sha-<source-commit>` and carry the source commit in the `org.opencontainers.image.revision` label. Semantic version tags publish versioned images, then a GitHub release with a digest manifest and the paired upgrade scripts after packaged-runtime checks pass. Stable releases take priority over previews for update discovery. Manual workflow runs can build a chosen source revision.
+GitHub Actions builds application source changes on `main` for Linux AMD64 and ARM64. Source images use `ghcr.io/dakiamail/dakia-web:sha-<source-commit>` and carry the source commit in the `org.opencontainers.image.revision` label. Semantic version tags publish versioned images, then a GitHub release with complete Linux AMD64 and ARM64 runtime archives, SHA-256 checksums, a digest manifest, and the paired Docker upgrade scripts after packaged-runtime checks pass. Stable releases take priority over previews for update discovery. Manual workflow runs can build a chosen source revision.
 
 Each native image must pass packaged classifier, CPU search-model, translation-worker, health, Gmail OAuth, and restart checks before the multi-platform image is published. The classification check verifies the deterministic policy on synthetic messages as the normal app user. The OAuth checks use synthetic credentials with networking disabled. `edge` tracks a successful `main` build; the Compose default uses an explicitly verified digest. Pushes confined to the root README, `docs/`, or the Compose pin do not trigger image builds; other documentation paths can. See the [image workflow](../.github/workflows/images.yml) for the exact triggers and checks.
 
 Use the source-revision label and immutable digest to identify an image. Keep operator credentials and mail data in runtime configuration and persistent volumes, outside the image.
+
+## Native release archives
+
+The image matrix exports each verified image with `scripts/package-runtime.sh`. Archives include the native binaries, Node 24 and its license, web assets, production worker dependencies, search models, ONNX libraries, a native launcher, and a systemd unit. `VERSION` and `REVISION` identify the build. Packaging reuses the image rather than compiling a second runtime.
+
+On each architecture, `scripts/check-native-runtime.sh` extracts the archive into fresh temporary storage in clean Ubuntu without a Node installation or network access, then checks classification, search-model loading, translation-worker startup, health, local owner setup, synthetic OAuth, CSRF rejection, and session/key persistence after restart. Both architectures must pass before either archive is published. No owner data is used. Published releases cannot be overwritten.
+
+Archives target Ubuntu 24.04 and require its runtime libraries. Node is bundled; users do not need npm, Rust, or Docker. `SHA256SUMS` covers both archives.
 
 ## Build
 

@@ -87,6 +87,38 @@ describe("independent provider search",()=>{
     expect(vi.mocked(api.search).mock.calls.filter(call=>call[2]==="personal-start")).toHaveLength(1);
     hook.unmount();client.clear();
   });
+  it("recovers from a network failure without restarting healthy accounts",async()=>{
+    vi.useFakeTimers();
+    let attempts=0;
+    vi.mocked(api.search).mockImplementation(async(_q,_ids,token)=>{
+      if(token!=="work-start")return page("personal");
+      if(++attempts===1)throw new TypeError("Failed to fetch");
+      return page("work");
+    });
+    const {wrapper,client}=mount();
+    const hook=renderHook(()=>useSearchSupplements("parcel",["work","personal"],undefined,roots),{wrapper});
+    await act(async()=>{await vi.advanceTimersByTimeAsync(1);});
+    expect(hook.result.current.hasError).toBe(true);
+    await act(async()=>{await vi.advanceTimersByTimeAsync(5000);});
+    expect(attempts).toBe(2);
+    expect(hook.result.current.hasError).toBe(false);
+    expect(hook.result.current.pages).toHaveLength(2);
+    expect(vi.mocked(api.search).mock.calls.filter(call=>call[2]==="personal-start")).toHaveLength(1);
+    hook.unmount();client.clear();
+  });
+  it.each([
+    new DOMException("Aborted","AbortError"),
+    Object.assign(new Error("Sign in"),{status:401}),
+    Object.assign(new Error("Reconnect"),{status:503,code:"account_reconnect_required"}),
+  ])("does not automatically retry cancellation or terminal errors: %s",async(error)=>{
+    vi.useFakeTimers();
+    vi.mocked(api.search).mockRejectedValue(error);
+    const {wrapper,client}=mount();
+    const hook=renderHook(()=>useSearchSupplements("parcel",["work"],undefined,[roots[0]]),{wrapper});
+    await act(async()=>{await vi.advanceTimersByTimeAsync(60000);});
+    expect(api.search).toHaveBeenCalledTimes(1);
+    hook.unmount();client.clear();
+  });
   it("replaces expired provider roots and lets new accounts join independently",async()=>{
     vi.mocked(api.search).mockImplementation(async(_q,_ids,token)=>{
       const result=page(token==="personal-start"?"personal":"work");

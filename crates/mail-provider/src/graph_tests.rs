@@ -357,3 +357,46 @@ async fn throttling_honors_cooldown_and_authentication_failures_require_reconnec
     );
     task.abort();
 }
+
+#[tokio::test]
+async fn search_text_units_match_independently_and_preserve_phrases() {
+    let fetches = Arc::new(AtomicUsize::new(0));
+    let count = fetches.clone();
+    let (provider, task) = fixture(move |_, uri, _, _| {
+        assert!(uri.path().ends_with("/$value"));
+        count.fetch_add(1, Ordering::SeqCst);
+        "From: sender@example.test\r\nSubject: Budget update\r\nContent-Type: text/plain\r\n\r\nThe quarterly report is ready.".into_response()
+    }).await;
+    let mut remote = message("search-message");
+    remote["internetMessageHeaders"][2]["value"] = "Budget update".into();
+    let metadata = provider
+        .metadata("INBOX", serde_json::from_value(remote).unwrap())
+        .unwrap();
+    for (text, units, expected) in [
+        (Some("budget report"), vec!["BUDGET", "report"], true),
+        (None, vec!["budget", "quarterly report"], true),
+        (None, vec!["budget", "missing"], false),
+        (None, vec!["report quarterly"], false),
+        (Some("budget report"), vec![], false),
+        (Some("quarterly report"), vec![], true),
+    ] {
+        let query = Search {
+            text: text.map(str::to_owned),
+            text_units: units.into_iter().map(str::to_owned).collect(),
+            ..Default::default()
+        };
+        let before = fetches.load(Ordering::SeqCst);
+        assert_eq!(
+            provider.matches(&metadata, &query).await.unwrap(),
+            expected,
+            "{query:?}"
+        );
+        assert_eq!(fetches.load(Ordering::SeqCst), before + 1);
+    }
+    assert!(provider
+        .matches(&metadata, &Search::default())
+        .await
+        .unwrap());
+    assert_eq!(fetches.load(Ordering::SeqCst), 6);
+    task.abort();
+}

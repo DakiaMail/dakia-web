@@ -22,7 +22,7 @@ function retryInterval(query: { state: { data?: SearchPage; error: unknown; data
   const state = query.state;
   const transport = state.error as { status?: number } | null;
   const transient = transport
-    ? !terminalCodes.has(failureCode(transport)) && (transport.status === 0 || Number(transport.status) >= 500)
+    ? !terminalCodes.has(failureCode(transport)) && (transport instanceof TypeError || transport.status === 0 || Number(transport.status) >= 500)
     : state.data?.coverage.some(c => c.state === "error" && !terminalCodes.has(c.error || ""));
   return transient ? Math.min(30000, 5000 * 2 ** Math.min(3, Math.max(0, state.dataUpdateCount + state.fetchFailureCount - 1))) : false;
 }

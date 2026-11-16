@@ -98,6 +98,9 @@ pub(super) async fn sqlite(
     if let Some(seen) = filter.seen {
         q.push(" AND d.unread<>").push_bind(seen);
     }
+    if filter.has_attachment {
+        q.push(" AND json_array_length(d.attachment_details)>0");
+    }
     if let Some(starred) = filter.starred {
         q.push(" AND d.starred=").push_bind(starred);
     }

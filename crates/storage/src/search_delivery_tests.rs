@@ -10,6 +10,7 @@ async fn contract(url: Option<&str>) {
         .unwrap();
     store.index_search_headers(&a).await.unwrap();
     store.put_search_records(&a,&[SearchContent {
+                has_attachment: Some(true),
         message:&m,text:"the quarterly report is attached",state:"partial",participants:"Maya Person maya@example.invalid",
         recipients:"carbon@example.invalid",attachments:"budget.xlsx\nconfidential project figures",attachment_details:"[{\"filename\":\"budget.xlsx\",\"state\":\"ready\"},{\"filename\":\"scan.pdf\",\"state\":\"needs_ocr\"}]",
     }]).await.unwrap();
@@ -244,7 +245,7 @@ async fn ranked_keysets(url: Option<&str>) {
     store.index_search_headers(&a).await.unwrap();
     let records: Vec<_> = messages
         .iter()
-        .map(|m| (m, "project notes", "ready"))
+        .map(|m| (m, "project notes", "ready", Some(false)))
         .collect();
     store.put_search_bodies(&a, &records).await.unwrap();
     store.flush_search_index(&a).await.unwrap();
@@ -308,7 +309,7 @@ async fn progress_excludes_invalid_epoch_and_requeues_when_epoch_state_changes()
     let m = store.upsert_message(&a, m).await.unwrap();
     store.index_search_headers(&a).await.unwrap();
     store
-        .put_search_body(&a, &m, "private prior epoch", "ready")
+        .put_search_body(&a, &m, "private prior epoch", "ready", Some(false))
         .await
         .unwrap();
     store.flush_search_index(&a).await.unwrap();
@@ -371,7 +372,7 @@ async fn independent_mode_removes_corrupt_legacy_fts_from_mailbox_writes() {
         .unwrap();
     store.index_search_headers(&a).await.unwrap();
     store
-        .put_search_body(&a, &m, "private source body", "ready")
+        .put_search_body(&a, &m, "private source body", "ready", Some(false))
         .await
         .unwrap();
     let db = store.db(&a).await.unwrap();
@@ -485,6 +486,7 @@ async fn exact_ranking_contract(url: Option<&str>) {
     let records: Vec<_> = messages
         .iter()
         .map(|(m, body)| SearchContent {
+            has_attachment: Some(true),
             message: m,
             text: body,
             state: "ready",
@@ -558,7 +560,7 @@ async fn exact_ranking_contract(url: Option<&str>) {
             &a,
             &email_messages
                 .iter()
-                .map(|m| (m, "other", "ready"))
+                .map(|m| (m, "other", "ready", Some(false)))
                 .collect::<Vec<_>>(),
         )
         .await
@@ -596,7 +598,7 @@ async fn exact_ranking_contract(url: Option<&str>) {
             &a,
             &tied
                 .iter()
-                .map(|m| (m, "stabletoken", "ready"))
+                .map(|m| (m, "stabletoken", "ready", Some(false)))
                 .collect::<Vec<_>>(),
         )
         .await
@@ -661,6 +663,7 @@ async fn readable_gap_upgrade_requeues_once_without_dropping_other_content() {
                     ""
                 },
                 state,
+                Some(false),
             )
             .await
             .unwrap();
@@ -693,12 +696,12 @@ async fn readable_gap_upgrade_requeues_once_without_dropping_other_content() {
     assert_eq!(store.text_coverage(&a).await.unwrap().delivery_pending, 2);
     let ready = store.message(&a, "old-ready").await.unwrap();
     store
-        .put_search_body(&a, &ready, "retained healthy body", "ready")
+        .put_search_body(&a, &ready, "retained healthy body", "ready", Some(false))
         .await
         .unwrap();
     let encrypted = store.message(&a, "old-encrypted").await.unwrap();
     store
-        .put_search_body(&a, &encrypted, "", "encrypted")
+        .put_search_body(&a, &encrypted, "", "encrypted", Some(false))
         .await
         .unwrap();
     let db = store.db(&a).await.unwrap();

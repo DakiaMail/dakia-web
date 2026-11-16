@@ -51,7 +51,13 @@ async fn runtime_contract(application: Option<&str>, search: Option<&str>) {
         .unwrap();
     store.index_search_headers(&scope).await.unwrap();
     store
-        .put_search_body(&scope, &message, "runtimebody lexical token", "ready")
+        .put_search_body(
+            &scope,
+            &message,
+            "runtimebody lexical token",
+            "ready",
+            Some(false),
+        )
         .await
         .unwrap();
     // Wait for the selected destination before launching the separately compiled

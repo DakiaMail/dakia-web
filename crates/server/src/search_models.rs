@@ -218,7 +218,7 @@ mod tests {
         store.index_search_headers(&a).await.unwrap();
         let text=format!("{} the parcel will arrive tomorrow. track the shipment using this delivery number. tailneedle", "garden plants need light and water. ".repeat(1000));
         store
-            .put_search_body(&a, &message, &text, "ready")
+            .put_search_body(&a, &message, &text, "ready", Some(false))
             .await
             .unwrap();
         store.flush_search_index(&a).await.unwrap();

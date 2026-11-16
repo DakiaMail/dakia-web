@@ -1,4 +1,4 @@
-import { classification, matchesClassification, optimisticClassification, type MailFilter } from "../classification";
+import { needsAttention, classification, matchesClassification, optimisticClassification, type MailFilter } from "../classification";
 import type { Draft, MailRule, Message, MessageContent, Operation, SearchPage, Submission, SubmitRequest } from "@dakia/api-types";
 import type { CleanupJob, CleanupRequest } from "../cleanupJobs";
 import { defaultSettings, frenchTranslation, identity, paragraphs, seed, type DemoState, type StoredAttachment } from "./seed";
@@ -216,6 +216,10 @@ export class DemoMailbox {
     const parts = (match[2] || "").split("/").map(decodeURIComponent);
     const [resource, id, action] = parts;
     const key = identity(account, id);
+    if (resource === "mailbox-counts" && get) {
+      const rows = Object.values(s.contents).map(c => c.message).filter(m => m.account_id === account && m.folder_ids.length > 0);
+      return json({ starred: rows.filter(m => m.starred).length, attention: rows.filter(m => m.folder_ids.some(f => f.toUpperCase() === "INBOX") && needsAttention(m, this.now()) && !Object.entries(s.snoozed).some(([key, v]) => s.contents[key]?.message.account_id === account && s.contents[key]?.message.thread_id === m.thread_id && Date.parse(v.until) > this.now())).length });
+    }
     if (resource === "snoozes" && get) {
       const threads = new Map<string, { thread_id: string; until: string; message_count: number }>();
       for (const [key, snooze] of Object.entries(s.snoozed)) {

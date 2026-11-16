@@ -140,6 +140,7 @@ pub(super) async fn frozen(
                 subject: query.subject.as_deref(),
                 seen: query.seen,
                 starred: query.starred,
+                has_attachment: plan.has_attachment,
                 folders: if wanted.is_some() { folder } else { None },
                 category: r.category.as_deref(),
                 snoozed_only: wants_snoozed(&r.q),

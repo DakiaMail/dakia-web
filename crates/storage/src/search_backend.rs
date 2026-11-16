@@ -646,6 +646,15 @@ macro_rules! metadata_predicates {
                 .push(".unread<>")
                 .push_bind(value);
         }
+        if criteria.has_attachment {
+            $q.push(" AND json_array_length(")
+                .push($alias)
+                .push(if $sqlite {
+                    ".attachment_details)>0"
+                } else {
+                    ".attachment_details::json)>0"
+                });
+        }
         if let Some(value) = criteria.starred {
             $q.push(" AND ")
                 .push($alias)

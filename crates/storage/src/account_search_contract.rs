@@ -85,6 +85,7 @@ async fn reconcile(a: &AccountRepository) {
 }
 async fn put(a: &AccountRepository, m: &Message, state: &str) -> Result<()> {
     a.put_search_records(&[SearchContent {
+        has_attachment: Some(true),
         message: m,
         text: "Later passage CAFÉ 東京",
         state,
@@ -604,6 +605,7 @@ async fn delivery_contract(a: &AccountRepository, url: Option<&str>) {
     let old = a.search_deliveries().await.unwrap();
     target.deliver_batch(&a.account, &old).await.unwrap();
     a.put_search_records(&[SearchContent {
+        has_attachment: Some(false),
         message: &m,
         text: "newest delivery",
         state: "ready",
@@ -638,7 +640,7 @@ async fn delivery_contract(a: &AccountRepository, url: Option<&str>) {
     target.deliver_batch(&a.account, &deliveries).await.unwrap();
     a.acknowledge_search_deliveries(&deliveries).await.unwrap();
     let current = a
-        .current_search_messages(std::slice::from_ref(&m.id))
+        .current_search_messages(std::slice::from_ref(&m.id), false)
         .await
         .unwrap();
     assert_eq!(current.len(), 1);
@@ -698,19 +700,26 @@ async fn delivery_contract(a: &AccountRepository, url: Option<&str>) {
         a.acknowledge_search_deliveries(&pending).await.unwrap();
     }
     let ids: Vec<_> = saved.iter().map(|row| row.id.clone()).collect();
-    let current = a.current_search_messages(&ids).await.unwrap();
+    let current = a.current_search_messages(&ids, false).await.unwrap();
     assert_eq!(current.len(), 200);
     assert!(current.iter().all(|(row, snoozed)| !snoozed
         && saved
             .iter()
             .any(|expected| expected.id == row.id && expected.subject == row.subject)));
-    assert!(a.current_search_messages(&[]).await.unwrap().is_empty());
+    assert!(a
+        .current_search_messages(&[], false)
+        .await
+        .unwrap()
+        .is_empty());
     let mut changed = saved[0].clone();
     changed.subject = "Pending newer metadata".into();
     a.ingest_messages(vec![changed], &[], &[], None)
         .await
         .unwrap();
-    assert_eq!(a.current_search_messages(&ids).await.unwrap().len(), 199);
+    assert_eq!(
+        a.current_search_messages(&ids, false).await.unwrap().len(),
+        199
+    );
     // Incarnation changes reacquire released text rather than claiming coverage.
     let replacement = Uuid::new_v4().to_string();
     a.requeue_search_index(&replacement).await.unwrap();

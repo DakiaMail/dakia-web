@@ -164,6 +164,7 @@ async fn release_mailbox_search_scale() {
                 .map(|(i, m)| {
                     text_bytes += bodies[i].len() + attachments[i].len();
                     SearchContent {
+                        has_attachment: Some(!attachments[i].is_empty()),
                         message: m,
                         text: &bodies[i],
                         state: "ready",

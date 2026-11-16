@@ -184,6 +184,7 @@ async fn fixture_backend_semantic(
                     "Historical archive body"
                 };
                 dakia_storage::SearchContent {
+                    has_attachment: Some(false),
                     message: m,
                     text,
                     state: "ready",

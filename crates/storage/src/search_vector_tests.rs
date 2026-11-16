@@ -35,7 +35,7 @@ async fn adaptive_cohort(identical: bool, exact: bool) {
     store.index_search_headers(&a).await.unwrap();
     for m in &messages {
         store
-            .put_search_body(&a, m, "searchable passage", "ready")
+            .put_search_body(&a, m, "searchable passage", "ready", Some(false))
             .await
             .unwrap();
     }
@@ -225,7 +225,7 @@ async fn vectors_replay_atomic_snapshots_loss_corruption_and_other_consumers() {
     store.index_search_headers(&a).await.unwrap();
     for m in &messages {
         store
-            .put_search_body(&a, m, "durably retained body", "ready")
+            .put_search_body(&a, m, "durably retained body", "ready", Some(false))
             .await
             .unwrap();
     }
@@ -526,7 +526,7 @@ async fn retrieval(application: Option<&str>, url: Option<&str>) {
         store.index_search_headers(account).await.unwrap();
         for m in &messages {
             store
-                .put_search_body(account, m, "durably retained body", "ready")
+                .put_search_body(account, m, "durably retained body", "ready", Some(false))
                 .await
                 .unwrap();
         }

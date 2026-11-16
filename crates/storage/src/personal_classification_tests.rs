@@ -699,3 +699,68 @@ async fn type_filter_tracks_overlapping_corrections_and_pages_before_limiting() 
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM message_types WHERE message_id='typed000'").fetch_one(&db).await.unwrap();
     assert_eq!(count, 0);
 }
+
+#[tokio::test]
+async fn mailbox_counts_are_totals_and_match_folder_filters() {
+    let (_dir, store, user, a, input) = fixture().await;
+    let other = store.connect(&user, &input).await.unwrap();
+    let b = store.authorize(&user, &other.id).await.unwrap();
+    for i in 0..70 {
+        let mut m = message(&a, &format!("count-{i}"));
+        m.received_at = now();
+        m.unread = i % 2 == 0;
+        m.starred = true;
+        m.classification = Some(Classification {
+            attention_override: Some(true),
+            ..Default::default()
+        });
+        store.upsert_message(&a, m).await.unwrap();
+        change(
+            &store,
+            &a,
+            &format!("count-{i}"),
+            Change::Attention { value: Some(true) },
+        )
+        .await;
+    }
+    let filter = ClassificationFilter {
+        attention: true,
+        ..Default::default()
+    };
+    assert_eq!(
+        store
+            .inbox_rows_filtered(&a, None, None, &filter)
+            .await
+            .unwrap()
+            .len(),
+        51
+    );
+    assert_eq!(
+        store.mailbox_counts(&a).await.unwrap(),
+        serde_json::json!({"starred":70,"attention":70})
+    );
+    assert_eq!(
+        store.mailbox_counts(&b).await.unwrap(),
+        serde_json::json!({"starred":0,"attention":0})
+    );
+    for (id, folders, old, dismissed) in [
+        ("count-0", vec!["Archive"], false, false),
+        ("count-1", vec![], false, false),
+        ("count-2", vec!["INBOX"], true, false),
+        ("count-3", vec!["INBOX"], false, true),
+    ] {
+        let mut m = store.message(&a, id).await.unwrap();
+        m.folder_ids = folders.into_iter().map(String::from).collect();
+        if old {
+            m.received_at = "2000-01-01T00:00:00Z".into();
+        }
+        store.upsert_message(&a, m).await.unwrap();
+        if dismissed {
+            change(&store, &a, id, Change::Attention { value: Some(false) }).await;
+        }
+    }
+    assert_eq!(
+        store.mailbox_counts(&a).await.unwrap(),
+        serde_json::json!({"starred":69,"attention":66})
+    );
+}

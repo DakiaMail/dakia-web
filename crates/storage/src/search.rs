@@ -12,6 +12,7 @@ pub struct CachedSearchFilter<'a> {
     pub before: Option<&'a str>,
     pub seen: Option<bool>,
     pub starred: Option<bool>,
+    pub has_attachment: bool,
     pub folders: Option<&'a [String]>,
     pub classification: ClassificationFilter,
     pub category: Option<&'a str>,

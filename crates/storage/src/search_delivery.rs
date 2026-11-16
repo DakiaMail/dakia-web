@@ -99,7 +99,7 @@ impl Store {
             let count = candidates.len();
             let ids: Vec<_> = candidates.iter().map(|row| row.0.id.clone()).collect();
             let mut current_rows: std::collections::HashMap<_, _> = repository
-                .current_search_messages(&ids)
+                .current_search_messages(&ids, filter.has_attachment)
                 .await?
                 .into_iter()
                 .map(|(message, snoozed)| (message.id.clone(), (message, snoozed)))
@@ -201,7 +201,10 @@ impl Store {
             let ids: Vec<_> = candidates.iter().map(|row| row.0.id.clone()).collect();
             let mut current_rows = std::collections::HashMap::new();
             for ids in ids.chunks(200) {
-                for (message, snoozed) in repository.current_search_messages(ids).await? {
+                for (message, snoozed) in repository
+                    .current_search_messages(ids, filter.has_attachment)
+                    .await?
+                {
                     current_rows.insert(message.id.clone(), (message, snoozed));
                 }
             }

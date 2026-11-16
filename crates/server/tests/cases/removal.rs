@@ -98,6 +98,48 @@ async fn removal_is_confirmed_local_isolated_and_revokes_stale_capabilities() {
             .await
             .unwrap();
     }
+    // A disconnected account must be removable without replaying queued changes.
+    app.store
+        .account_state(&scope, AccountState::Reconnect)
+        .await
+        .unwrap();
+    for (i, change) in [
+        Change::Star { value: true },
+        Change::Archive,
+        Change::Star { value: true },
+        Change::Star { value: true },
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let id = format!("queued-{i}");
+        let message: Message = serde_json::from_value(serde_json::json!({"id":id,"account_id":scope.id(),"thread_id":id,"provider_id":id,"folder_ids":["INBOX"],"sender":{"email":"fixture@example.invalid","name":null},"to":[],"subject":"Synthetic","preview":"","received_at":"2026-10-28T00:00:00Z","unread":true,"starred":false,"category":null,"category_status":"pending","revision":0})).unwrap();
+        let message = app.store.upsert_message(&scope, message).await.unwrap();
+        app.store
+            .operation(
+                &scope,
+                Operation {
+                    id: id.clone(),
+                    account_id: scope.id().into(),
+                    target_id: id,
+                    expected_revision: message.revision,
+                    change,
+                    status: OperationStatus::Pending,
+                    revision: 0,
+                },
+            )
+            .await
+            .unwrap();
+    }
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM outbox WHERE kind='mutation' AND state='pending'"
+        )
+        .fetch_one(&db)
+        .await
+        .unwrap(),
+        4
+    );
     db.close().await;
     let response = router(app.clone())
         .oneshot(req("DELETE", &path, "alice-token", true, confirmed.clone()))

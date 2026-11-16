@@ -5,8 +5,8 @@ use std::collections::{BTreeMap, BTreeSet};
 mod hybrid;
 mod indexed;
 mod preview;
-// Version 7 aligns provider recipient scope with indexed To/Cc/Bcc.
-const SEARCH_CURSOR_VERSION: u32 = 7;
+// Version 8 treats attachment presence as a strict filter on every retrieval path.
+const SEARCH_CURSOR_VERSION: u32 = 8;
 
 async fn indexed_or_provider(
     app: &App,
@@ -14,11 +14,23 @@ async fn indexed_or_provider(
     request: &SearchRequest,
     scopes: &[dakia_storage::AuthorizedAccount],
     query: &Search,
+    has_attachment: bool,
     wanted: Option<&str>,
     cursor: &mut Cursor,
 ) -> Option<SearchPage> {
     let checkpoint = cursor.clone();
-    let mut page = match indexed::page(app, user, request, scopes, query, wanted, cursor).await {
+    let mut page = match indexed::page(
+        app,
+        user,
+        request,
+        scopes,
+        query,
+        has_attachment,
+        wanted,
+        cursor,
+    )
+    .await
+    {
         Ok(page) => page,
         Err(_) => {
             *cursor = checkpoint;
@@ -30,10 +42,19 @@ async fn indexed_or_provider(
         && !request.suggest
         && page.as_ref().is_none_or(|p| p.rows.is_empty() && p.pending)
     {
-        if let Some(mut cached) = preview::cached(app, user, request, scopes, query, wanted, cursor)
-            .await
-            .ok()
-            .flatten()
+        if let Some(mut cached) = preview::cached(
+            app,
+            user,
+            request,
+            scopes,
+            query,
+            has_attachment,
+            wanted,
+            cursor,
+        )
+        .await
+        .ok()
+        .flatten()
         {
             if let Some(indexed) = &page {
                 cached.coverage = indexed.coverage.clone();
@@ -216,7 +237,7 @@ pub(super) fn index_units(q: &str) -> Vec<String> {
 fn wants_snoozed(q: &str) -> bool {
     dakia_domain::mailbox_query::MailboxQuery::parse(q).is_ok_and(|q| q.snoozed)
 }
-fn parse(q: &str) -> Result<(Search, Option<String>)> {
+fn parse(q: &str) -> Result<(Search, Option<String>, bool)> {
     let plan = dakia_domain::mailbox_query::MailboxQuery::parse(q).map_err(|_| invalid())?;
     let text = plan.semantic_text();
     let text_units = plan.text_units();
@@ -233,7 +254,7 @@ fn parse(q: &str) -> Result<(Search, Option<String>)> {
         ..Default::default()
     };
     query.imap_query().map_err(|_| invalid())?;
-    Ok((query, plan.folder))
+    Ok((query, plan.folder, plan.has_attachment))
 }
 fn select_folders(
     folders: Vec<dakia_mail_provider::Folder>,
@@ -278,7 +299,7 @@ pub(super) async fn search(
     for id in &accounts {
         scopes.push(app.store.authorize(&user.user, id).await?);
     }
-    let (query, wanted) = parse(&r.q)?;
+    let (query, wanted, has_attachment) = parse(&r.q)?;
     if r.suggest {
         if r.continuation.is_some() {
             return Err(invalid());
@@ -289,6 +310,7 @@ pub(super) async fn search(
             &r,
             &scopes,
             &query,
+            has_attachment,
             wanted.as_deref(),
             &mut Cursor::default(),
         )
@@ -364,6 +386,7 @@ pub(super) async fn search(
             &r,
             &scopes,
             &query,
+            has_attachment,
             wanted.as_deref(),
             &mut cursor,
         )
@@ -371,10 +394,18 @@ pub(super) async fn search(
         {
             return Ok(Json(page));
         }
-        if let Some(page) =
-            preview::cached(&app, &user, &r, &scopes, &query, wanted.as_deref(), &cursor)
-                .await
-                .unwrap_or(None)
+        if let Some(page) = preview::cached(
+            &app,
+            &user,
+            &r,
+            &scopes,
+            &query,
+            has_attachment,
+            wanted.as_deref(),
+            &cursor,
+        )
+        .await
+        .unwrap_or(None)
         {
             return Ok(Json(page));
         }
@@ -389,6 +420,7 @@ pub(super) async fn search(
             &r,
             &scopes,
             &query,
+            has_attachment,
             wanted.as_deref(),
             &mut cursor,
         )
@@ -471,6 +503,12 @@ pub(super) async fn search(
                         })
                     {
                         continue;
+                    }
+                    if has_attachment {
+                        let content = app.mail.content(&app.store, &a, &row.id).await?;
+                        if content.attachments.is_empty() {
+                            continue;
+                        }
                     }
                     let snoozed = app.store.is_snoozed(&a, &row.thread_id).await?;
                     if (wants_snoozed(&r.q) && !snoozed)
@@ -711,9 +749,11 @@ mod tests {
     use super::*;
     #[test]
     fn navigation_and_fields_are_not_literal_body_terms() {
-        let (q, f) = parse("folder:Sent is:starred from:owner@example.com hello").unwrap();
+        let (q, f, has_attachment) =
+            parse("folder:Sent is:starred has:attachment from:owner@example.com hello").unwrap();
         assert_eq!(f.as_deref(), Some("Sent"));
         assert_eq!(q.starred, Some(true));
+        assert!(has_attachment);
         assert_eq!(q.text.as_deref(), Some("hello"));
     }
     #[test]

@@ -85,7 +85,7 @@ async fn fair_history(url: Option<&str>) {
     store.index_search_headers(&a).await.unwrap();
     for row in &messages {
         store
-            .put_search_body(&a, row, "history body", "ready")
+            .put_search_body(&a, row, "history body", "ready", Some(false))
             .await
             .unwrap();
     }
@@ -133,6 +133,7 @@ async fn contract(url: Option<&str>) {
         .put_search_records(
             &a,
             &[SearchContent {
+                has_attachment: Some(true),
                 message: &m,
                 text: &long,
                 state: "partial",
@@ -167,7 +168,7 @@ async fn contract(url: Option<&str>) {
         .unwrap()
         .is_none());
     store
-        .put_search_body(&b, &waiting, "", "encrypted")
+        .put_search_body(&b, &waiting, "", "encrypted", Some(false))
         .await
         .unwrap();
     store.flush_search_index(&b).await.unwrap();
@@ -243,7 +244,7 @@ async fn contract(url: Option<&str>) {
     assert_eq!(rows(&target, a.id()).await, original);
     assert_eq!(store.embedding_coverage(&a).await.unwrap().processed, 1);
     store
-        .put_search_body(&a, &m, "replacement body", "ready")
+        .put_search_body(&a, &m, "replacement body", "ready", Some(false))
         .await
         .unwrap();
     store.flush_search_index(&a).await.unwrap();
@@ -324,7 +325,7 @@ async fn contract(url: Option<&str>) {
     assert!(newer.iter().all(|row| row.1 == rev2));
     assert!(newer[0].0 > original.last().unwrap().0);
     store
-        .put_search_body(&a, &m, "third body", "ready")
+        .put_search_body(&a, &m, "third body", "ready", Some(false))
         .await
         .unwrap();
     store.flush_search_index(&a).await.unwrap();
@@ -352,7 +353,7 @@ async fn contract(url: Option<&str>) {
     let restored = store.upsert_message(&a, trash).await.unwrap();
     store.index_search_headers(&a).await.unwrap();
     store
-        .put_search_body(&a, &restored, "restored text", "ready")
+        .put_search_body(&a, &restored, "restored text", "ready", Some(false))
         .await
         .unwrap();
     store.flush_search_index(&a).await.unwrap();
@@ -367,7 +368,7 @@ async fn contract(url: Option<&str>) {
     let imap = store.upsert_message(&a, imap).await.unwrap();
     store.index_search_headers(&a).await.unwrap();
     store
-        .put_search_body(&a, &imap, "old epoch text", "ready")
+        .put_search_body(&a, &imap, "old epoch text", "ready", Some(false))
         .await
         .unwrap();
     store.flush_search_index(&a).await.unwrap();

@@ -153,6 +153,7 @@ async fn contract(application: Option<&str>, search: Option<&str>) {
                 } else {
                     "ready"
                 },
+                Some(false),
             )
             .await
             .unwrap();
@@ -503,7 +504,7 @@ async fn contract(application: Option<&str>, search: Option<&str>) {
     counters(&store, &a, 2, 3, 1).await;
     store.index_search_headers(&a).await.unwrap();
     store
-        .put_search_body(&a, first_message, "restored body", "ready")
+        .put_search_body(&a, first_message, "restored body", "ready", Some(false))
         .await
         .unwrap();
     store.flush_search_index(&a).await.unwrap();
@@ -533,7 +534,7 @@ async fn contract(application: Option<&str>, search: Option<&str>) {
     let epoch = reopened.upsert_message(&fresh, epoch).await.unwrap();
     reopened.index_search_headers(&fresh).await.unwrap();
     reopened
-        .put_search_body(&fresh, &epoch, "epoch body", "ready")
+        .put_search_body(&fresh, &epoch, "epoch body", "ready", Some(false))
         .await
         .unwrap();
     reopened.flush_search_index(&fresh).await.unwrap();
@@ -567,7 +568,7 @@ async fn contract(application: Option<&str>, search: Option<&str>) {
     for message in &messages {
         let current = reopened.message(&fresh, &message.id).await.unwrap();
         reopened
-            .put_search_body(&fresh, &current, "recovered body", "ready")
+            .put_search_body(&fresh, &current, "recovered body", "ready", Some(false))
             .await
             .unwrap();
     }

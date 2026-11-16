@@ -72,6 +72,7 @@ export const accountPath = (id: string) => `/accounts/${key(id)}`;
 export type SenderMailPage = { rows: Message[]; count: number; cutoff: string; after: string | null };
 export type SnoozedThread = { thread_id: string; until: string; message_count: number };
 export const api = {
+  mailboxCounts: (account: string, signal?: AbortSignal) => request<{ starred: number; attention: number }>(`${accountPath(account)}/mailbox-counts`, { signal }),
   snoozes: (account: string, signal?: AbortSignal) => request<SnoozedThread[]>(`${accountPath(account)}/snoozes`, { signal }),
   senderMail: (message: Message, signal?: AbortSignal, cutoff?: string, after?: string) =>
     request<SenderMailPage>(`${accountPath(message.account_id)}/messages/${key(message.id)}/sender-mail?${new URLSearchParams({ ...(cutoff ? { cutoff } : {}), ...(after ? { after } : {}) })}`, { signal }),

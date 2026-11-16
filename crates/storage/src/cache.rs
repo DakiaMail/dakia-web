@@ -1,4 +1,7 @@
 use super::*;
+
+pub(crate) const STARRED_PREDICATE: &str = "json_extract(document,'$.starred')=1 AND json_array_length(document,'$.folder_ids')>0
+             AND CASE WHEN json_valid(json_extract(document,'$.provider_id')) THEN NOT EXISTS(SELECT 1 FROM provider_documents v WHERE v.key='thread:epoch:'||json_extract(json_extract(m.document,'$.provider_id'),'$.folder') AND CAST(v.document AS INTEGER)<>json_extract(json_extract(m.document,'$.provider_id'),'$.uidvalidity')) ELSE 1 END";
 use base64::{engine::general_purpose::STANDARD, Engine};
 
 // A failed/cancelled transaction never owns its newly created cache file.

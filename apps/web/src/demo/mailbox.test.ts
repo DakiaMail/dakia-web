@@ -112,3 +112,16 @@ it("keeps demo translation host-only and rejects installation changes and model 
   expect((await call("/translation/settings", "PUT", { mode: "device" })).status).not.toBe(200);
   expect((await call("/translation/models/unknown")).status).not.toBe(200);
 });
+
+it("counts total saved messages beyond one page, independent of read state", async () => {
+  const state = seed();
+  const original = state.contents["work/letter-0"];
+  state.contents = {};
+  for (let i = 0; i < 70; i++) {
+    const message = { ...original.message, id: `count-${i}`, thread_id: `count-${i}`, unread: i % 2 === 0, starred: true, folder_ids: ["INBOX"], received_at: new Date().toISOString(), classification: { kind: "personal", status: "ready", types: [], details: [], attention: [], attention_override: true, source: "message", policy_revision: "test" } };
+    state.contents[`work/count-${i}`] = { ...structuredClone(original), message } as MessageContent;
+  }
+  const { call } = fixture(state);
+  expect((await call("/accounts/work/mailbox-counts")).data).toEqual({ starred: 70, attention: 70 });
+  expect((await call("/accounts/personal/mailbox-counts")).data).toEqual({ starred: 0, attention: 0 });
+});

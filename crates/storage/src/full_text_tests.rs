@@ -145,6 +145,7 @@ async fn full_text_unicode_substrings_filters_restart_purge_and_account_isolatio
                     i % 7
                 ),
                 "ready",
+                Some(false),
             )
             .await
             .unwrap();
@@ -189,7 +190,7 @@ async fn full_text_unicode_substrings_filters_restart_purge_and_account_isolatio
     deleted.folder_ids.clear();
     store.upsert_message(&a, deleted.clone()).await.unwrap();
     store
-        .put_search_body(&a, &deleted, "resurrect", "ready")
+        .put_search_body(&a, &deleted, "resurrect", "ready", Some(false))
         .await
         .unwrap();
     assert_eq!(ids(&store, &a, "café").await.len(), 199);
@@ -229,7 +230,7 @@ async fn full_text_epoch_gap_retry_and_partial_scans_never_claim_complete() {
     let m = store.upsert_message(&a, m).await.unwrap();
     store.index_search_headers(&a).await.unwrap();
     store
-        .put_search_body(&a, &m, "secret body", "ready")
+        .put_search_body(&a, &m, "secret body", "ready", Some(false))
         .await
         .unwrap();
     assert_eq!(ids(&store, &a, "secret").await.len(), 1);
@@ -239,14 +240,14 @@ async fn full_text_epoch_gap_retry_and_partial_scans_never_claim_complete() {
         .unwrap();
     assert!(ids(&store, &a, "secret").await.is_empty());
     store
-        .put_search_body(&a, &m, "secret", "ready")
+        .put_search_body(&a, &m, "secret", "ready", Some(false))
         .await
         .unwrap();
     assert_eq!(store.text_coverage(&a).await.unwrap().headers, 0);
     let m = store.upsert_message(&a, message(&a, "gap")).await.unwrap();
     store.index_search_headers(&a).await.unwrap();
     store
-        .put_search_body(&a, &m, "", "encrypted")
+        .put_search_body(&a, &m, "", "encrypted", Some(false))
         .await
         .unwrap();
     assert_eq!(store.text_coverage(&a).await.unwrap().gaps, 1);
@@ -375,7 +376,7 @@ async fn full_text_authoritative_scale_benchmark() {
                 .unwrap();
             let body=format!("Synthetic authoritative historical message {i}. {} café 東京 %_ literal. {} updated", "content ".repeat(40),if i%997==0 {"rare-body-only"} else {"ordinary"});
             writer_store
-                .put_search_body(&writer_account, &m, &body, "ready")
+                .put_search_body(&writer_account, &m, &body, "ready", Some(false))
                 .await
                 .unwrap();
         }
@@ -431,7 +432,7 @@ async fn full_text_uncapped_failed_commit_and_account_removal_preserve_boundarie
         .await
         .unwrap();
     store
-        .put_search_body(&a, &m, "over budget", "ready")
+        .put_search_body(&a, &m, "over budget", "ready", Some(false))
         .await
         .unwrap();
     assert_eq!(store.text_coverage(&a).await.unwrap().gaps, 0);
@@ -443,7 +444,7 @@ async fn full_text_uncapped_failed_commit_and_account_removal_preserve_boundarie
     sqlx::query("CREATE TRIGGER search_fault BEFORE UPDATE ON search_documents BEGIN SELECT RAISE(ABORT,'synthetic disk write failure'); END")
         .execute(&db).await.unwrap();
     assert!(store
-        .put_search_body(&a, &m, "uncommitted", "ready")
+        .put_search_body(&a, &m, "uncommitted", "ready", Some(false))
         .await
         .is_err());
     assert!(ids(&store, &a, "uncommitted").await.is_empty());
@@ -453,7 +454,7 @@ async fn full_text_uncapped_failed_commit_and_account_removal_preserve_boundarie
         .await
         .unwrap();
     store
-        .put_search_body(&a, &m, "private retained text", "ready")
+        .put_search_body(&a, &m, "private retained text", "ready", Some(false))
         .await
         .unwrap();
     assert_eq!(ids(&store, &a, "retained").await.len(), 1);
@@ -478,7 +479,7 @@ async fn full_text_restore_discards_derived_text_and_requires_new_reconciliation
         .unwrap();
     store.index_search_headers(&a).await.unwrap();
     store
-        .put_search_body(&a, &m, "private search-only text", "ready")
+        .put_search_body(&a, &m, "private search-only text", "ready", Some(false))
         .await
         .unwrap();
     let backup = dir.path().join("snapshot");
@@ -540,7 +541,10 @@ async fn permanent_search_gaps_do_not_retry_after_time_or_restart_but_changed_so
     for state in ["oversized", "encrypted", "parse_error", "fetch_error"] {
         let m = store.upsert_message(&a, message(&a, state)).await.unwrap();
         store.index_search_headers(&a).await.unwrap();
-        store.put_search_body(&a, &m, "", state).await.unwrap();
+        store
+            .put_search_body(&a, &m, "", state, Some(false))
+            .await
+            .unwrap();
     }
     // Simulate arbitrary elapsed hours, including legacy permanent retry_at values.
     sqlx::query("UPDATE search_documents SET retry_at=0")
@@ -550,7 +554,7 @@ async fn permanent_search_gaps_do_not_retry_after_time_or_restart_but_changed_so
     let selected = store.next_search_body(&a, false).await.unwrap().unwrap();
     assert_eq!(selected.id, "fetch_error");
     store
-        .put_search_body(&a, &selected, "recovered", "ready")
+        .put_search_body(&a, &selected, "recovered", "ready", Some(false))
         .await
         .unwrap();
     assert!(store.next_search_body(&a, false).await.unwrap().is_none());
@@ -583,7 +587,10 @@ async fn legacy_quota_gap_retries_without_capacity_or_identity_change() {
         .await
         .unwrap();
     store.index_search_headers(&a).await.unwrap();
-    store.put_search_body(&a, &m, "", "quota").await.unwrap();
+    store
+        .put_search_body(&a, &m, "", "quota", Some(false))
+        .await
+        .unwrap();
     let db = store.db(&a).await.unwrap();
     sqlx::query("UPDATE search_totals SET body_bytes=512*1024*1024 WHERE id=1")
         .execute(&db)
@@ -650,8 +657,8 @@ async fn full_text_body_batch_rejects_cross_account_and_guards_changed_or_remove
         .put_search_bodies(
             &a,
             &[
-                (&rows[0], "must not commit", "ready"),
-                (&foreign, "foreign", "ready")
+                (&rows[0], "must not commit", "ready", Some(false)),
+                (&foreign, "foreign", "ready", Some(false))
             ]
         )
         .await
@@ -668,9 +675,9 @@ async fn full_text_body_batch_rejects_cross_account_and_guards_changed_or_remove
         .put_search_bodies(
             &a,
             &[
-                (&rows[0], "committed body", "ready"),
-                (&rows[1], "stale body", "ready"),
-                (&rows[2], "deleted body", "ready"),
+                (&rows[0], "committed body", "ready", Some(false)),
+                (&rows[1], "stale body", "ready", Some(false)),
+                (&rows[2], "deleted body", "ready", Some(false)),
             ],
         )
         .await
@@ -698,7 +705,10 @@ async fn full_text_body_batch_is_not_capped_by_aggregate_bytes() {
     store
         .put_search_bodies(
             &a,
-            &[(&rows[0], "abc", "ready"), (&rows[1], "def", "ready")],
+            &[
+                (&rows[0], "abc", "ready", Some(false)),
+                (&rows[1], "def", "ready", Some(false)),
+            ],
         )
         .await
         .unwrap();
@@ -720,4 +730,85 @@ async fn full_text_body_batch_is_not_capped_by_aggregate_bytes() {
         .unwrap();
     assert_eq!(total, budget + 1);
     assert!(store.next_search_bodies(&a, true, 201).await.is_err());
+}
+
+#[tokio::test]
+async fn attachment_search_filters_before_pagination_and_invalidates_changed_sources() {
+    let (_dir, store, _user, a, _) = fixture().await;
+    let rows = (0..104)
+        .map(|i| message(&a, &format!("attachment-{i:03}")))
+        .collect();
+    let rows = store.ingest_messages(&a, rows, &[]).await.unwrap();
+    store.index_search_headers(&a).await.unwrap();
+    for (i, m) in rows.iter().enumerate() {
+        store
+            .put_search_body(
+                &a,
+                m,
+                "shared search text",
+                "ready",
+                if i == 103 { None } else { Some(i < 60) },
+            )
+            .await
+            .unwrap();
+    }
+    let filter = CachedSearchFilter {
+        has_attachment: true,
+        text: Some("shared search text"),
+        ..Default::default()
+    };
+    let first = store.full_text_rows(&a, &filter, None).await.unwrap();
+    assert_eq!(first.len(), 51);
+    let last = &first[49];
+    let second = store
+        .full_text_rows(&a, &filter, Some((&last.received_at, &last.id)))
+        .await
+        .unwrap();
+    assert_eq!(second.len(), 10);
+    assert!(first
+        .iter()
+        .chain(&second)
+        .all(|m| rows[..60].iter().any(|r| r.id == m.id)));
+    let preview = store
+        .cached_search_rows(
+            &a,
+            &CachedSearchFilter {
+                has_attachment: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(preview.len(), 50);
+    assert!(preview
+        .iter()
+        .all(|m| rows[..60].iter().any(|r| r.id == m.id)));
+    assert_eq!(store.text_coverage(&a).await.unwrap().attachment_pending, 1);
+    assert_eq!(
+        store.next_search_body(&a, false).await.unwrap().unwrap().id,
+        rows[103].id
+    );
+    let mut changed = rows[0].clone();
+    changed.provider_id = "new-source".into();
+    store.upsert_message(&a, changed).await.unwrap();
+    assert!(store
+        .cached_search_rows(
+            &a,
+            &CachedSearchFilter {
+                has_attachment: true,
+                ..Default::default()
+            }
+        )
+        .await
+        .unwrap()
+        .iter()
+        .all(|m| m.id != rows[0].id));
+    store.index_search_headers(&a).await.unwrap();
+    assert_eq!(store.text_coverage(&a).await.unwrap().attachment_pending, 2);
+    assert!(store
+        .full_text_rows(&a, &filter, None)
+        .await
+        .unwrap()
+        .iter()
+        .all(|m| m.id != rows[0].id));
 }

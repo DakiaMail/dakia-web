@@ -8,6 +8,18 @@ impl Store {
             .await?;
         Ok(())
     }
+    pub async fn push_subscription_enabled(&self, user: &str, id: &str) -> Result<bool> {
+        let _guard = self.gate.read().await;
+        self.control_repository()
+            .push_subscription_enabled(user, id)
+            .await
+    }
+    pub async fn unsubscribe_push(&self, user: &str, id: &str) -> Result<()> {
+        let _guard = self.gate.read().await;
+        self.control_repository()
+            .expire_subscription(user, id)
+            .await
+    }
     pub async fn subscriptions(&self, a: &AuthorizedAccount) -> Result<Vec<serde_json::Value>> {
         self.authorize(&a.user_id, &a.id).await?;
         self.control_repository().subscriptions(&a.user_id).await

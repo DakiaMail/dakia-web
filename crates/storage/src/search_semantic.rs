@@ -183,6 +183,9 @@ impl SearchConnection {
                     if let Some(seen) = filter.seen {
                         q.push(" AND d.unread<>").push_bind(seen);
                     }
+                    if filter.has_attachment {
+                        q.push(" AND json_array_length(d.attachment_details::json)>0");
+                    }
                     if let Some(starred) = filter.starred {
                         q.push(" AND d.starred=").push_bind(starred);
                     }
@@ -351,7 +354,10 @@ impl crate::Store {
             // Chunk retrieval and application validation retain independent
             // bounded pages, including long messages with many passages.
             for ids in ids.chunks(200) {
-                for (message, snoozed) in repository.current_search_messages(ids).await? {
+                for (message, snoozed) in repository
+                    .current_search_messages(ids, filter.has_attachment)
+                    .await?
+                {
                     current.insert(message.id.clone(), (message, snoozed));
                 }
             }
@@ -465,7 +471,7 @@ impl crate::Store {
         }
         let excluded = self.search_excluded_folders(a).await?;
         Ok(repository
-            .current_search_messages(ids)
+            .current_search_messages(ids, filter.has_attachment)
             .await?
             .into_iter()
             .filter_map(|(message, snoozed)| {

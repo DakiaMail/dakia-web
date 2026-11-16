@@ -11,7 +11,7 @@ impl Store {
         if confirmation != account.email {
             return Err(Error::Invalid);
         }
-        // Never discard uncertain delivery evidence, scheduled sends, or in-flight mail actions.
+        // Queued mailbox changes leave with the account; protect deliveries and running writes.
         let busy = repository.removal_busy().await?;
         if busy {
             return Err(Error::AccountBusy);

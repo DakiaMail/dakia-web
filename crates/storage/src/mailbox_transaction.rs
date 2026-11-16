@@ -612,7 +612,7 @@ impl AccountRepository {
     }
     pub(crate) async fn removal_busy(&self) -> Result<bool> {
         transaction!(self, tx, local, false, {
-            Ok(scalar!(local,tx,"SELECT EXISTS(SELECT 1 FROM submissions WHERE state IN ('scheduled','claimed','submitting','delivery_unknown') OR (state='accepted' AND filing_status IN ('pending','failed'))) OR EXISTS(SELECT 1 FROM outbox WHERE kind='mutation' AND state IN ('pending','running'))",[],"SELECT EXISTS(SELECT 1 FROM submissions WHERE account_id=$1 AND (state IN ('scheduled','claimed','submitting','delivery_unknown') OR (state='accepted' AND filing_status IN ('pending','failed')))) OR EXISTS(SELECT 1 FROM outbox WHERE account_id=$1 AND kind='mutation' AND state IN ('pending','running'))",[&self.account],fetch_one))
+            Ok(scalar!(local,tx,"SELECT EXISTS(SELECT 1 FROM submissions WHERE state IN ('scheduled','claimed','submitting','delivery_unknown') OR (state='accepted' AND filing_status IN ('pending','failed'))) OR EXISTS(SELECT 1 FROM outbox WHERE kind='mutation' AND state='running')",[],"SELECT EXISTS(SELECT 1 FROM submissions WHERE account_id=$1 AND (state IN ('scheduled','claimed','submitting','delivery_unknown') OR (state='accepted' AND filing_status IN ('pending','failed')))) OR EXISTS(SELECT 1 FROM outbox WHERE account_id=$1 AND kind='mutation' AND state='running')",[&self.account],fetch_one))
         })
     }
     pub(crate) async fn close_removed_account(&self) {

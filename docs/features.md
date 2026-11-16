@@ -34,7 +34,7 @@ The installation owner chooses **On devices**, **On devices with host fallback**
 
 Search by meaning is enabled automatically when Dakia has at least 8 GB RAM and 4 CPUs allocated to it, including container limits. An administrator can choose Automatic, On, or Off in Workspace → Search; changes take effect without a restart. On overrides the resource check. Off releases the search models and keeps the existing semantic index for later use. Keyword search and its indexing continue independently, including when the semantic model is unavailable. Unknown resource capacity keeps Automatic off.
 
-Search across your connected accounts or narrow the scope to one mailbox. Follow replies in conversations, download attachments, star messages, and switch between folders. Recent folders and message bodies are saved in a bounded browser cache for faster reopening after session checks. See [saved mail and offline limits](persistent-local-cache.md).
+Search across your connected accounts or narrow the scope to one mailbox. Choose **Has attachment** to find mail with files, or add `has:attachment` to your search. Follow replies in conversations, download attachments, star messages, and switch between folders. Recent folders and message bodies are saved in a bounded browser cache for faster reopening after session checks. See [saved mail and offline limits](persistent-local-cache.md).
 
 ## Write now, send later
 
@@ -53,6 +53,12 @@ Unsubscribe from supported mailing lists. To block an address, open a message an
 Use the responsive app in a browser or install it as a PWA. Sign in on another device with the same Dakia login. Keyboard shortcuts and optional hints support everyday mail actions; Tab reaches controls, and arrow keys navigate inbox tabs and menus. Shortcut preferences are in Workspace.
 
 <img src="images/reader-mobile.webp" alt="Mobile conversation reader in dark theme" width="320">
+
+Workspace includes device notification status, enable/disable controls, and a local test alert. The test checks whether this device can display a notification; it does not verify server-to-device delivery. Disabling notifications removes this browser’s server subscription without changing other devices.
+
+On supported browsers, **Workspace → Email links → Use Dakia for email links** offers browser registration. Installed apps also declare `mailto:` handling and a **Compose** shortcut. Email links prefill recipients, subject, and plain-text body in a draft; they never send automatically. Support and default-app selection depend on the browser and operating system.
+
+Mobile browsers show a dismissible installation invitation after you have opened Dakia. The installation guide uses `@khmyznikov/pwa-install` for platform-specific steps. Dismissal pauses the invitation for 30 days on this browser, while Workspace always keeps installation available. Installing does not add offline sign-in or download a complete mailbox.
 
 Optional push notifications require [host configuration](../workers/README.md) and browser permission. Personal mail and active attention items are eligible, subject to unread, block, and snooze rules. Notifications can display a message summary fetched by the signed-in browser; see [privacy](privacy.md).
 

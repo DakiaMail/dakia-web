@@ -12,6 +12,7 @@ pub(super) async fn page(
     r: &SearchRequest,
     scopes: &[dakia_storage::AuthorizedAccount],
     query: &Search,
+    _has_attachment: bool,
     wanted: Option<&str>,
     cursor: &mut Cursor,
 ) -> Result<Option<SearchPage>> {
@@ -314,6 +315,7 @@ async fn collect_account(
                     app,
                     a,
                     query,
+                    plan.has_attachment,
                     state.as_ref().is_some_and(|s| !s.folders.is_empty()),
                     known_folders.clone(),
                 )
@@ -373,6 +375,7 @@ async fn collect_account(
                 text_alternatives: Some(&alternatives),
                 seen: query.seen,
                 starred: query.starred,
+                has_attachment: plan.has_attachment,
                 folders: if wanted.is_some() {
                     folders.as_deref()
                 } else {

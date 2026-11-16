@@ -14,6 +14,7 @@ async fn payload_contract(url: Option<&str>) {
         .put_search_records(
             &a,
             &[SearchContent {
+                has_attachment: Some(true),
                 message: &m,
                 text: "persistent body",
                 state: "partial",
@@ -141,7 +142,7 @@ async fn payload_contract(url: Option<&str>) {
         .unwrap()
         .is_empty());
     store
-        .put_search_body(&a, &m, "reacquired body", "ready")
+        .put_search_body(&a, &m, "reacquired body", "ready", Some(false))
         .await
         .unwrap();
     // Inject a newer staged write exactly after an older receipt is deleted.

@@ -1034,16 +1034,18 @@ export function App() {
           >
             <Menu size={20} />
           </button>
-          <h1 className="dakia-sr-only">{q ? "Search" : nav === "INBOX" ? "Inbox" : nav}</h1>
           <MailSearch value={search} committed={q} ids={ids} accounts={accounts.data || []}
             onChange={setSearch} onSearch={next => { applySearch(next); setSidebar(false); }}
             onOpen={message => { setSidebar(false); void open(message, message.account_id); requestAnimationFrame(() => document.querySelector<HTMLElement>(".reader")?.focus()); }}
             backLabel={nav === "INBOX" ? "Back to inbox" : `Back to ${nav.toLowerCase()}`}
             onBack={() => { navigation.backTo(previous => !previous.q && !previous.selected); requestAnimationFrame(() => document.querySelector<HTMLElement>(".mailbox")?.focus()); }}
-            accountControl={<select title="Account filter" aria-label="Account filter" value={account} onChange={event => changeAccount(event.target.value)}>
+            accountControl={<div className="mail-search-context">
+              <h1 className="dakia-sr-only">{q ? "Search" : nav === "INBOX" ? "Inbox" : nav}</h1>
+              <select title="Account filter" aria-label="Account filter" value={account} onChange={event => changeAccount(event.target.value)}>
               <option value="all">All accounts</option>
               {(accounts.data || []).map(account => <option key={account.id} value={account.id}>{account.display_name}</option>)}
-            </select>}
+              </select>
+            </div>}
             actions={<>
               <RefreshButton updating={updating} failed={refreshFailed} status={refreshStatus} onRefresh={() => void refreshMail()} />
               <button title="Compose" className="primary list-compose" aria-label="Compose" onClick={startCompose}><Pencil size={16} /></button>

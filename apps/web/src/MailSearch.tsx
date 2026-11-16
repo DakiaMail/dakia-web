@@ -104,7 +104,7 @@ export function MailSearch({ value, committed, ids, accounts, onChange, onSearch
         submit(text, filters.filter(item => item.key !== filter.key)); requestAnimationFrame(() => filterButton.current?.focus());
       }} />)}
       {filters.length > 0 && <>
-        <Button variant="tertiary" onClick={() => edit()} leftSection={<Plus size={13} />}>Add filter</Button>
+        <Button className="mail-search-add-filter" variant="tertiary" onClick={() => edit()} leftSection={<Plus size={13} />}>Add filter</Button>
         <Button variant="tertiary" aria-label="Clear filters" onClick={() => { submit(text, []); requestAnimationFrame(() => filterButton.current?.focus()); }}>Clear</Button>
       </>}
     </div>}

@@ -2,10 +2,14 @@ import { test, expect, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { accounts, content, page as mail } from "./fixtures";
 
-async function fixture(page: Page, theme = "light") {
+async function fixture(page: Page, theme = "light", withAttention = false) {
   const searches: string[] = [], suggestions: string[] = [], writes: string[] = [];
   await page.addInitScript(theme => !localStorage.getItem("dakia-theme") && localStorage.setItem("dakia-theme", theme), theme);
   const rows = mail.rows.slice(0, 5).map((row, index) => ({ ...row, unread: false, subject: index === 2 ? "Launch checklist" : row.subject }));
+  if (withAttention) for (const row of rows) {
+    row.received_at = new Date(Date.now() - 60_000).toISOString();
+    row.classification = { kind: "personal", status: "ready", types: [], details: [], attention: [{ label: "Review needed", expires_at: null }], attention_override: null, source: "automatic", policy_revision: "fixture" };
+  }
   await page.route("**/api/**", route => {
     const request = route.request(), url = new URL(request.url()), path = url.pathname;
     if (request.method() !== "GET") writes.push(path);
@@ -76,6 +80,10 @@ for (const theme of ["light", "dark"]) for (const width of [1480, 900, 390, 320]
     await expect.poll(() => requests.searches.some(query => query === "launch is:unread")).toBe(true);
     await expect(input).toHaveValue("launch");
     await expect(page.getByRole("button", { name: "Remove Unread filter" })).toBeVisible();
+    if (width <= 600) {
+      const clear = (await page.getByRole("button", { name: "Clear filters", exact: true }).boundingBox())!;
+      expect(clear.x + clear.width).toBeLessThanOrEqual(width);
+    }
     await expect(page.getByRole("button", { name: "Search filters", exact: true })).toBeFocused();
     await page.screenshot({ animations: "disabled", path: `artifacts/search-toolbar/results-${theme}-${width}.png` });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -168,3 +176,40 @@ test("autocomplete reserves people for matching names and filter selection retur
   await page.keyboard.press("Escape");
   await expect(page.getByRole("button", { name: "Search filters", exact: true })).toBeFocused();
 });
+
+for (const theme of ["light", "dark"]) for (const width of [320, 390]) {
+  test(`mobile hierarchy, attention disclosure and focus ${theme} ${width}`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 560 });
+    await fixture(page, theme, true);
+    const input = page.getByRole("combobox", { name: "Search all mail" });
+    const account = page.getByRole("combobox", { name: "Account filter" });
+    const filters = page.getByRole("button", { name: "Search filters", exact: true });
+    const toggle = page.getByRole("button", { name: "Needs attention 5", exact: true });
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(page.locator(".attention-open").first()).toBeHidden();
+    expect((await page.locator(".message-list").boundingBox())!.y).toBeLessThanOrEqual(210);
+    await input.focus(); await page.keyboard.press("Tab"); await expect(account).toBeFocused();
+    await page.keyboard.press("Tab"); await expect(filters).toBeFocused();
+    await page.keyboard.press("Enter");
+    const dialog = page.getByRole("dialog", { name: "Search filters", exact: true });
+    await expect(dialog.getByRole("textbox", { name: "Find a filter" })).toBeFocused();
+    const bounds = (await dialog.boundingBox())!;
+    expect(bounds.x).toBeGreaterThanOrEqual(0); expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(560);
+    await page.keyboard.press("Escape"); await expect(filters).toBeFocused();
+    await toggle.focus(); await page.keyboard.press("Enter");
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await expect(page.locator(".attention-open").first()).toBeVisible();
+    await expect(page.getByRole("button", { name: "View all attention items" })).toBeVisible();
+    await page.keyboard.press("Enter"); await expect(page.locator(".attention-open").first()).toBeHidden();
+    await page.setViewportSize({ width: 1480, height: 980 });
+    await expect(toggle).toBeHidden(); await expect(page.locator(".attention-open").first()).toBeVisible();
+    await page.setViewportSize({ width, height: 560 });
+    await account.selectOption(accounts[0].id); await expect(account).toHaveValue(accounts[0].id);
+    await page.getByRole("tab", { name: "Automated", exact: true }).click(); await page.reload();
+    await expect(page.getByRole("tab", { name: "Automated", exact: true })).toHaveAttribute("aria-selected", "true");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: `artifacts/search-toolbar/mobile-inbox-${theme}-${width}.png` });
+  });
+}

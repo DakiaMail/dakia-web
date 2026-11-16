@@ -29,6 +29,6 @@ done
 find "$work/runtime" -name 'libonnxruntime.so*' | grep -q .
 printf '%s\n' "$version" > "$work/runtime/VERSION"
 docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$image" > "$work/runtime/REVISION"
-printf '%s\n' 'Setup: https://github.com/DakiaMail/dakia-web/blob/main/docs/native-hosting.md' > "$work/runtime/README.txt"
+printf '%s\n' "Setup: https://github.com/DakiaMail/dakia-web/blob/$(cat "$work/runtime/REVISION")/docs/native-hosting.md" > "$work/runtime/README.txt"
 tar -C "$work/runtime" -czf "$output/$archive" .
 (cd "$output" && sha256sum "$archive" > "$archive.sha256")

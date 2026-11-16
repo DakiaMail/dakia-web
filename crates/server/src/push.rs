@@ -64,6 +64,23 @@ pub(crate) async fn public_key() -> crate::Result<Json<String>> {
             .into(),
     ))
 }
+pub(crate) async fn status(
+    State(app): State<App>,
+    Extension(user): Extension<crate::Identity>,
+    Path(id): Path<String>,
+) -> crate::Result<Json<bool>> {
+    Ok(Json(
+        app.store.push_subscription_enabled(&user.user, &id).await?,
+    ))
+}
+pub(crate) async fn unsubscribe(
+    State(app): State<App>,
+    Extension(user): Extension<crate::Identity>,
+    Path(id): Path<String>,
+) -> crate::Result<StatusCode> {
+    app.store.unsubscribe_push(&user.user, &id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
 pub(crate) async fn subscribe(
     State(app): State<App>,
     Extension(user): Extension<crate::Identity>,

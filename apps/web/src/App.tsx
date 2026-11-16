@@ -70,12 +70,12 @@ import { AccountRemoval } from "./AccountRemoval";
 import { Empty, ErrorNotice, Modal } from "./ui";
 import { DraftList, ScheduledList } from "./Records";
 
-import { enableNotifications, extraApi } from "./extra-api";
+import { extraApi } from "./extra-api";
 import { useMailEvents } from "./useMailEvents";
 import { usePullToRefresh } from "./usePullToRefresh";
 import { Workspace } from "./Workspace";
 import { ReleaseNotice } from "./Releases";
-import { InstallApp } from "./InstallApp";
+import { InstallApp, MobileInstallPrompt } from "./InstallApp";
 import { RefreshButton } from "./RefreshButton";
 import { AccountSyncIndicator } from "./AccountSyncIndicator";
 import { MessageActions } from "./MessageActions";
@@ -95,6 +95,7 @@ import { MailDetails } from "./MailDetails";
 import { AttentionStrip } from "./AttentionStrip";
 import { mailRows } from "./mailRows";
 import { useMailInfiniteLoading } from "./useMailInfiniteLoading";
+import { composeLink, mailtoDraft, rememberComposeLink } from "./mailto";
 import { notificationLink, rememberNotificationLink } from "./notificationLink";
 import { useAppHistory, useBackLayer } from "./appHistory";
 
@@ -143,6 +144,8 @@ const time = (t: string) =>
 const operations = new OperationQueue();
 export function App() {
   const client = useQueryClient();
+  const [pendingCompose] = useState(composeLink);
+  const composeConsumed = useRef(false);
   const initialLink = useRef(notificationLink());
   const [online, setOnline] = useState(navigator.onLine);
   const session = useQuery({
@@ -253,7 +256,6 @@ export function App() {
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(null), 7000); return () => clearTimeout(timer); }, [toast]);
   const [snooze, setSnooze] = useState<Message[] | null>(null);
   const [move, setMove] = useState<Message[] | null>(null);
-  const [notificationStatus, setNotificationStatus] = useState("");
   const [manualRefreshing, setManualRefreshing] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
   const positions = useRef<Record<string, number>>({});
@@ -793,6 +795,14 @@ export function App() {
       void act([m], { kind: "read", value: true }, undefined, true);
     }
   }
+  useEffect(() => {
+    if (composeConsumed.current || pendingCompose === null || !session.data || !accounts.data) return;
+    const sender = accounts.data.find(a => a.state === "ready");
+    if (!sender) return;
+    composeConsumed.current = true;
+    try { setCompose({ draft: mailtoDraft(pendingCompose, sender.id) }); }
+    catch (error) { setError(error); }
+  }, [pendingCompose, session.data, accounts.data]);
   function startCompose() {
     const a = (accounts.data || []).find(
       (a) => a.state === "ready" && (account === "all" || a.id === account),
@@ -946,7 +956,7 @@ export function App() {
       <div className="login">
         <img src="/dakia-icon-512.png" alt="Dakia" width="72" height="72" />
         <h1>Your mail, in one place.</h1>
-        <a title="Sign in" className="primary" href="/auth/login" onClick={rememberNotificationLink}>
+        <a title="Sign in" className="primary" href="/auth/login" onClick={() => { rememberNotificationLink(); rememberComposeLink(pendingCompose); }}>
           Sign in
         </a>
         <InstallApp />
@@ -1064,10 +1074,7 @@ export function App() {
           onClick={() => setSidebar(false)}
         />
       )}
-      {workspace && <Workspace updatesFocus={updatesFocus} userId={session.data?.user_id} accounts={accounts.data || []} blockHiddenImages={blockHiddenImages} onHiddenImagesChange={setBlockHiddenImages} keyboardHints={keyboardPreferences.hints} onKeyboardHintsChange={keyboardPreferences.setHints} keyboardShortcuts={keyboardPreferences.shortcuts} onKeyboardShortcutsChange={keyboardPreferences.setShortcuts} onShortcutHelp={() => setShortcutHelp(true)} alwaysLoadImages={alwaysLoadImages} onImagePrivacyChange={setAlwaysLoadImages} onBack={() => { navigation.backTo(previous => !previous.workspace); requestAnimationFrame(() => { if (matchMedia("(max-width: 600px)").matches) document.querySelector<HTMLButtonElement>('[aria-label="Open navigation"]')?.focus(); else document.querySelector<HTMLButtonElement>('[aria-label="Manage workspace"]')?.focus(); }); }} onConnect={() => setSetup(true)} onSettings={setSettingsAccount} onRemove={setRemovingAccount} onReconnect={(account) => { setReconnect(account); setSetup(true); }} notificationStatus={notificationStatus} onNotifications={() => {
-        setNotificationStatus("Enabling…");
-        void enableNotifications().then(() => setNotificationStatus("Notifications enabled")).catch((error) => setNotificationStatus(error instanceof Error ? error.message : "Could not enable notifications. Try again."));
-      }} />}
+      {workspace && <Workspace updatesFocus={updatesFocus} userId={session.data?.user_id} accounts={accounts.data || []} blockHiddenImages={blockHiddenImages} onHiddenImagesChange={setBlockHiddenImages} keyboardHints={keyboardPreferences.hints} onKeyboardHintsChange={keyboardPreferences.setHints} keyboardShortcuts={keyboardPreferences.shortcuts} onKeyboardShortcutsChange={keyboardPreferences.setShortcuts} onShortcutHelp={() => setShortcutHelp(true)} alwaysLoadImages={alwaysLoadImages} onImagePrivacyChange={setAlwaysLoadImages} onBack={() => { navigation.backTo(previous => !previous.workspace); requestAnimationFrame(() => { if (matchMedia("(max-width: 600px)").matches) document.querySelector<HTMLButtonElement>('[aria-label="Open navigation"]')?.focus(); else document.querySelector<HTMLButtonElement>('[aria-label="Manage workspace"]')?.focus(); }); }} onConnect={() => setSetup(true)} onSettings={setSettingsAccount} onRemove={setRemovingAccount} onReconnect={(account) => { setReconnect(account); setSetup(true); }} />}
       <main tabIndex={-1} className={`mailbox ${(nav === "INBOX" || nav === "Needs attention") && !q ? "compact-inbox" : ""} ${checked.size ? "has-selection" : ""}`}>
         <header className="pane-header">
           <button title="Open navigation"
@@ -1477,6 +1484,7 @@ export function App() {
           }}
         />
       )}
+      <MobileInstallPrompt enabled={!!accounts.data?.some(a => a.state === "ready") && !mail.isPending && !compose && !setup && !workspace && !sidebar} />
       <Toast announcementKey={toast?.id} error={toast?.error}>{toast?.message}</Toast>
       {snooze && <DateTimeDialog title="Snooze until" confirmLabel="Snooze"
         onChoose={until => { void snoozeMessages([...snooze], until); }}

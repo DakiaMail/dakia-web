@@ -261,3 +261,85 @@ async fn notification_summary_is_authorized_bounded_local_and_read_only() {
     }
     assert_eq!(app.store.message(&a, "same-id").await.unwrap(), message);
 }
+
+#[tokio::test]
+async fn subscription_controls_require_owner_and_csrf_and_remove_only_this_device() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = dakia_storage::Store::open(dir.path(), [9; 32])
+        .await
+        .unwrap();
+    let user = store.user("fixture", "owner").await.unwrap();
+    let other = store.user("fixture", "other").await.unwrap();
+    for (owner, id) in [(&user, "device"), (&user, "second"), (&other, "foreign")] {
+        store.subscribe(owner, id, "{}").await.unwrap();
+    }
+    sqlx::query("INSERT INTO sessions(token_hash,user_id,csrf,expires_at) VALUES(?,?,?,?)")
+        .bind(crate::hash("controls-fixture"))
+        .bind(&user)
+        .bind("fixture")
+        .bind(4102444800_i64)
+        .execute(store.control())
+        .await
+        .unwrap();
+    let app = App {
+        store,
+        config: Arc::new(crate::Config {
+            origin: "https://dakia.example.invalid".into(),
+            issuer: "https://id.example.invalid".into(),
+            client_id: "fixture".into(),
+            client_secret: "synthetic".into(),
+            web_root: dir.path().to_string_lossy().into(),
+        }),
+        mail: crate::mail::MailRuntime::default(),
+    };
+    let route = crate::router(app.clone());
+    for (method, id, authenticated, csrf, status) in [
+        ("GET", "device", false, false, StatusCode::UNAUTHORIZED),
+        ("GET", "device", true, false, StatusCode::OK),
+        ("GET", "foreign", true, false, StatusCode::OK),
+        ("DELETE", "device", true, false, StatusCode::FORBIDDEN),
+        ("DELETE", "foreign", true, true, StatusCode::NO_CONTENT),
+        ("DELETE", "device", true, true, StatusCode::NO_CONTENT),
+        ("DELETE", "device", true, true, StatusCode::NO_CONTENT),
+    ] {
+        let mut request = Request::builder()
+            .method(method)
+            .uri(format!("/api/push/subscriptions/{id}"));
+        if authenticated {
+            request = request.header("cookie", "__Host-dakia=controls-fixture");
+        }
+        if csrf {
+            request = request
+                .header("x-csrf-token", "fixture")
+                .header("origin", "https://dakia.example.invalid");
+        }
+        let response = route
+            .clone()
+            .oneshot(request.body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), status, "{method} {id}");
+        if method == "GET" && status == StatusCode::OK {
+            let bytes = to_bytes(response.into_body(), 1024).await.unwrap();
+            assert_eq!(
+                serde_json::from_slice::<bool>(&bytes).unwrap(),
+                id == "device"
+            );
+        }
+    }
+    assert!(!app
+        .store
+        .push_subscription_enabled(&user, "device")
+        .await
+        .unwrap());
+    assert!(app
+        .store
+        .push_subscription_enabled(&user, "second")
+        .await
+        .unwrap());
+    assert!(app
+        .store
+        .push_subscription_enabled(&other, "foreign")
+        .await
+        .unwrap());
+}

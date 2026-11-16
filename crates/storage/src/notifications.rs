@@ -9,6 +9,26 @@ impl Store {
         sqlx::query("INSERT INTO push_endpoints(id,user_id,document) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET user_id=excluded.user_id,document=excluded.document").bind(id).bind(user).bind(document).execute(&self.control).await?;
         Ok(())
     }
+    pub async fn push_subscription_enabled(&self, user: &str, id: &str) -> Result<bool> {
+        let _guard = self.gate.read().await;
+        Ok(sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM push_endpoints WHERE id=? AND user_id=?",
+        )
+        .bind(id)
+        .bind(user)
+        .fetch_one(&self.control)
+        .await?
+            > 0)
+    }
+    pub async fn unsubscribe_push(&self, user: &str, id: &str) -> Result<()> {
+        let _guard = self.gate.read().await;
+        sqlx::query("DELETE FROM push_endpoints WHERE id=? AND user_id=?")
+            .bind(id)
+            .bind(user)
+            .execute(&self.control)
+            .await?;
+        Ok(())
+    }
     pub async fn subscriptions(&self, a: &AuthorizedAccount) -> Result<Vec<serde_json::Value>> {
         self.authorize(&a.user_id, &a.id).await?;
         let rows: Vec<String> =

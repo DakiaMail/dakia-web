@@ -38,7 +38,7 @@ it("requires an explicit sandbox decision whenever the app adds an API surface",
   }
   expect([...routes].sort()).toEqual([
     "/accounts", "/accounts/:id", "/accounts/:id/attachments", "/accounts/:id/drafts", "/accounts/:id/drafts/:id",
-    "/accounts/:id/folders", "/accounts/:id/jobs/:id", "/accounts/:id/messages", "/accounts/:id/messages/:id",
+    "/accounts/:id/folders", "/accounts/:id/mailbox-counts", "/accounts/:id/jobs/:id", "/accounts/:id/messages", "/accounts/:id/messages/:id",
     "/accounts/:id/messages/:id/conversation", "/accounts/:id/messages/:id/image", "/accounts/:id/messages/:id/sender-mail",
     "/accounts/:id/messages/:id/translation", "/accounts/:id/operations", "/accounts/:id/operations/:id", "/accounts/:id/probe",
     "/accounts/:id/recipients", "/accounts/:id/rule-activity", "/accounts/:id/scheduled", "/accounts/:id/sender-cleanups",

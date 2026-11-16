@@ -7,6 +7,7 @@ mod backup;
 mod cache;
 mod graph;
 mod inbox;
+mod mailbox_counts;
 mod jobs;
 mod lists;
 mod models;

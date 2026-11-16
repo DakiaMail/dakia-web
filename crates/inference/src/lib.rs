@@ -1,5 +1,6 @@
 //! Server-local inference. No account paths, network calls or result caches.
 pub mod classification;
+pub mod embedding;
 pub mod signals;
 use anyhow::{bail, Result};
 use chrono::{DateTime, Utc};

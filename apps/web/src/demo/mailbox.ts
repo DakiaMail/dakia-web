@@ -1,4 +1,4 @@
-import { classification, matchesClassification, optimisticClassification, type MailFilter } from "../classification";
+import { needsAttention, classification, matchesClassification, optimisticClassification, type MailFilter } from "../classification";
 import type { Draft, MailRule, Message, MessageContent, Operation, SearchPage, Submission, SubmitRequest } from "@dakia/api-types";
 import type { CleanupJob, CleanupRequest } from "../cleanupJobs";
 import { defaultSettings, frenchTranslation, identity, paragraphs, seed, type DemoState, type StoredAttachment } from "./seed";
@@ -189,6 +189,7 @@ export class DemoMailbox {
     const body = async <T>() => request.json() as Promise<T>;
     const commit = async (value: unknown) => { await this.save(); return json(value); };
     if (path === "/api/session" && get) return json({ user_id: s.user, csrf_token: "local-only" });
+    if (path === "/api/search/settings" && get) return json({ mode: "off", enabled: false, can_manage: false, resources: { memory_bytes: null, cpus: null } });
     if (path === "/api/translation/settings" && get) return json({ mode: "host", can_manage: false });
     if (path === "/api/local-access" && get) return json({ can_invite: false });
     if (path === "/api/accounts/gmail" && get) return json({ enabled: true });
@@ -215,6 +216,10 @@ export class DemoMailbox {
     const parts = (match[2] || "").split("/").map(decodeURIComponent);
     const [resource, id, action] = parts;
     const key = identity(account, id);
+    if (resource === "mailbox-counts" && get) {
+      const rows = Object.values(s.contents).map(c => c.message).filter(m => m.account_id === account && m.folder_ids.length > 0);
+      return json({ starred: rows.filter(m => m.starred).length, attention: rows.filter(m => m.folder_ids.some(f => f.toUpperCase() === "INBOX") && needsAttention(m, this.now()) && !Object.entries(s.snoozed).some(([key, v]) => s.contents[key]?.message.account_id === account && s.contents[key]?.message.thread_id === m.thread_id && Date.parse(v.until) > this.now())).length });
+    }
     if (resource === "snoozes" && get) {
       const threads = new Map<string, { thread_id: string; until: string; message_count: number }>();
       for (const [key, snooze] of Object.entries(s.snoozed)) {
@@ -226,6 +231,10 @@ export class DemoMailbox {
       return json([...threads.values()]);
     }
     if (resource === "sync-active" && get) return json(false);
+    if (resource === "indexing" && get) {
+      const eligible = Object.values(s.contents).filter(c => c.message.account_id === account && !c.message.folder_ids.some(f => ["Trash", "Spam"].includes(f))).length;
+      return json({ account_id: account, state: "complete", discovery_complete: true, eligible, processed: eligible, backlog: 0, gaps: 0 });
+    }
     if (resource === "folders" && get) return json([...new Set([...folders, ...Object.values(s.settings[account] || {}).filter((v): v is string => typeof v === "string")])]);
     if (resource === "recipients" && get) {
       const q = (url.searchParams.get("q") || "").toLowerCase();

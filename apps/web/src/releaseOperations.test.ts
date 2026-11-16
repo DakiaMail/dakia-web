@@ -88,8 +88,10 @@ it("API requests use same-origin credentials, disable caching and forward cancel
   expect(fetch.mock.calls[0][1]).toMatchObject({ credentials: "same-origin", cache: "no-store", signal: controller.signal });
 });
 it("a non-JSON upstream error produces a typed error rather than hiding its HTTP status", async () => {
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("gateway failed", { status: 502 })));
-  await expect(request("/search")).rejects.toMatchObject({ status: 502, code: "http_error" });
+  vi.stubGlobal("fetch", vi.fn().mockImplementation(async () => new Response("gateway failed", { status: 502 })));
+  const failure = expect(request("/search")).rejects.toMatchObject({ status: 502, code: "http_error" });
+  await vi.advanceTimersByTimeAsync(300);
+  await failure;
 });
 it("download links encode opaque account and attachment IDs independently", () => {
   expect(api.download("a/b", "part?x#y")).toBe("/api/accounts/a%2Fb/attachments/part%3Fx%23y");

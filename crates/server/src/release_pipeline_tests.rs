@@ -2,14 +2,14 @@
 //! All addresses, bodies, accounts and failures are disposable fixtures.
 use super::*;
 use dakia_mail_provider::MailProvider;
+#[path = "classification_pipeline_tests.rs"]
+mod classification_pipeline_tests;
 #[path = "full_text_tests.rs"]
 mod full_text_tests;
 #[path = "rules_pipeline_tests.rs"]
 mod rules_pipeline_tests;
 #[path = "search_preview_tests.rs"]
 mod search_preview_tests;
-#[path = "classification_pipeline_tests.rs"]
-mod classification_pipeline_tests;
 #[path = "sender_cleanup_pipeline_tests.rs"]
 mod sender_cleanup_pipeline_tests;
 #[path = "unsubscribe_pipeline_tests.rs"]
@@ -207,7 +207,9 @@ async fn browser_release_fixture() {
                 m.internal_date = chrono::Utc::now()
                     .format("%d-%b-%Y %H:%M:%S %z")
                     .to_string();
-                if i == 4 { m.seen=false; }
+                if i == 4 {
+                    m.seen = false;
+                }
             }
             if i == 7 {
                 m.seen = true;
@@ -224,13 +226,14 @@ async fn browser_release_fixture() {
         app.store.index_search_headers(&a).await.unwrap();
         for m in app.store.inbox_rows(&a, None, None).await.unwrap() {
             let raw = provider.raw.lock().await.clone();
-            let (text, state) = crate::sync::full_text::extract(&raw);
+            let (text, state, has_attachment) = crate::sync::full_text::extract(&raw);
             app.store
                 .put_search_body(
                     &a,
                     &m,
                     &format!("{text}\nbody-only-historical café 東京"),
                     state,
+                    has_attachment,
                 )
                 .await
                 .unwrap();
@@ -334,7 +337,7 @@ async fn browser_release_fixture() {
         .bind(&user)
         .bind("release-browser-csrf")
         .bind(4102444800_i64)
-        .execute(app.store.control())
+        .execute(app.store.sqlite_control_for_test())
         .await
         .unwrap();
     let worker_app = app.clone();

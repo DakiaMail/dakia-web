@@ -1,4 +1,5 @@
 import { optimisticClassification, type MailFilter } from "./classification";
+import type { IndexingStatus } from "@dakia/api-types";
 import { localTransport } from "./localTransport";
 import type {
   Account,
@@ -38,27 +39,41 @@ export async function request<T>(
   if (init.method && init.method !== "GET") headers.set("X-CSRF-Token", csrf);
   if (typeof init.body === "string")
     headers.set("Content-Type", "application/json");
-  let response: Response;
-  try {
-    response = await fetch(`/api${path}`, {
-      ...init,
-      headers,
-      credentials: "same-origin",
-      cache: "no-store",
-    });
-  } catch (error) {
-    // Cancellation is intentional, and must not become a connection warning.
-    if (init.signal?.aborted || (typeof error === "object" && error !== null && "name" in error && error.name === "AbortError")) throw error;
-    // No HTTP response was observed. Preserve the network-error category so
-    // lost acknowledgements still use read-only recovery, not rejection logic.
-    throw new TypeError("Can’t reach Dakia. Check your internet connection or VPN.");
+  const read = !init.method || init.method === "GET";
+  let response!: Response;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt) {
+      await new Promise(resolve => setTimeout(resolve, 300));
+      init.signal?.throwIfAborted();
+    }
+    try {
+      response = await fetch(`/api${path}`, {
+        ...init,
+        headers,
+        credentials: "same-origin",
+        cache: "no-store",
+      });
+    } catch (error) {
+      // Cancellation is intentional, and must not become a connection warning.
+      if (init.signal?.aborted || (typeof error === "object" && error !== null && "name" in error && error.name === "AbortError")) throw error;
+      // Preserve network errors so lost acknowledgements use read-only recovery.
+      if (read && attempt === 0) continue;
+      throw new TypeError("Couldn’t connect to Dakia. Please try again.");
+    }
+    // Retry reads once after a transient gateway failure. Never replay writes:
+    // their acknowledgement may have been lost after the action was applied.
+    if (read && attempt === 0 && [502, 503, 504, 520, 521, 522, 523, 524].includes(response.status)) {
+      await response.body?.cancel();
+      continue;
+    }
+    break;
   }
   if (!response.ok) {
     if (response.status === 401) window.dispatchEvent(new CustomEvent("dakia-auth-expired", { detail: path }));
     const error = (await response.json().catch(() => ({
       code: "http_error",
       message: response.status >= 500
-        ? "Can’t reach Dakia. Check your internet connection or VPN."
+        ? "Dakia is temporarily unavailable. Please try again."
         : "Dakia couldn’t complete this request. Please try again.",
     }))) as ApiError;
     throw new ApiFailure(response.status, error.code, error.message);
@@ -71,6 +86,7 @@ export const accountPath = (id: string) => `/accounts/${key(id)}`;
 export type SenderMailPage = { rows: Message[]; count: number; cutoff: string; after: string | null };
 export type SnoozedThread = { thread_id: string; until: string; message_count: number };
 export const api = {
+  mailboxCounts: (account: string, signal?: AbortSignal) => request<{ starred: number; attention: number }>(`${accountPath(account)}/mailbox-counts`, { signal }),
   snoozes: (account: string, signal?: AbortSignal) => request<SnoozedThread[]>(`${accountPath(account)}/snoozes`, { signal }),
   senderMail: (message: Message, signal?: AbortSignal, cutoff?: string, after?: string) =>
     request<SenderMailPage>(`${accountPath(message.account_id)}/messages/${key(message.id)}/sender-mail?${new URLSearchParams({ ...(cutoff ? { cutoff } : {}), ...(after ? { after } : {}) })}`, { signal }),
@@ -88,6 +104,7 @@ export const api = {
   createInvitation: () => request<{ id: string; expires_at: number; url: string }>("/invitations", { method: "POST" }),
   revokeInvitation: (id: string) => request<void>(`/invitations/${key(id)}`, { method: "DELETE" }),
   accounts: () => request<Account[]>("/accounts"),
+  indexingStatus: (id: string, signal?: AbortSignal) => request<IndexingStatus>(`${accountPath(id)}/indexing`, { signal }),
   syncActive: (id: string, signal?: AbortSignal) => request<boolean>(`${accountPath(id)}/sync-active`, { signal }),
   discover: (email: string, signal?: AbortSignal) => request<DiscoveredSettings | null>("/accounts/discover", { method: "POST", body: JSON.stringify({ email }), signal }),
   removeAccount: (id: string, confirmEmail: string) => request<void>(accountPath(id), { method: "DELETE", body: JSON.stringify({ confirm_email: confirmEmail }) }),

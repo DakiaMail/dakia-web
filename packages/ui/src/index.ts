@@ -14,3 +14,5 @@ export { SearchField, type SearchFieldProps, type SearchOption } from "./SearchF
 export { FilterChip, type FilterChipProps } from "./FilterChip";
 export { FilterPopover, type FilterPopoverProps } from "./FilterPopover";
 export { FilterList, type FilterListProps, type FilterListItem } from "./FilterList";
+
+export { Tooltip, type TooltipProps } from "./Tooltip";

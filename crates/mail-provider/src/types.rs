@@ -73,9 +73,15 @@ pub struct MessageRef {
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Identity {
-    Gmail { account_id: String, message_id: u64 },
+    Gmail {
+        account_id: String,
+        message_id: u64,
+    },
     Imap(MessageRef),
-    Graph { account_id: String, message_id: String },
+    Graph {
+        account_id: String,
+        message_id: String,
+    },
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Metadata {
@@ -110,6 +116,10 @@ pub struct Search {
     #[serde(default)]
     pub gmail_thread: Option<u64>,
     pub text: Option<String>,
+    /// Each unit is a required literal word or quoted phrase. Empty retains
+    /// the legacy single TEXT-string behavior for existing provider callers.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub text_units: Vec<String>,
     pub from: Option<String>,
     pub to: Option<String>,
     pub subject: Option<String>,
@@ -201,10 +211,16 @@ pub struct MutationResult {
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum SubmissionOutcome {
-    Accepted { response: String },
-    Failed { kind: ErrorKind },
+    Accepted {
+        response: String,
+    },
+    Failed {
+        kind: ErrorKind,
+    },
     /// A definitive refusal or pre-request failure; safe to defer the same immutable MIME.
-    Deferred { retry_after_secs: u64 },
+    Deferred {
+        retry_after_secs: u64,
+    },
     DeliveryUnknown,
 }
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
@@ -239,14 +255,43 @@ impl Search {
         if let Some(id) = self.gmail_thread {
             terms.push(format!("X-GM-THRID {id}"));
         }
+        if self.text_units.len() > 2048
+            || self
+                .text_units
+                .iter()
+                .fold(0usize, |n, s| n.saturating_add(s.len() + 1))
+                > 4097
+        {
+            return Err(error(
+                ErrorKind::InvalidInput,
+                "search text exceeds query budget",
+            ));
+        }
+        if self.text_units.is_empty() {
+            if let Some(text) = &self.text {
+                terms.push(format!("TEXT {}", quote(text)?));
+            }
+        } else {
+            for text in &self.text_units {
+                if text.is_empty() {
+                    return Err(error(ErrorKind::InvalidInput, "empty search text unit"));
+                }
+                terms.push(format!("TEXT {}", quote(text)?));
+            }
+        }
         for (key, value) in [
-            ("TEXT", &self.text),
             ("FROM", &self.from),
             ("TO", &self.to),
             ("SUBJECT", &self.subject),
         ] {
             if let Some(value) = value {
-                terms.push(format!("{key} {}", quote(value)?));
+                let value = quote(value)?;
+                terms.push(if key == "TO" {
+                    // Match the local recipient field, including available Cc/Bcc.
+                    format!("(OR TO {value} OR CC {value} BCC {value})")
+                } else {
+                    format!("{key} {value}")
+                });
             }
         }
         for (key, value) in [("SINCE", &self.since), ("BEFORE", &self.before)] {
@@ -282,4 +327,74 @@ fn valid_date(s: &str) -> bool {
 #[async_trait::async_trait]
 pub trait AccessToken: Send + Sync {
     async fn access_token(&self) -> Result<String>;
+}
+
+#[cfg(test)]
+mod search_unit_tests {
+    use super::*;
+    #[test]
+    fn provider_units_preserve_phrases_and_match_separate_words_independently() {
+        let query = Search {
+            text: Some("quarterly report budget".into()),
+            text_units: vec!["quarterly report".into(), "budget".into()],
+            from: Some("maya@example.invalid".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            query.imap_query().unwrap(),
+            "ALL TEXT \"quarterly report\" TEXT \"budget\" FROM \"maya@example.invalid\""
+        );
+        let old = Search {
+            text: Some("quarterly report budget".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            old.imap_query().unwrap(),
+            "ALL TEXT \"quarterly report budget\""
+        );
+        let restored: Search =
+            serde_json::from_str(&serde_json::to_string(&query).unwrap()).unwrap();
+        assert_eq!(restored, query);
+    }
+    #[test]
+    fn recipient_scope_matches_available_to_cc_and_bcc_without_weakening_other_filters() {
+        let query = Search {
+            to: Some("Finance Team".into()),
+            subject: Some("Budget".into()),
+            seen: Some(false),
+            ..Default::default()
+        };
+        assert_eq!(query.imap_query().unwrap(),"ALL (OR TO \"Finance Team\" OR CC \"Finance Team\" BCC \"Finance Team\") SUBJECT \"Budget\" UNSEEN");
+        let injected = Search {
+            to: Some("x\r\nEXPUNGE".into()),
+            ..Default::default()
+        };
+        assert!(injected.imap_query().is_err());
+    }
+    #[test]
+    fn provider_units_are_bounded_and_never_interpolate_commands() {
+        let bad = Search {
+            text_units: vec!["ok\r\nEXPUNGE".into()],
+            ..Default::default()
+        };
+        assert!(bad.imap_query().is_err());
+        let big = Search {
+            text_units: vec!["ab".into(); 2048],
+            ..Default::default()
+        };
+        assert!(big.imap_query().is_err());
+        let empty = Search {
+            text_units: vec![String::new()],
+            ..Default::default()
+        };
+        assert!(empty.imap_query().is_err());
+        let escaped = Search {
+            text_units: vec!["quoted \"text\"".into()],
+            ..Default::default()
+        };
+        assert_eq!(
+            escaped.imap_query().unwrap(),
+            "ALL TEXT \"quoted \\\"text\\\"\""
+        );
+    }
 }

@@ -153,7 +153,13 @@ async fn search_preview_preserves_filters_and_never_guesses_body_dates_or_folder
 
 #[tokio::test]
 async fn search_preview_is_indexed_bounded_and_account_isolated_at_scale() {
-    let (dir, app, user, a, _) = controlled().await;
+    if let Ok(filter) = std::env::var("DAKIA_TEST_SEARCH_TRACE") {
+        let _ = tracing_subscriber::fmt()
+            .with_env_filter(filter)
+            .with_test_writer()
+            .try_init();
+    }
+    let (dir, mut app, user, a, _) = controlled().await;
     let db = database(&dir, &a).await;
     let mut tx = db.begin().await.unwrap();
     for i in 0..50_000 {
@@ -197,8 +203,45 @@ async fn search_preview_is_indexed_bounded_and_account_isolated_at_scale() {
         .await
         .unwrap()
         .is_empty());
-    // A rare match at the oldest edge must not be omitted by a recent-window cap.
+    // Provisional previews may omit old positives. Authoritative selected search
+    // must still find the oldest edge of the whole mailbox.
+
     sqlx::query("UPDATE messages SET document=json_set(document,'$.subject','Rare historical match') WHERE id='m000000'").execute(&db).await.unwrap();
+    assert_eq!(
+        app.store
+            .cached_search_rows(
+                &a,
+                &dakia_storage::CachedSearchFilter {
+                    subject: Some("historical"),
+                    ..Default::default()
+                }
+            )
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(app
+        .store
+        .cached_search_preview_rows(
+            &a,
+            &dakia_storage::CachedSearchFilter {
+                subject: Some("historical"),
+                ..Default::default()
+            }
+        )
+        .await
+        .unwrap()
+        .is_empty());
+    app.store.configure_search_database(None).await.unwrap();
+    app.store.maintain_search_vectors(false).await.unwrap();
+    while app.store.indexing_inventory(&a).await.unwrap().dirty > 0 {
+        app.store.index_search_headers(&a).await.unwrap();
+    }
+    while app.store.flush_search_index(&a).await.unwrap() {}
+    if std::env::var_os("DAKIA_TEST_KEEP_SEARCH_PREVIEW").is_some() {
+        println!("SEARCH_PREVIEW_ROOT={}", dir.keep().display());
+    }
     let start = std::time::Instant::now();
     let historical = run(
         &app,
@@ -208,7 +251,7 @@ async fn search_preview_is_indexed_bounded_and_account_isolated_at_scale() {
     .await
     .unwrap();
     let historical_ms = start.elapsed().as_secs_f64() * 1000.;
-    assert_eq!(historical.cache_preview, Some(true));
+    assert_eq!(historical.cache_preview, Some(true), "{historical:?}");
     assert_eq!(historical.rows[0].id, "m000000");
     println!("search preview 50000 synthetic headers: candidates={} candidate_ms={candidate_ms:.2} preview_rows={} preview_ms={preview_ms:.2} historical_ms={historical_ms:.2}", candidates.len(), preview.rows.len());
 }

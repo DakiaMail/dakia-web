@@ -129,7 +129,10 @@ mod build_bundled {
             .flag("-DSQLITE_ENABLE_FTS5")
             .flag("-DSQLITE_ENABLE_JSON1")
             .flag("-DSQLITE_ENABLE_LOAD_EXTENSION=1")
-            .flag("-DSQLITE_ENABLE_MEMORY_MANAGEMENT")
+            // Keep each connection's bounded page cache independent. Enabling
+            // global release_memory forces all caches into one LRU protected
+            // by a process-wide mutex, serializing federated search reads.
+            // Dakia does not call the optional global release_memory API.
             .flag("-DSQLITE_ENABLE_RTREE")
             .flag("-DSQLITE_ENABLE_STAT4")
             .flag("-DSQLITE_SOUNDEX")

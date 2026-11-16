@@ -31,6 +31,23 @@ function mount() {
 beforeEach(() => { vi.useFakeTimers(); Source.instances = []; vi.stubGlobal("EventSource", Source); });
 afterEach(() => { cleanup(); client?.clear(); vi.unstubAllGlobals(); vi.restoreAllMocks(); vi.useRealTimers(); });
 describe("mail event request budget", () => {
+  it("refreshes indexing immediately, coalesces bursts, and catches up after slow status work", async () => {
+    const {wrapper}=mount();
+    let release!:(value:number)=>void;
+    const load=vi.fn().mockResolvedValueOnce(1).mockImplementationOnce(()=>new Promise<number>(resolve=>{release=resolve;})).mockResolvedValue(3);
+    renderHook(()=>useQuery({queryKey:["indexing","work"],queryFn:load}),{wrapper});
+    await act(()=>vi.advanceTimersByTimeAsync(1));
+    const source=Source.instances.find(s=>s.url.includes("/work/"))!;
+    act(()=>{source.ready(0,false);for(let i=1;i<=500;i++)source.emit(i,"index_changed");});
+    await act(()=>vi.advanceTimersByTimeAsync(1));
+    expect(load).toHaveBeenCalledTimes(2);
+    act(()=>{for(let i=501;i<=1000;i++)source.emit(i,"message_changed");});
+    await act(()=>vi.advanceTimersByTimeAsync(3000));
+    expect(load).toHaveBeenCalledTimes(2);
+    await act(async()=>release(2));
+    await act(()=>vi.advanceTimersByTimeAsync(1));
+    expect(load).toHaveBeenCalledTimes(3);
+  });
   it("coalesces a replay burst, ignores duplicates, scopes accounts and event resources", async () => {
     const {invalidate} = mount();
     const source = Source.instances.find(s => s.url.includes("/work/"))!;
@@ -113,6 +130,19 @@ describe("mail event request budget", () => {
     expect(local).toHaveBeenCalledTimes(3);
     expect(provider).toHaveBeenCalledTimes(1);
   });
+
+  it("refreshes search on indexing changes without starting folder or provider queries",async()=>{
+    const {invalidate}=mount();
+    const source=Source.instances.find(s=>s.url.includes("/work/"))!;
+    act(()=>{source.ready(0,false);source.emit(1,"index_changed");});
+    await act(()=>vi.advanceTimersByTimeAsync(2000));
+    const predicate=invalidate.mock.calls.at(-1)![0]!.predicate!;
+    const query=(queryKey:unknown[])=>({queryKey}) as unknown as Parameters<typeof predicate>[0];
+    expect(predicate(query(["mail","all","INBOX","parcel",undefined,["work"]]))).toBe(true);
+    expect(predicate(query(["mail","all","INBOX","",undefined,["work"]]))).toBe(false);
+    expect(predicate(query(["search-page","parcel",["work"],undefined,null]))).toBe(true);
+    expect(predicate(query(["search-supplement","parcel",["work"],undefined,"work","token"])) ).toBe(false);
+  });
   it("passes cancellation through list/search and keeps parameters isolated", async () => {
     const fetcher = vi.fn(async (_url: string, _init: RequestInit) => new Response(JSON.stringify({rows:[]})));
     vi.stubGlobal("fetch", fetcher);
@@ -123,5 +153,42 @@ describe("mail event request budget", () => {
     expect(fetcher.mock.calls[0][0]).toContain("continuation=page2");
     expect(fetcher.mock.calls[1][0]).toContain("/accounts/personal/messages");
     for(const call of fetcher.mock.calls) expect((call as unknown as [string, RequestInit])[1].signal).toBe(controller.signal);
+  });
+});
+
+describe("provider mail generations",()=>{
+  it("publishes a mail change after primary refresh, excluding index-only work",async()=>{
+    const {wrapper}=mount();
+    let finish!:(value:number)=>void;
+    const load=vi.fn().mockResolvedValueOnce(1).mockResolvedValueOnce(2)
+      .mockImplementationOnce(()=>new Promise<number>(resolve=>{finish=resolve;})).mockResolvedValue(4);
+    renderHook(()=>useQuery({queryKey:["search-page","parcel",["work"],undefined,null],queryFn:load}),{wrapper});
+    await act(()=>vi.advanceTimersByTimeAsync(1));
+    const source=Source.instances.find(s=>s.url.includes("/work/"))!;
+    act(()=>{source.ready(0,false);source.emit(1,"index_changed");});
+    await act(()=>vi.advanceTimersByTimeAsync(2000));
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(client.getQueryData(["search-mail-generation","work"])).toBeUndefined();
+    act(()=>source.emit(2,"message_changed"));
+    await act(()=>vi.advanceTimersByTimeAsync(2000));
+    expect(load).toHaveBeenCalledTimes(3);
+    expect(client.getQueryData(["search-mail-generation","work"])).toBeUndefined();
+    act(()=>source.emit(3,"index_changed"));
+    await act(async()=>finish(3));
+    await act(()=>vi.advanceTimersByTimeAsync(1));
+    expect(client.getQueryData(["search-mail-generation","work"])).toBe(1);
+    await act(()=>vi.advanceTimersByTimeAsync(2000));
+    expect(load).toHaveBeenCalledTimes(4);
+    expect(client.getQueryData(["search-mail-generation","work"])).toBe(1);
+    expect(client.getQueryData(["search-mail-generation","personal"])).toBeUndefined();
+  });
+  it("does not treat initial stream setup as mail, but refreshes after a later reset",async()=>{
+    mount();const source=Source.instances.find(s=>s.url.includes("/work/"))!;
+    act(()=>source.ready(100,true));
+    await act(()=>vi.advanceTimersByTimeAsync(2000));
+    expect(client.getQueryData(["search-mail-generation","work"])).toBeUndefined();
+    act(()=>source.ready(101,true));
+    await act(()=>vi.advanceTimersByTimeAsync(2000));
+    expect(client.getQueryData(["search-mail-generation","work"])).toBe(1);
   });
 });

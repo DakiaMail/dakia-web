@@ -73,7 +73,7 @@ for (const width of [320, 390, 600, 1480]) for (const long of [false, true]) tes
     await expect(bar.getByRole("button", { name: "More actions", exact: true })).toBeFocused();
   } else {
     await expect(reader.getByRole("button", { name: "Compose", exact: true })).toBeVisible();
-    await expect(reader.getByRole("button", { name: "Check for more messages", exact: true })).toBeVisible();
+    await expect(reader.getByRole("button", { name: "Check for more messages", exact: true })).toHaveCount(0);
   }
   expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
   await screenshot(page, `reader-${width}${long ? "-long" : ""}`);
@@ -91,19 +91,17 @@ for (const width of [320, 390, 600, 1480]) for (const long of [false, true]) tes
     await expect(page.getByRole("dialog")).toBeVisible();
   }
 });
-for (const failure of ["expired", "provider", "snapshot"] as const) test(`conversation retry recovers ${failure} without mail writes`, async ({ page }) => {
+for (const failure of ["expired", "provider", "snapshot"] as const) test(`conversation ${failure} failure keeps mail readable without technical warnings`, async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const state = await fixture(page, { failure });
   await open(page);
-  await expect(page.getByText("Couldn’t check for more messages.", { exact: true })).toBeVisible();
-  await screenshot(page, `conversation-${failure}-failure`);
-  const starts = state.starts, provider = state.provider, expired = state.expired;
-  state.recover = true;
-  await page.getByRole("button", { name: "Retry conversation", exact: true }).click();
+  await expect.poll(() => failure === "expired" ? state.expired : failure === "provider" ? state.provider : state.snapshots).toBeGreaterThan(0);
+  await page.waitForTimeout(700);
   await expect(page.getByText("Couldn’t check for more messages.", { exact: true })).toHaveCount(0);
-  if (failure === "expired") { expect(state.starts).toBe(starts + 1); expect(state.expired).toBeGreaterThanOrEqual(1); expect(state.expired).toBe(expired); }
-  if (failure === "provider") { expect(state.starts).toBe(starts); expect(state.provider).toBe(provider + 1); }
-  if (failure === "snapshot") { expect(state.starts).toBe(starts); expect(state.provider).toBe(provider); }
+  await expect(page.getByRole("button", { name: "Retry conversation", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Check for more messages", exact: true })).toHaveCount(0);
+  await expect(page.frameLocator('iframe[title="Message body"]').getByText("EXAMPLE FITNESS", { exact: true })).toBeVisible();
+  await screenshot(page, `conversation-${failure}-failure`);
   expect(state.writes).toEqual([]);
   await expect(page.locator(".conversation-message")).toHaveCount(1);
 });

@@ -16,21 +16,23 @@ WORKDIR /src
 COPY . .
 ARG DAKIA_RELEASE_VERSION=development
 ENV DAKIA_RELEASE_VERSION=$DAKIA_RELEASE_VERSION
-RUN cargo build --release --locked -p dakia-server && mkdir /runtime && cp target/release/dakia-server target/release/dakia-admin target/release/dakia-healthcheck target/release/dakia-classifier-check /runtime/
+RUN python3 scripts/fetch-search-model.py && cargo build --release --locked -p dakia-server && mkdir /runtime && cp target/release/dakia-server target/release/dakia-admin target/release/dakia-healthcheck target/release/dakia-classifier-check target/release/dakia-search-model-check /runtime/ && find target/release -maxdepth 1 -name 'libonnxruntime.so*' -exec cp -P {} /runtime/ \;
 
 FROM ubuntu:24.04
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates libssl3t64 libstdc++6 libatomic1 && rm -rf /var/lib/apt/lists/* && mkdir -p /data /secrets && chown 1000:1000 /data /secrets
 COPY --from=web /usr/local/bin/node /usr/local/bin/node
 WORKDIR /app
 COPY --from=build /runtime/ /app/
+COPY --from=build /src/crates/inference/assets/multilingual-e5-small/ /app/search-model/
 COPY --from=web /src/apps/web/dist/ /app/web/
 COPY --from=web /src/workers/ /app/workers/
 COPY LICENSE THIRD_PARTY_NOTICES.md /app/licenses/
+COPY crates/inference/assets/licenses/ /app/licenses/
 COPY workers/translation/DESKTOP_THIRD_PARTY_NOTICES.md /app/licenses/
 COPY --from=web /src/node_modules/@fontsource/inter/LICENSE /app/licenses/Inter-OFL-1.1.txt
-ENV DAKIA_DATA_DIR=/data DAKIA_CREDENTIAL_KEY_FILE=/secrets/credential-key DAKIA_WEB_ROOT=/app/web DAKIA_WORKERS=/app/workers DAKIA_MODEL_CACHE=/data/models DAKIA_LISTEN=0.0.0.0:3025
+ENV LD_LIBRARY_PATH=/app DAKIA_DATA_DIR=/data SQLITE_TMPDIR=/data DAKIA_CREDENTIAL_KEY_FILE=/secrets/credential-key DAKIA_WEB_ROOT=/app/web DAKIA_WORKERS=/app/workers DAKIA_SEARCH_MODEL_DIR=/app/search-model DAKIA_MODEL_CACHE=/data/models DAKIA_LISTEN=0.0.0.0:3025
 USER 1000:1000
-RUN node /app/workers/translation/smoke.mjs && /app/dakia-classifier-check
+RUN node /app/workers/translation/smoke.mjs && /app/dakia-classifier-check && /app/dakia-search-model-check
 EXPOSE 3025
 HEALTHCHECK --interval=30s --timeout=5s CMD ["/app/dakia-healthcheck"]
 ENTRYPOINT ["/app/dakia-server"]

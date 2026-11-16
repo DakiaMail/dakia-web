@@ -28,7 +28,7 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::Mutex;
 // MIME transfer encoding expands attachments: a valid 25 MiB file can exceed
 // 30 MiB on the wire. Keep a finite ceiling below the provider response budget.
-const RECEIVED_MESSAGE_LIMIT: u32 = 40 * 1024 * 1024;
+pub(crate) const RECEIVED_MESSAGE_LIMIT: u32 = 40 * 1024 * 1024;
 type InboxRefreshSlot = Arc<Mutex<Option<std::time::Instant>>>;
 type ConversationSlot = (String, Arc<Mutex<conversation::Discovery>>);
 type ContentLanes = HashMap<(String, String), std::sync::Weak<Mutex<()>>>;
@@ -40,6 +40,8 @@ impl Drop for SyncActivity {
 }
 #[derive(Clone, Default)]
 pub struct MailRuntime {
+    pub(crate) search_policy_lock: Arc<Mutex<()>>,
+    pub(crate) search_queries: crate::search_query_model::QueryModel,
     pub(crate) gmail: Option<crate::gmail_oauth::GmailConfig>,
     pub(crate) microsoft: Option<crate::microsoft_oauth::MicrosoftConfig>,
     languages: Arc<crate::language::Detector>,
@@ -216,7 +218,24 @@ fn retain_implicit_all_mail(folders: &mut Vec<String>, previous: &[String], prob
     folders.sort();
     folders.dedup();
 }
-fn attachment_bytes(raw: &[u8], part: &mail_parser::MessagePart<'_>) -> Result<Vec<u8>> {
+fn search_exclusions(folders: &[p::Folder], settings: &MailboxSettings) -> Vec<String> {
+    let mut excluded: Vec<_> = folders
+        .iter()
+        .filter(|folder| {
+            folder.attributes.iter().any(|role| {
+                matches!(
+                    role.trim_start_matches('\\').to_ascii_lowercase().as_str(),
+                    "trash" | "junk" | "spam"
+                )
+            })
+        })
+        .map(|folder| folder.name.clone())
+        .collect();
+    excluded.extend(settings.trash_folder.iter().cloned());
+    excluded
+}
+
+pub(crate) fn attachment_bytes(raw: &[u8], part: &mail_parser::MessagePart<'_>) -> Result<Vec<u8>> {
     // contents() is charset-decoded UTF-8 for text/* and can corrupt files.
     // Decode transfer encoding only, keeping original file bytes intact.
     let body = raw
@@ -279,6 +298,11 @@ fn arrival_time(value: &str) -> Result<String> {
         })
         .map_err(|_| ApiFailure(StatusCode::BAD_GATEWAY, "invalid_provider_arrival_time"))
 }
+fn arrival_date(value: &str) -> Result<String> {
+    chrono::DateTime::parse_from_str(value.trim(), "%d-%b-%Y %H:%M:%S %z")
+        .map(|date| date.date_naive().format("%Y-%m-%d").to_string())
+        .map_err(|_| ApiFailure(StatusCode::BAD_GATEWAY, "invalid_provider_arrival_time"))
+}
 impl MailRuntime {
     pub(crate) async fn wake_graph(&self, account: &str) {
         if let Some(graph) = self
@@ -298,6 +322,16 @@ impl MailRuntime {
         self.microsoft = config;
         self
     }
+    pub fn with_search_model(mut self, path: std::path::PathBuf) -> Self {
+        self.search_queries = crate::search_query_model::QueryModel::configured(path);
+        self
+    }
+    pub fn with_search_model_enabled(mut self, path: std::path::PathBuf, enabled: bool) -> Self {
+        self.search_queries =
+            crate::search_query_model::QueryModel::configured_enabled(path, enabled);
+        self
+    }
+
     pub fn with_gmail(mut self, config: Option<crate::gmail_oauth::GmailConfig>) -> Self {
         self.gmail = config;
         self
@@ -407,6 +441,9 @@ impl MailRuntime {
                 &serde_json::to_string(&settings).map_err(Error::from)?,
             )
             .await?;
+        store
+            .set_search_excluded_folders(a, &search_exclusions(&folders, &settings))
+            .await?;
         if let Some(provider) = providers.remove(a.id()) {
             provider.retire();
         }
@@ -455,6 +492,12 @@ impl MailRuntime {
             }
         }
         let folders: Vec<p::Folder> = folders.into_iter().filter(|f| f.selectable).collect();
+        store
+            .set_search_excluded_folders(
+                a,
+                &search_exclusions(&folders, &self.settings(store, a).await?),
+            )
+            .await?;
         store
             .put_provider_document(
                 a,
@@ -670,6 +713,8 @@ impl MailRuntime {
             counts_exact: false,
             cache_preview: None,
             index_page: None,
+            search: None,
+            supplement: None,
         })
     }
 
@@ -863,6 +908,7 @@ impl MailRuntime {
                 subject: parsed.subject().unwrap_or("").into(),
                 preview: String::new(),
                 received_at: arrival_time(&metadata.internal_date)?,
+                received_date: Some(arrival_date(&metadata.internal_date)?),
                 unread: !metadata.seen,
                 starred: metadata.starred,
                 category: None,

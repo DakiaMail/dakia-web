@@ -61,7 +61,7 @@ test("browser/OS modifier matrix never composes, navigates, archives or cancels 
   await expect(page.locator(".message-row.selected .message-open")).toContainText(mail.rows[0].subject);
   expect(writes).toEqual([]);
   await expect(page.locator(".search kbd")).toHaveCount(0);
-  await expect(page.locator(".keyboard-hints")).toHaveText(/Tab Navigate controls.*Enter Activate/);
+  await expect(page.locator(".keyboard-hints")).toHaveCount(0);
 });
 
 test("native copy preserves selected message text; editable copy/cut/paste/select-all/undo work", async ({ page, context }) => {
@@ -229,6 +229,7 @@ test("keyboard hints and shortcut opt-out persist, and the shortcut reference is
   await page.getByRole("button", { name: "Manage workspace" }).click();
   const hints = page.getByRole("checkbox", { name: "Show extra keyboard hints" });
   await expect(hints).not.toBeChecked();
+  await expect(page.locator(".keyboard-hints")).toHaveCount(0);
   await hints.focus(); await page.keyboard.press("Space");
   await expect(hints).toBeChecked();
   await page.getByRole("button", { name: "Back to mail", exact: true }).click();
@@ -250,6 +251,12 @@ test("keyboard hints and shortcut opt-out persist, and the shortcut reference is
   await page.reload();
   await page.getByRole("button", { name: "Manage workspace" }).click();
   await expect(page.getByRole("checkbox", { name: "Enable mail keyboard shortcuts" })).not.toBeChecked();
+  await hints.focus(); await page.keyboard.press("Space");
+  await expect(hints).not.toBeChecked();
+  await page.getByRole("button", { name: "Back to mail", exact: true }).click();
+  await expect(page.locator(".keyboard-hints")).toHaveCount(0);
+  await page.reload();
+  await expect(page.locator(".keyboard-hints")).toHaveCount(0);
 });
 
 

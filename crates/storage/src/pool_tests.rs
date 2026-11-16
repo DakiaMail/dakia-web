@@ -15,8 +15,39 @@ mod personal_classification_tests;
 mod release_safety_tests;
 #[path = "scan_freshness_tests.rs"]
 mod scan_freshness_tests;
+#[path = "search_completion_tests.rs"]
+mod search_completion_tests;
+#[path = "search_delivery_tests.rs"]
+mod search_delivery_tests;
+#[path = "search_embedding_tests.rs"]
+mod search_embedding_tests;
+#[path = "search_filter_tests.rs"]
+mod search_filter_tests;
+#[path = "search_payload_tests.rs"]
+mod search_payload_tests;
+#[path = "search_spelling_tests.rs"]
+mod search_spelling_tests;
+#[path = "search_vector_tests.rs"]
+mod search_vector_tests;
 #[path = "starred_cache_tests.rs"]
 mod starred_cache_tests;
+#[path = "store_backend_tests.rs"]
+mod store_backend_tests;
+
+#[tokio::test]
+async fn bundled_sqlite_keeps_concurrent_page_caches_independent() {
+    let db = sqlx::SqlitePool::connect("sqlite::memory:").await.unwrap();
+    // MEMORY_MANAGEMENT forces SQLite's global LRU mutex across otherwise
+    // private account/search connections. Guard the actual linked library.
+    let global_lru: i64 =
+        sqlx::query_scalar("SELECT sqlite_compileoption_used('ENABLE_MEMORY_MANAGEMENT')")
+            .fetch_one(&db)
+            .await
+            .unwrap();
+    assert_eq!(global_lru, 0);
+    db.close().await;
+}
+
 fn message(a: &AuthorizedAccount, id: &str) -> Message {
     serde_json::from_value(serde_json::json!({"id":id,"account_id":a.id(),"thread_id":id,"provider_id":id,"folder_ids":["INBOX"],"sender":{"email":"fixture@example.invalid","name":null},"to":[],"subject":"Synthetic","preview":"","received_at":"2026-10-29T00:00:00.000Z","unread":true,"starred":false,"category":null,"category_status":"pending","revision":0})).unwrap()
 }
@@ -75,6 +106,8 @@ async fn inbox_keysets_projection_batch_rollback_and_legacy_pruning() {
     let mut page = SearchPage {
         cache_preview: None,
         index_page: None,
+        search: None,
+        supplement: None,
         rows: vec![],
         continuation: Some("next".into()),
         coverage: vec![AccountCoverage {
@@ -134,6 +167,8 @@ async fn complete_reconciliation_does_not_turn_pending_archive_into_provider_del
     let page = SearchPage {
         cache_preview: None,
         index_page: None,
+        search: None,
+        supplement: None,
         rows: vec![],
         continuation: None,
         coverage: vec![],
@@ -175,6 +210,19 @@ async fn fixture() -> (
     let account = store.connect(&user, &input).await.unwrap();
     let scope = store.authorize(&user, &account.id).await.unwrap();
     (dir, store, user, scope, input)
+}
+
+async fn configure_search_fixture(store: &mut Store, url: Option<&str>) {
+    store.configure_search_database(url).await.unwrap();
+    // Job and retrieval fixtures start after schema initialization. Production
+    // configuration intentionally returns while that work runs in the background.
+    store
+        .search_database
+        .as_ref()
+        .unwrap()
+        .identity()
+        .await
+        .unwrap();
 }
 #[tokio::test]
 async fn pooled_accounts_are_isolated_and_credentials_backup_reconnect_do_not_close_shared_handles()
@@ -271,3 +319,39 @@ async fn failed_open_is_not_cached_and_can_be_retried_after_repair() {
 
 #[path = "seed_membership_tests.rs"]
 mod seed_membership_tests;
+
+#[path = "search_lexical_tests.rs"]
+mod search_lexical_tests;
+
+#[tokio::test]
+async fn cancelled_first_open_finishes_initialization() {
+    let (dir, store, user, a, _input) = fixture().await;
+    let db = store.db(&a).await.unwrap();
+    let mut blocker = db.acquire().await.unwrap();
+    sqlx::query("BEGIN IMMEDIATE")
+        .execute(&mut *blocker)
+        .await
+        .unwrap();
+    let reopened = Store::open(dir.path(), [31; 32]).await.unwrap();
+    let scope = reopened.authorize(&user, a.id()).await.unwrap();
+    // The caller's deadline must not keep rolling back a slow initial upgrade.
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(100), reopened.db(&scope))
+            .await
+            .is_err()
+    );
+    sqlx::query("COMMIT").execute(&mut *blocker).await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        loop {
+            if let Ok(pools) = reopened.account_pools.try_lock() {
+                if pools.contains_key(scope.id()) {
+                    break;
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("initialization must finish after its caller is cancelled");
+    assert!(reopened.db(&scope).await.is_ok());
+}

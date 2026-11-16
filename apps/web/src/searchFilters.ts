@@ -4,6 +4,7 @@ export const filterFields = [
   { key: "subject", label: "Subject", type: "text" },
   { key: "folder", label: "Folder", type: "text" },
   { key: "is", label: "Status", type: "status" },
+  { key: "has", label: "Has attachment", type: "attachment" },
   { key: "after", label: "Since", type: "date" },
   { key: "before", label: "Before", type: "date" },
 ] as const;
@@ -17,7 +18,7 @@ export function readSearch(query: string): { text: string; filters: SearchFilter
     const decoded = raw.replace(/"((?:[^"\\]|\\.)*)"/g, (_, value: string) => value.replace(/\\(.)/g, "$1"));
     const colon = decoded.indexOf(":"), key = decoded.slice(0, colon) === "since" ? "after" : decoded.slice(0, colon), value = decoded.slice(colon + 1);
     const field = filterFields.find(field => field.key === key);
-    if (colon < 0 || !field || !value || (field.type === "status" && !["unread", "read", "starred"].includes(value))) { text.push(raw); continue; }
+    if (colon < 0 || !field || !value || (field.type === "status" && !["unread", "read", "starred"].includes(value)) || (field.type === "attachment" && value !== "attachment")) { text.push(raw); continue; }
     const existing = filters.findIndex(filter => filter.key === key);
     if (existing >= 0) filters.splice(existing, 1);
     filters.push({ key: field.key, value });
@@ -29,7 +30,7 @@ export function writeSearch(text: string, filters: SearchFilter[]): string {
 }
 export function filterLabel(filter: SearchFilter): string {
   const field = filterFields.find(field => field.key === filter.key)!;
-  return filter.key === "is" ? filter.value[0].toUpperCase() + filter.value.slice(1) : `${field.label} ${filter.value}`;
+  return filter.key === "has" ? field.label : filter.key === "is" ? filter.value[0].toUpperCase() + filter.value.slice(1) : `${field.label} ${filter.value}`;
 }
 export function mergeSearch(text: string, filters: SearchFilter[]): string {
   const typed = readSearch(text);

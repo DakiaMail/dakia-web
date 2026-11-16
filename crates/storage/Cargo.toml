@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+test-support = []
+
 [dependencies]
 dakia-domain = { path = "../domain" }
 serde.workspace = true
@@ -19,6 +22,12 @@ fs2 = "0.4"
 tracing.workspace = true
 base64 = "0.22"
 unicode-normalization = "0.1"
+futures-util = "0.3"
+sha2 = "0.10"
+usearch = "=2.26.6"
+unicode-general-category = "=1.1.0"
 
 [dev-dependencies]
 tempfile = "3"
+tracing-subscriber.workspace = true
+libsqlite3-sys = { version = "=0.30.1", default-features = false }

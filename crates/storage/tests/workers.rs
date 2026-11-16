@@ -127,6 +127,8 @@ async fn partial_scan_restart_and_failed_scan_do_not_prune_other_memberships() {
         counts_exact: false,
         cache_preview: None,
         index_page: None,
+        search: None,
+        supplement: None,
     };
     s.record_scan(&a, "INBOX", generation, &page).await.unwrap();
     let reopened = Store::open(d.path(), [9; 32]).await.unwrap();

@@ -36,8 +36,8 @@ async fn scheduled_view_filters_history_uses_snapshot_and_preserves_audit_and_is
         let document = serde_json::json!({"id":id,"account_id":account.id,"operation_id":id,"draft_id":"draft","draft_revision":1,"state":state,"due_at":due,"timezone":"Europe/Tallinn","filing_status":filing,"revision":1});
         let request =
             serde_json::json!({"due_at": if scheduled { Some(due.clone()) } else { None }});
-        sqlx::query("INSERT INTO submissions(id,operation_id,request,draft_id,draft_revision,snapshot,document,state,due_at,filing_status) VALUES(?,?,?,'draft',1,?,?,?,?,?)")
-            .bind(&id).bind(&id).bind(request.to_string()).bind(serde_json::to_string(&draft).unwrap()).bind(document.to_string()).bind(state).bind(&due).bind(filing).execute(&db).await.unwrap();
+        sqlx::query("INSERT INTO submissions(id,operation_id,request,draft_id,draft_revision,snapshot,document,state,due_at,filing_status,scheduled_by_user) VALUES(?,?,?,'draft',1,?,?,?,?,?,?)")
+            .bind(&id).bind(&id).bind(request.to_string()).bind(serde_json::to_string(&draft).unwrap()).bind(document.to_string()).bind(state).bind(&due).bind(filing).bind(scheduled).execute(&db).await.unwrap();
         if visible {
             expected.push(id);
         }

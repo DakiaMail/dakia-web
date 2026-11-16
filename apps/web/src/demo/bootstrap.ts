@@ -42,9 +42,9 @@ export async function installDemo() {
     const target = new URL(request.url);
     request.signal.throwIfAborted();
     if (target.origin === location.origin && target.pathname.startsWith("/api/")) return mailbox.fetch(request);
-    // Only the existing app release check needs HTTP. Everything else fails
+    // Only app release and install metadata need HTTP. Everything else fails
     // closed, including future unimplemented API calls and remote images.
-    if (target.origin === location.origin && target.pathname === "/app-version.json" && request.method === "GET") return networkFetch(request);
+    if (target.origin === location.origin && ["/app-version.json", "/manifest.webmanifest"].includes(target.pathname) && request.method === "GET") return networkFetch(request);
     return Response.json({ code: "unavailable", message: "This action is unavailable." }, { status: 403 });
   };
   const sources = new Set<LocalEvents>();

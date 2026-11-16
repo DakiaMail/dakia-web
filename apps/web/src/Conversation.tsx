@@ -1,9 +1,9 @@
 import { messageContent } from "./messageContent";
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronDown, CornerUpRight, FileText, RefreshCw, Reply, ReplyAll } from "lucide-react";
+import { ChevronDown, CornerUpRight, FileText, Reply, ReplyAll } from "lucide-react";
 import type { Account, Draft, Message, MessageContent } from "@dakia/api-types";
-import { api, ApiFailure } from "./api";
+import { api } from "./api";
 import { KeyHint } from "./KeyboardHints";
 import { ErrorNotice } from "./ui";
 import { Translation } from "./Translation";
@@ -18,7 +18,6 @@ type Props = {
   dark: boolean;
   alwaysLoadImages: boolean;
   blockHiddenImages: boolean;
-  readFailed?: boolean;
   onReply: (mode: ReplyMode, content: MessageContent) => void;
   onDraft: (draft: Draft) => void;
   onCleanup?: (rows: Message[]) => void;
@@ -28,7 +27,6 @@ type Props = {
 export function Conversation(props: Props) {
   const { selected } = props;
   const cleanupRows = props.cleanupRows || {};
-  const force = useRef(false);
 
   const snapshot = useQuery({
     queryKey: ["conversation-snapshot", selected.account_id, selected.id],
@@ -39,11 +37,11 @@ export function Conversation(props: Props) {
   const thread = useInfiniteQuery({
     queryKey: ["conversation", selected.account_id, selected.id],
     initialPageParam: null as string | null,
-    queryFn: ({ pageParam, signal }) => api.conversation(selected, pageParam, signal, force.current ? "refresh" : undefined),
+    queryFn: ({ pageParam, signal }) => api.conversation(selected, pageParam, signal),
     getNextPageParam: p => p.continuation || undefined,
     staleTime: 30000,
     // SSE refreshes saved conversation rows. Provider discovery runs on open
-    // and explicit refresh, never repeatedly while someone reads a message.
+    // never repeatedly while someone reads a message.
     refetchInterval: false,
     refetchOnWindowFocus: false,
     retry: false,
@@ -55,7 +53,6 @@ export function Conversation(props: Props) {
   // restarting provider work. SSE invalidates only the local snapshot key.
   useEffect(() => {
     if (thread.dataUpdatedAt) {
-      if (!thread.hasNextPage) force.current = false;
       void snapshot.refetch();
     }
   }, [thread.dataUpdatedAt, snapshot.refetch]);
@@ -71,18 +68,7 @@ export function Conversation(props: Props) {
   });
   return <article className="message conversation" aria-label="Conversation">
     <div className="conversation-title"><h2 dir="auto">{selected.subject || "(No subject)"}</h2>
-      <button className="conversation-refresh" aria-label="Check for more messages" title="Check for more messages" disabled={thread.isFetching} onClick={() => { force.current = true; void thread.refetch(); }}><RefreshCw size={16} aria-hidden="true" /></button>
     </div>
-    {props.readFailed && <p className="reader-status" role="status">Still marked unread. You can mark it as read from the toolbar.</p>}
-    {(thread.isError || snapshot.isError) && <div className="reader-status" role="status"><span>Couldn’t check for more messages.</span> <button title="Retry conversation" disabled={thread.isFetching || snapshot.isFetching} onClick={() => {
-      if (snapshot.isError) void snapshot.refetch();
-      if (thread.isError) {
-        // Continuations live in server memory and expire after 15 minutes (or
-        // on restart). Replaying one forever cannot recover the conversation.
-        const expired = thread.error instanceof ApiFailure && thread.error.code === "conversation_refresh_required";
-        void (thread.hasNextPage && !expired ? thread.fetchNextPage() : thread.refetch());
-      }
-    }}>Retry conversation</button></div>}
 
     <div className="conversation-messages">
       {rows.map((message, i) => <ConversationMessage key={`${message.account_id}/${message.id}`} {...props} message={message}

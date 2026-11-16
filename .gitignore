@@ -25,3 +25,6 @@
 /.dakia-upgrades/
 
 **/dist-demo/
+/crates/inference/assets/multilingual-e5-small/model.onnx
+/crates/inference/assets/multilingual-e5-small/tokenizer.json
+/crates/inference/assets/multilingual-e5-small/.download-*

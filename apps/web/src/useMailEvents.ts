@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { eventAffects } from "./mailEventPolicy";
+import { eventAffects, mailContentChanged } from "./mailEventPolicy";
 import type { Account, Event as MailEvent } from "@dakia/api-types";
 export function useMailEvents(accounts: Account[]) {
   const client = useQueryClient();
@@ -18,13 +18,31 @@ export function useMailEvents(accounts: Account[]) {
         let stopped = false;
         let retry: ReturnType<typeof setTimeout>;
         let debounce: ReturnType<typeof setTimeout>;
+        let indexingDebounce: ReturnType<typeof setTimeout>;
+        let indexingDirty=false, indexingScheduled=false, indexingFlushing=false;
         let failures = 0;
         let bootstrapped = false;
         let scheduled = false;
         let flushing = false;
+        let providerDirty = false;
         const kinds = new Set<string>(), targets = new Set<string>();
-        const refresh = (kind: string, target = "") => {
+        const refreshIndexing = () => {
+          indexingDirty=true;
+          if(indexingScheduled || indexingFlushing || stopped) return;
+          indexingScheduled=true;
+          indexingDebounce=setTimeout(()=>{
+            indexingScheduled=false;indexingFlushing=true;indexingDirty=false;
+            void client.invalidateQueries({queryKey:["indexing",id]}, {cancelRefetch:false}).finally(()=>{
+              indexingFlushing=false;
+              if(indexingDirty) refreshIndexing();
+            });
+          },0);
+        };
+        const refresh = (kind: string, target = "", providerChange = mailContentChanged(new Set([kind]))) => {
           kinds.add(kind); targets.add(target);
+          providerDirty ||= providerChange;
+          if(["reset","message_changed","operation_changed","snooze_woke","rules_changed","index_changed"].includes(kind)
+            && client.getQueryCache().find({queryKey:["indexing",id],exact:true,type:"active"})) refreshIndexing();
           schedule();
         };
         const schedule = () => {
@@ -34,8 +52,13 @@ export function useMailEvents(accounts: Account[]) {
             scheduled = false;
             flushing = true;
             const changes = new Set(kinds), ids = new Set(targets);
-            kinds.clear(); targets.clear();
-            void client.invalidateQueries({ predicate: query => eventAffects(query, id, changes, ids) }, { cancelRefetch: false }).finally(() => {
+            const providersChanged=providerDirty;
+            kinds.clear(); targets.clear(); providerDirty=false;
+            void client.invalidateQueries({ predicate: query => query.queryKey[0] !== "indexing" && eventAffects(query, id, changes, ids) }, { cancelRefetch: false }).then(() => {
+              // Adopt fresh provider roots only after the primary query settles.
+              // Initial stream setup and index progress do not restart providers.
+              if(providersChanged && !stopped) client.setQueryData<number>(["search-mail-generation",id],old=>(old||0)+1);
+            }).finally(() => {
               flushing = false;
               // Do not lose the last event in a slow local snapshot request.
               if (kinds.size) schedule();
@@ -54,7 +77,7 @@ export function useMailEvents(accounts: Account[]) {
               const previous = cursors.current.get(id);
               cursors.current.set(id, ready.cursor);
               failures = 0;
-              if (ready.reset && (!bootstrapped || previous !== ready.cursor)) refresh("reset");
+              if (ready.reset && (!bootstrapped || previous !== ready.cursor)) refresh("reset", "", bootstrapped);
               bootstrapped = true;
             } catch { /* Ignore malformed stream records. */ }
           });
@@ -95,6 +118,7 @@ export function useMailEvents(accounts: Account[]) {
           source?.close();
           clearTimeout(retry);
           clearTimeout(debounce);
+          clearTimeout(indexingDebounce);
         };
       });
     return () => cleanups.forEach((stop) => stop());

@@ -27,6 +27,8 @@ async fn limited_scan_freshness_expiry_conflicts_errors_and_pruning_are_independ
         counts_exact: false,
         cache_preview: None,
         index_page: None,
+        search: None,
+        supplement: None,
     };
     store
         .record_scan(&a, "INBOX", generation, &page)

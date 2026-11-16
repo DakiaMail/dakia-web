@@ -1,4 +1,7 @@
 use super::*;
+
+pub(crate) const STARRED_PREDICATE: &str = "json_extract(document,'$.starred')=1 AND json_array_length(document,'$.folder_ids')>0
+             AND CASE WHEN json_valid(json_extract(document,'$.provider_id')) THEN NOT EXISTS(SELECT 1 FROM provider_documents v WHERE v.key='thread:epoch:'||json_extract(json_extract(m.document,'$.provider_id'),'$.folder') AND CAST(v.document AS INTEGER)<>json_extract(json_extract(m.document,'$.provider_id'),'$.uidvalidity')) ELSE 1 END";
 use base64::{engine::general_purpose::STANDARD, Engine};
 
 // A failed/cancelled transaction never owns its newly created cache file.
@@ -17,17 +20,14 @@ impl Store {
     pub async fn known_provider_message(
         &self,
         a: &AuthorizedAccount,
-        provider_id: &str,
+        provider: &str,
     ) -> Result<Option<Message>> {
-        let db = self.db(a).await?;
         let mut timing = timing::Timing::new("identity_pool_acquire");
-        let mut connection = db.acquire().await?;
+        let repository = self.account_repository(a).await?;
         timing.stage("identity_query");
-        let raw: Option<String> = sqlx::query_scalar("SELECT m.document FROM message_identities i JOIN messages m ON m.id=i.message_id WHERE i.provider_id=?")
-            .bind(provider_id).fetch_optional(&mut *connection).await?;
+        let result = repository.known_provider_message(provider).await;
         timing.stage("identity_decode");
-        raw.map(|s| serde_json::from_str(&s).map_err(Error::from))
-            .transpose()
+        result
     }
     /// Saved starred navigation remains usable without a mail provider. This is
     /// a local projection, never a promise of complete provider coverage.
@@ -47,20 +47,10 @@ impl Store {
         category: Option<&str>,
         filter: &ClassificationFilter,
     ) -> Result<Vec<Message>> {
-        let db = self.db(a).await?;
-        let rows: Vec<String> = sqlx::query_scalar(&format!(
-            "SELECT document FROM messages m CROSS JOIN (SELECT ? AS filter) cf WHERE json_extract(document,'$.starred')=1 AND json_array_length(document,'$.folder_ids')>0
-             AND CASE WHEN json_valid(json_extract(document,'$.provider_id')) THEN NOT EXISTS(SELECT 1 FROM provider_documents v WHERE v.key='thread:epoch:'||json_extract(json_extract(m.document,'$.provider_id'),'$.folder') AND CAST(v.document AS INTEGER)<>json_extract(json_extract(m.document,'$.provider_id'),'$.uidvalidity')) ELSE 1 END
-             {CLASSIFICATION_SQL}
-             AND (? IS NULL OR json_extract(document,'$.category') IS NULL OR json_extract(document,'$.category')=?)
-             AND (? IS NULL OR (json_extract(document,'$.received_at'),id)<(?,?))
-             ORDER BY json_extract(document,'$.received_at') DESC,id DESC LIMIT 51",
-        )).bind(serde_json::to_string(filter)?).bind(category).bind(category)
-            .bind(before.map(|b| b.0)).bind(before.map(|b| b.0)).bind(before.map(|b| b.1))
-            .fetch_all(&db).await?;
-        rows.into_iter()
-            .map(|raw| Ok(serde_json::from_str(&raw)?))
-            .collect()
+        self.account_repository(a)
+            .await?
+            .starred_rows(before, category, filter)
+            .await
     }
     /// Bounded keyset walk, including already cached rows so missing/legacy
     /// blobs are repaired. Never use an obsolete IMAP UIDVALIDITY identity.
@@ -69,18 +59,10 @@ impl Store {
         a: &AuthorizedAccount,
         after: &str,
     ) -> Result<Vec<Message>> {
-        let db = self.db(a).await?;
-        let rows: Vec<String> = sqlx::query_scalar(
-            "SELECT document FROM messages m WHERE id>? AND json_extract(document,'$.starred')=1 AND json_array_length(document,'$.folder_ids')>0
-             AND CASE WHEN json_valid(json_extract(document,'$.provider_id')) THEN NOT EXISTS(SELECT 1 FROM provider_documents v WHERE v.key='thread:epoch:'||json_extract(json_extract(m.document,'$.provider_id'),'$.folder') AND CAST(v.document AS INTEGER)<>json_extract(json_extract(m.document,'$.provider_id'),'$.uidvalidity')) ELSE 1 END
-             ORDER BY id LIMIT 2",
-        )
-        .bind(after)
-        .fetch_all(&db)
-        .await?;
-        rows.into_iter()
-            .map(|raw| Ok(serde_json::from_str(&raw)?))
-            .collect()
+        self.account_repository(a)
+            .await?
+            .starred_cache_rows(after)
+            .await
     }
     pub async fn message_id(&self, a: &AuthorizedAccount, provider_id: &str) -> Result<String> {
         Ok(self
@@ -91,29 +73,13 @@ impl Store {
     pub async fn message_ids(
         &self,
         a: &AuthorizedAccount,
-        provider_ids: &[String],
+        providers: &[String],
     ) -> Result<Vec<String>> {
         let _guard = self.gate.read().await;
-        let db = self.db(a).await?;
-        let mut tx = db.begin().await?;
-        let mut ids = Vec::with_capacity(provider_ids.len());
-        for provider_id in provider_ids {
-            sqlx::query(
-                "INSERT OR IGNORE INTO message_identities(provider_id,message_id) VALUES(?,?)",
-            )
-            .bind(provider_id)
-            .bind(Uuid::new_v4().to_string())
-            .execute(&mut *tx)
-            .await?;
-            ids.push(
-                sqlx::query_scalar("SELECT message_id FROM message_identities WHERE provider_id=?")
-                    .bind(provider_id)
-                    .fetch_one(&mut *tx)
-                    .await?,
-            );
-        }
-        tx.commit().await?;
-        Ok(ids)
+        self.account_repository(a)
+            .await?
+            .message_ids(providers)
+            .await
     }
     pub async fn cache_content(
         &self,
@@ -136,7 +102,7 @@ impl Store {
         if content.message.account_id != a.id {
             return Err(Error::Invalid);
         }
-        let db = self.db(a).await?;
+        let repository = self.account_repository(a).await?;
         let directory = self.root.join("cache").join(&a.id);
         tokio::fs::create_dir_all(&directory).await?;
         let mut value = serde_json::to_value(content)?;
@@ -151,35 +117,9 @@ impl Store {
         let path = directory.join(&blob_id);
         let mut uncommitted = UncommittedCacheFile(Some(path.clone()));
         tokio::fs::write(&path, &bytes).await?;
-        let mut tx = db.begin().await?;
-        sqlx::query("UPDATE received_cache SET last_access=last_access WHERE message_id=?")
-            .bind(&content.message.id)
-            .execute(&mut *tx)
+        let evicted = repository
+            .put_cache(&content.message.id, &blob_id, bytes.len() as u64, budget)
             .await?;
-        let mut evicted: Vec<String> =
-            sqlx::query_scalar("SELECT blob_id FROM received_cache WHERE message_id=?")
-                .bind(&content.message.id)
-                .fetch_all(&mut *tx)
-                .await?;
-        sqlx::query("INSERT INTO received_cache(message_id,blob_id,size_bytes,last_access) VALUES(?,?,?,?) ON CONFLICT(message_id) DO UPDATE SET blob_id=excluded.blob_id,size_bytes=excluded.size_bytes,last_access=excluded.last_access").bind(&content.message.id).bind(&blob_id).bind(bytes.len() as i64).bind(now()).execute(&mut *tx).await?;
-        let mut total: i64 =
-            sqlx::query_scalar("SELECT COALESCE(SUM(size_bytes),0) FROM received_cache")
-                .fetch_one(&mut *tx)
-                .await?;
-        let rows=sqlx::query("SELECT c.message_id,c.blob_id,c.size_bytes FROM received_cache c JOIN messages m ON m.id=c.message_id ORDER BY json_extract(m.document,'$.starred'),c.last_access,c.message_id").fetch_all(&mut *tx).await?;
-        for row in rows {
-            if total as u64 <= budget {
-                break;
-            }
-            total -= row.get::<i64, _>("size_bytes");
-            let id: String = row.get("message_id");
-            evicted.push(row.get("blob_id"));
-            sqlx::query("DELETE FROM received_cache WHERE message_id=?")
-                .bind(id)
-                .execute(&mut *tx)
-                .await?;
-        }
-        tx.commit().await?;
         uncommitted.0 = None;
         for id in evicted {
             let path = directory.join(id);
@@ -196,14 +136,9 @@ impl Store {
     pub(crate) async fn cleanup_received_orphans(
         &self,
         a: &AuthorizedAccount,
-        db: &SqlitePool,
+        blobs: Vec<String>,
     ) -> Result<()> {
-        let retained: std::collections::HashSet<String> =
-            sqlx::query_scalar("SELECT blob_id FROM received_cache")
-                .fetch_all(db)
-                .await?
-                .into_iter()
-                .collect();
+        let retained = blobs.into_iter().collect::<std::collections::HashSet<_>>();
         let mut entries = match tokio::fs::read_dir(self.root.join("cache").join(a.id())).await {
             Ok(entries) => entries,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
@@ -225,12 +160,8 @@ impl Store {
         a: &AuthorizedAccount,
         id: &str,
     ) -> Result<Option<serde_json::Value>> {
-        let db = self.db(a).await?;
-        let blob: Option<String> =
-            sqlx::query_scalar("SELECT blob_id FROM received_cache WHERE message_id=?")
-                .bind(id)
-                .fetch_optional(&db)
-                .await?;
+        let repository = self.account_repository(a).await?;
+        let blob = repository.cache_blob(id).await?;
         let Some(blob) = blob else { return Ok(None) };
         Uuid::parse_str(&blob).map_err(|_| Error::Invalid)?;
         let bytes = match tokio::fs::read(self.root.join("cache").join(a.id()).join(blob)).await {
@@ -238,11 +169,7 @@ impl Store {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
             Err(e) => return Err(e.into()),
         };
-        sqlx::query("UPDATE received_cache SET last_access=? WHERE message_id=?")
-            .bind(now())
-            .bind(id)
-            .execute(&db)
-            .await?;
+        repository.touch_cache(id).await?;
         Ok(Some(serde_json::from_slice(&bytes)?))
     }
     pub async fn cached_raw(&self, a: &AuthorizedAccount, id: &str) -> Result<Option<Vec<u8>>> {
@@ -275,10 +202,8 @@ impl Store {
     }
     pub async fn evict_received(&self, a: &AuthorizedAccount) -> Result<()> {
         let _guard = self.gate.write().await;
-        let db = self.db(a).await?;
-        sqlx::query("DELETE FROM received_cache")
-            .execute(&db)
-            .await?;
+        let repository = self.account_repository(a).await?;
+        repository.evict_received().await?;
         let directory = self.root.join("cache").join(&a.id);
         if directory.exists() {
             tokio::fs::remove_dir_all(directory).await?;

@@ -103,6 +103,8 @@ async fn partial_coverage_across_pages_cannot_prune_or_certify_a_folder() {
         counts_exact: false,
         cache_preview: None,
         index_page: None,
+        search: None,
+        supplement: None,
     };
     store
         .record_scan(&a, "INBOX", generation, &page)

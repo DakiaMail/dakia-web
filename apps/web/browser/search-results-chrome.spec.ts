@@ -85,7 +85,7 @@ for (const width of [320, 390, 1480]) test(`search results chrome ${width}`, asy
   // Real provider errors remain actionable, unlike routine partial coverage.
   failed = true;
   await input.fill("planning again"); await input.press("Enter");
-  await expect(page.getByRole("alert")).toContainText("Couldn’t finish checking the provider");
+  await expect(page.getByRole("alert")).toContainText("Some accounts couldn’t be searched completely. Try searching again.");
   await expect(page.locator(".message-open").first()).toBeVisible();
   expect(external).toEqual([]); expect(writes).toEqual([]);
 });

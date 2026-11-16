@@ -73,7 +73,7 @@ for (const width of [390, 1480]) {
       visible.forEach(name => names.add(name));
     }
     expect(names.size).toBe(73);
-    await expect(page.getByRole("status").filter({ hasText: "End of loaded mail" })).toBeVisible();
+    await expect(page.getByRole("status").filter({ hasText: "End of loaded mail" })).toHaveCount(0);
     const dir = resolve("../../verification/infinite-loading"); mkdirSync(dir, { recursive: true });
     await page.screenshot({ path: `${dir}/${width}-personal-end.png`, fullPage: true });
     await page.getByRole("tab", { name: "All", exact: true }).click();

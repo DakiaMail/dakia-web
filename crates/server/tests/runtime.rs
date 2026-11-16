@@ -4,13 +4,13 @@ use dakia_domain::*;
 use dakia_storage::Store;
 use sha2::{Digest, Sha256};
 
-#[tokio::test]
-async fn runtime_translation_queue_and_mutation_http_boundaries() {
+async fn runtime_contract(application: Option<&str>, search: Option<&str>) {
     let dir = tempfile::tempdir().unwrap();
     let data = dir.path().join("data");
-    let store = Store::open_with_attachment_budget(&data, [8; 32], 10)
+    let mut store = Store::open_with_database(&data, [8; 32], 10, application)
         .await
         .unwrap();
+    store.configure_search_database(search).await.unwrap();
     let user = store
         .user("https://id.example.invalid", "owner")
         .await
@@ -20,17 +20,20 @@ async fn runtime_translation_queue_and_mutation_http_boundaries() {
             .user("https://id.example.invalid", subject)
             .await
             .unwrap();
-        sqlx::query("INSERT INTO sessions(token_hash,user_id,csrf,expires_at) VALUES(?,?,?,?)")
-            .bind(URL_SAFE_NO_PAD.encode(Sha256::digest(token.as_bytes())))
-            .bind(user)
-            .bind("fixture-csrf")
-            .bind(4102444800_i64)
-            .execute(store.control())
+        store
+            .control_repository()
+            .create_session(
+                &URL_SAFE_NO_PAD.encode(Sha256::digest(token.as_bytes())),
+                &user,
+                "fixture-csrf",
+                4102444800,
+            )
             .await
             .unwrap();
     }
-    sqlx::query("INSERT INTO settings(key,value) VALUES('jobs_enabled','false')")
-        .execute(store.control())
+    store
+        .control_repository()
+        .put_setting("jobs_enabled", "false")
         .await
         .unwrap();
     let input: ConnectAccount = serde_json::from_value(serde_json::json!({"email":"owner@example.invalid","display_name":"Fixture","provider":"imap","imap_host":"imap.example.invalid","imap_port":993,"imap_tls":"implicit","smtp_host":"smtp.example.invalid","smtp_port":465,"smtp_tls":"implicit","username":"owner","password":"fixture-only"})).unwrap();
@@ -46,6 +49,30 @@ async fn runtime_translation_queue_and_mutation_http_boundaries() {
         .cache_content(&scope, &content, 1024 * 1024)
         .await
         .unwrap();
+    store.index_search_headers(&scope).await.unwrap();
+    store
+        .put_search_body(
+            &scope,
+            &message,
+            "runtimebody lexical token",
+            "ready",
+            Some(false),
+        )
+        .await
+        .unwrap();
+    // Wait for the selected destination before launching the separately compiled
+    // server, so body matching exercises persisted search through real HTTP.
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+    loop {
+        if store.flush_search_index(&scope).await.is_ok() {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "selected search store did not become ready"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
     drop(store);
     let key_path = dir.path().join("key");
     let oidc_path = dir.path().join("oidc");
@@ -57,7 +84,8 @@ async fn runtime_translation_queue_and_mutation_http_boundaries() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let binary = std::env::var("DAKIA_TEST_SERVER_BINARY")
         .unwrap_or_else(|_| env!("CARGO_BIN_EXE_dakia-server").into());
-    let mut child = tokio::process::Command::new(binary)
+    let mut command = tokio::process::Command::new(binary);
+    command
         .current_dir(&root)
         .kill_on_drop(true)
         .env("DAKIA_ORIGIN", "https://dakia.example.invalid")
@@ -69,10 +97,16 @@ async fn runtime_translation_queue_and_mutation_http_boundaries() {
         .env("DAKIA_LISTEN", address.to_string())
         .env("DAKIA_DURABLE_ATTACHMENT_BUDGET_BYTES", "10")
         .env("DAKIA_WORKERS", root.join("workers"))
+        .env(
+            "DAKIA_SEARCH_MODEL_DIR",
+            dir.path().join("absent-search-model"),
+        )
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .unwrap();
+        .stderr(std::process::Stdio::null());
+    command
+        .env("DAKIA_DATABASE_URL", application.unwrap_or(""))
+        .env("DAKIA_SEARCH_DATABASE_URL", search.unwrap_or(""));
+    let mut child = command.spawn().unwrap();
     let client = reqwest::Client::builder()
         .no_proxy()
         .timeout(std::time::Duration::from_secs(3))
@@ -115,7 +149,7 @@ async fn runtime_translation_queue_and_mutation_http_boundaries() {
             .header("origin", "https://dakia.example.invalid")
             .header("x-csrf-token", "fixture-csrf")
     };
-    // The real binary must answer from SQLite without resolving the fictional
+    // The real binary must answer from application storage without resolving the fictional
     // IMAP host. No test-only provider or API mock exists in this process.
     let preview_path = format!(
         "/search?q=subject:Synthetic&accounts={}&cache_first=true",
@@ -142,6 +176,44 @@ async fn runtime_translation_queue_and_mutation_http_boundaries() {
             .status(),
         404
     );
+    let indexed: SearchPage = request(
+        reqwest::Method::GET,
+        &format!(
+            "/search?q=runtimebody&accounts={}&cache_first=true",
+            account.id
+        ),
+        "owner-fixture",
+    )
+    .send()
+    .await
+    .unwrap()
+    .error_for_status()
+    .unwrap()
+    .json()
+    .await
+    .unwrap();
+    assert!(indexed.pending);
+    assert_eq!(indexed.rows.len(), 1);
+    assert_eq!(indexed.rows[0].id, message.id);
+    let progress: serde_json::Value = request(
+        reqwest::Method::GET,
+        &format!("/accounts/{}/indexing", account.id),
+        "owner-fixture",
+    )
+    .send()
+    .await
+    .unwrap()
+    .error_for_status()
+    .unwrap()
+    .json()
+    .await
+    .unwrap();
+    // The fixture deliberately has no model assets. Lexical delivery alone
+    // must not claim that semantic processing has finished.
+    assert_eq!(progress["processed"], 0);
+    assert_eq!(progress["backlog"], 1);
+    assert_eq!(progress["state"], "paused");
+    assert_eq!(progress["eligible"], 1);
     let translation = format!(
         "/accounts/{}/messages/{}/translation",
         account.id, message.id
@@ -341,4 +413,47 @@ async fn runtime_translation_queue_and_mutation_http_boundaries() {
         .unwrap();
     assert!(exit.success());
     assert!(stream.bytes().await.is_ok());
+}
+
+#[tokio::test]
+async fn runtime_translation_queue_and_mutation_http_boundaries() {
+    runtime_contract(None, None).await;
+}
+#[tokio::test]
+#[ignore = "requires disposable dakia_runtime_test database; DAKIA_TEST_RUNTIME_POSTGRES_URL"]
+async fn four_backend_native_server_http_contract() {
+    let url = std::env::var("DAKIA_TEST_RUNTIME_POSTGRES_URL").unwrap();
+    let options: sqlx::postgres::PgConnectOptions = url.parse().unwrap();
+    assert_eq!(
+        options.get_database(),
+        Some("dakia_runtime_test"),
+        "refuse to reset any other database"
+    );
+    for (postgres_app, postgres_search) in
+        [(false, false), (false, true), (true, false), (true, true)]
+    {
+        let admin = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(1)
+            .connect_with(options.clone())
+            .await
+            .unwrap();
+        for schema in ["dakia_mail", "dakia_control", "dakia_search"] {
+            sqlx::query(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE"))
+                .execute(&admin)
+                .await
+                .unwrap();
+        }
+        admin.close().await;
+        let temp = tempfile::tempdir().unwrap();
+        let sqlite = format!("sqlite:{}", temp.path().join("search.sqlite").display());
+        runtime_contract(
+            postgres_app.then_some(url.as_str()),
+            Some(if postgres_search {
+                url.as_str()
+            } else {
+                &sqlite
+            }),
+        )
+        .await;
+    }
 }

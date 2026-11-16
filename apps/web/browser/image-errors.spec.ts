@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import { accounts, content, page as mail } from "./fixtures";
 
 const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAFAAAAAgCAIAAAAKUWg7AAAAQklEQVR4nO3PAQkAIBDAQCMawKxmM4awP1iA3Tr7jmp9PwAGBgYGBgYeE3A94HrA9YDrAdcDrgdcD7gecD3gesD1HgWJJNNntUVKAAAAAElFTkSuQmCC";
-for (const width of [390, 1480]) test(`honest independent image failures ${width}`, async ({ page }) => {
+for (const width of [390, 1480]) test(`image failures stay quiet and can be retried ${width}`, async ({ page }) => {
   await page.setViewportSize({ width, height: 980 });
   let recover = false;
   const calls: string[] = [];
@@ -35,13 +35,14 @@ for (const width of [390, 1480]) test(`honest independent image failures ${width
   await page.goto("/");
   await page.getByRole("button", { name: /Maya Chen.*A few thoughts/ }).click();
   const frame = page.frameLocator('iframe[title="Message body"]');
-  await expect(page.locator("summary")).toHaveText("4 images could not be loaded.");
+  await expect.poll(() => calls).toEqual(["/0", "/1", "/2", "/3"]);
+  await expect(page.locator(".image-status")).toHaveCount(0);
+  await expect(page.getByRole("alert")).toHaveCount(0);
   await expect(frame.locator("img")).toHaveCount(0);
-  await page.locator("summary").click();
-  for (const text of ["Image host unavailable or returned an error", "unsafe, invalid or too many redirects", "not a supported PNG", "5 MiB size limit"]) await expect(page.getByText(text, { exact: false })).toBeVisible();
   await expect(page.getByText("upstream private URL", { exact: false })).toHaveCount(0);
   recover = true;
-  await page.getByRole("button", { name: "Retry loading images" }).click();
+  await page.getByRole("button", { name: "Retry loading images" }).focus();
+  await page.keyboard.press("Enter");
   await expect(page.locator(".image-status")).toHaveCount(0);
   await expect.poll(() => frame.locator("img").evaluateAll(nodes => nodes.length === 1 && (nodes[0] as HTMLImageElement).naturalWidth === 80)).toBe(true);
   expect(calls).toEqual(["/0", "/1", "/2", "/3", "/0", "/1", "/2", "/3"]);

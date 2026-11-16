@@ -1,13 +1,16 @@
-import { ArrowLeft, Bell, Keyboard, Mail, Plus, Settings2, Shield } from "lucide-react";
+import { ArrowLeft, Keyboard, Mail, Plus, Settings2, Shield } from "lucide-react";
 import type { Account } from "@dakia/api-types";
 import { useEffect, useRef, useState } from "react";
+import { SearchSettings } from "./SearchSettings";
 import { TranslationSettings } from "./TranslationSettings";
 import { Invitations } from "./Invitations";
 import { BlockedSenders } from "./BlockedSenders";
 import { ReleaseSettings } from "./Releases";
+import { NotificationSettings } from "./NotificationSettings";
+import { MailLinkSettings } from "./MailLinkSettings";
 import { InstallApp } from "./InstallApp";
 
-export function Workspace({ updatesFocus = 0, userId, accounts, onBack, onConnect, onSettings, onRemove, onReconnect, onNotifications, notificationStatus, alwaysLoadImages, onImagePrivacyChange, blockHiddenImages, onHiddenImagesChange, keyboardHints, onKeyboardHintsChange, keyboardShortcuts, onKeyboardShortcutsChange, onShortcutHelp }: {
+export function Workspace({ updatesFocus = 0, userId, accounts, onBack, onConnect, onSettings, onRemove, onReconnect, alwaysLoadImages, onImagePrivacyChange, blockHiddenImages, onHiddenImagesChange, keyboardHints, onKeyboardHintsChange, keyboardShortcuts, onKeyboardShortcutsChange, onShortcutHelp }: {
   updatesFocus?: number;
   userId?: string;
   keyboardHints: boolean;
@@ -21,8 +24,6 @@ export function Workspace({ updatesFocus = 0, userId, accounts, onBack, onConnec
   onSettings: (account: Account) => void;
   onRemove: (account: Account) => void;
   onReconnect: (account: Account) => void;
-  onNotifications: () => void;
-  notificationStatus: string;
   alwaysLoadImages: boolean;
   onImagePrivacyChange: (enabled: boolean) => void;
   blockHiddenImages: boolean;
@@ -49,7 +50,7 @@ export function Workspace({ updatesFocus = 0, userId, accounts, onBack, onConnec
         </div>
       </section>
       <section className="workspace-notifications" aria-labelledby="workspace-privacy">
-        <span className="workspace-account-icon"><Shield size={20} /></span><div><h2 id="workspace-privacy">Email privacy</h2><p>Recent mail is saved on this browser for faster opening. Signing out clears saved mail.</p><label className="privacy-toggle"><input type="checkbox" checked={!alwaysLoadImages} onChange={(event) => { try { onImagePrivacyChange(!event.target.checked); setPrivacyError(""); } catch { setPrivacyError("Could not save this preference. Check browser storage permissions."); } }} />Block external images by default</label><p>Off by default. Loading external images can tell senders when you open mail. Turn on to load images only when you choose.</p><label className="privacy-toggle"><input type="checkbox" checked={blockHiddenImages} onChange={(event) => { try { onHiddenImagesChange(event.target.checked); setPrivacyError(""); } catch { setPrivacyError("Could not save this preference. Check browser storage permissions."); } }} />Block hidden images and tracking pixels</label><p>Off by default. Skips explicitly hidden and zero/one-pixel images, including some legitimate assets. This cannot detect every tracker. Applies even when you choose Load images.</p><p>Saved separately for your signed-in user, for all your accounts on this browser. Existing image-loading choices are preserved. Network isolation and message sandboxing are always enforced.</p>{privacyError && <p role="alert">{privacyError}</p>}</div>
+        <span className="workspace-account-icon"><Shield size={20} /></span><div><h2 id="workspace-privacy">Email privacy</h2><p>Recent mail is saved on this browser for faster opening. Signing out clears saved mail.</p><label className="privacy-toggle"><input type="checkbox" checked={!alwaysLoadImages} onChange={(event) => { try { onImagePrivacyChange(!event.target.checked); setPrivacyError(""); } catch { setPrivacyError("Could not save this preference. Check browser storage permissions."); } }} />Block external images by default</label><p>Off by default. Loading external images can tell senders when you open mail. Turn on to load images only when you choose.</p><label className="privacy-toggle"><input type="checkbox" checked={blockHiddenImages} onChange={(event) => { try { onHiddenImagesChange(event.target.checked); setPrivacyError(""); } catch { setPrivacyError("Could not save this preference. Check browser storage permissions."); } }} />Block hidden images and tracking pixels</label><p>Some email images may be hidden too.</p>{privacyError && <p role="alert">{privacyError}</p>}</div>
       </section>
       <BlockedSenders accounts={accounts} />
       {userId && <Invitations key={userId} userId={userId} />}
@@ -64,11 +65,11 @@ export function Workspace({ updatesFocus = 0, userId, accounts, onBack, onConnec
           {keyboardError && <p role="alert">{keyboardError}</p>}
         </div>
       </section>
+      {userId && <SearchSettings userId={userId} />}
       {userId && <TranslationSettings userId={userId} />}
       <InstallApp />
-      <section className="workspace-notifications" aria-labelledby="workspace-notifications">
-        <span className="workspace-account-icon"><Bell size={20} /></span><div><h2 id="workspace-notifications">Notifications</h2><p>Get new-mail notifications on this browser.</p><button title="Enable notifications" onClick={onNotifications} disabled={notificationStatus === "Enabling…"}>Enable notifications</button>{notificationStatus && <p role="status">{notificationStatus}</p>}</div>
-      </section>
+      <MailLinkSettings />
+      <NotificationSettings key={userId} />
     </div>
   </main>;
 }

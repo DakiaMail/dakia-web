@@ -17,6 +17,12 @@ pub mod push;
 mod releases;
 mod rules;
 mod search;
+pub mod search_lexical;
+pub mod search_models;
+pub mod search_policy;
+mod search_query_model;
+mod search_resources;
+mod search_status;
 mod sender_cleanup;
 mod sender_mail;
 mod sync;
@@ -42,6 +48,7 @@ use openidconnect::{
 use rand::RngCore;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
+#[cfg(test)]
 use sqlx::Row;
 use std::sync::Arc;
 use tower_http::services::{ServeDir, ServeFile};
@@ -164,16 +171,15 @@ fn session_cookie(value: &str, max_age: u32) -> String {
     format!("__Host-dakia={value}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age={max_age}")
 }
 async fn identity(app: &App, token_hash: &str) -> Result<Identity> {
-    let row = sqlx::query("SELECT user_id,csrf FROM sessions WHERE token_hash=? AND expires_at>?")
-        .bind(token_hash)
-        .bind(Utc::now().timestamp())
-        .fetch_optional(app.store.control())
-        .await
-        .map_err(StorageError::from)?;
+    let row = app
+        .store
+        .control_repository()
+        .session(token_hash, Utc::now().timestamp())
+        .await?;
     let row = row.ok_or(ApiFailure(StatusCode::UNAUTHORIZED, "login_required"))?;
     Ok(Identity {
-        user: row.get("user_id"),
-        csrf: row.get("csrf"),
+        user: row.user_id,
+        csrf: row.csrf,
         token_hash: token_hash.into(),
     })
 }
@@ -215,6 +221,10 @@ pub fn router_with_shutdown(app: App, shutdown: tokio::sync::watch::Sender<bool>
     let api = Router::new()
         .route("/session", get(session))
         .route(
+            "/search/settings",
+            get(search_policy::get_policy).put(search_policy::set_policy),
+        )
+        .route(
             "/translation/settings",
             get(translation_policy::get_policy).put(translation_policy::set_policy),
         )
@@ -253,6 +263,7 @@ pub fn router_with_shutdown(app: App, shutdown: tokio::sync::watch::Sender<bool>
         )
         .route("/push/public-key", get(push::public_key))
         .route("/push/subscriptions", post(push::subscribe))
+        .route("/push/subscriptions/{id}", get(push::status).delete(push::unsubscribe))
         .route(
             "/accounts/{account}",
             axum::routing::put(reconnect).delete(remove_account),
@@ -264,7 +275,9 @@ pub fn router_with_shutdown(app: App, shutdown: tokio::sync::watch::Sender<bool>
         )
         .route("/accounts/{account}/folders", get(folders))
         .route("/accounts/{account}/snoozes", get(snoozes))
+        .route("/accounts/{account}/mailbox-counts", get(mailbox_counts))
         .route("/accounts/{account}/sync-active", get(sync_active))
+        .route("/accounts/{account}/indexing", get(search_status::status))
         .route(
             "/accounts/{account}/settings",
             get(mailbox_settings).put(save_mailbox_settings),
@@ -587,11 +600,10 @@ fn attachment_disposition(filename: &str) -> String {
     format!("attachment; filename=\"{ascii}\"; filename*=UTF-8''{encoded}")
 }
 async fn logout(State(app): State<App>, Extension(id): Extension<Identity>) -> Result<Response> {
-    sqlx::query("DELETE FROM sessions WHERE token_hash=?")
-        .bind(id.token_hash)
-        .execute(app.store.control())
-        .await
-        .map_err(StorageError::from)?;
+    app.store
+        .control_repository()
+        .revoke_session(&id.token_hash)
+        .await?;
     Ok((
         [(header::SET_COOKIE, session_cookie("", 0))],
         StatusCode::NO_CONTENT,
@@ -634,6 +646,14 @@ async fn folders(
             .map(|f| f.name)
             .collect(),
     ))
+}
+async fn mailbox_counts(
+    State(app): State<App>,
+    Extension(user): Extension<Identity>,
+    Path(account): Path<String>,
+) -> Result<Json<serde_json::Value>> {
+    let a = app.store.authorize(&user.user, &account).await?;
+    Ok(Json(app.store.mailbox_counts(&a).await?))
 }
 async fn snoozes(
     State(app): State<App>,
@@ -918,19 +938,16 @@ async fn login(State(app): State<App>) -> Result<Response> {
         )
         .set_pkce_challenge(challenge)
         .url();
-    sqlx::query("DELETE FROM oidc_flows WHERE expires_at<=?")
-        .bind(Utc::now().timestamp())
-        .execute(app.store.control())
-        .await
-        .map_err(StorageError::from)?;
-    sqlx::query("INSERT INTO oidc_flows(state_hash,nonce,verifier,expires_at) VALUES(?,?,?,?)")
-        .bind(hash(state.secret()))
-        .bind(nonce.secret())
-        .bind(verifier.secret())
-        .bind(Utc::now().timestamp() + 600)
-        .execute(app.store.control())
-        .await
-        .map_err(StorageError::from)?;
+    app.store
+        .control_repository()
+        .start_oidc_flow(
+            &hash(state.secret()),
+            nonce.secret(),
+            verifier.secret(),
+            Utc::now().timestamp(),
+            Utc::now().timestamp() + 600,
+        )
+        .await?;
     // Browser-bound state prevents login CSRF, database deletion prevents replay.
     let cookie = format!(
         "__Host-dakia-flow={}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=600",
@@ -958,15 +975,12 @@ async fn callback(
     if cookie(&headers, "__Host-dakia-flow").as_deref() != Some(&q.state) {
         return Err(ApiFailure(StatusCode::BAD_REQUEST, "invalid_login_state"));
     }
-    let flow = sqlx::query(
-        "DELETE FROM oidc_flows WHERE state_hash=? AND expires_at>? RETURNING nonce,verifier",
-    )
-    .bind(hash(&q.state))
-    .bind(Utc::now().timestamp())
-    .fetch_optional(app.store.control())
-    .await
-    .map_err(StorageError::from)?
-    .ok_or(ApiFailure(StatusCode::BAD_REQUEST, "invalid_login_state"))?;
+    let flow = app
+        .store
+        .control_repository()
+        .consume_oidc_flow(&hash(&q.state), Utc::now().timestamp())
+        .await?
+        .ok_or(ApiFailure(StatusCode::BAD_REQUEST, "invalid_login_state"))?;
     let http = http()?;
     let meta = metadata(&app, &http).await?;
     let client = CoreClient::from_provider_metadata(
@@ -980,7 +994,7 @@ async fn callback(
     let tokens = client
         .exchange_code(AuthorizationCode::new(q.code))
         .map_err(internal)?
-        .set_pkce_verifier(PkceCodeVerifier::new(flow.get("verifier")))
+        .set_pkce_verifier(PkceCodeVerifier::new(flow.verifier))
         .request_async(&http)
         .await
         .map_err(internal)?;
@@ -990,7 +1004,7 @@ async fn callback(
     ))?;
     let verifier = client.id_token_verifier();
     let claims = id_token
-        .claims(&verifier, &Nonce::new(flow.get("nonce")))
+        .claims(&verifier, &Nonce::new(flow.nonce))
         .map_err(internal)?;
     let user = app
         .store
@@ -998,14 +1012,15 @@ async fn callback(
         .await?;
     let token = random();
     let csrf = random();
-    sqlx::query("INSERT INTO sessions(token_hash,user_id,csrf,expires_at) VALUES(?,?,?,?)")
-        .bind(hash(&token))
-        .bind(user)
-        .bind(csrf)
-        .bind(Utc::now().timestamp() + 86400 * 7)
-        .execute(app.store.control())
-        .await
-        .map_err(StorageError::from)?;
+    app.store
+        .control_repository()
+        .create_session(
+            &hash(&token),
+            &user,
+            &csrf,
+            Utc::now().timestamp() + 86400 * 7,
+        )
+        .await?;
     let mut response = Redirect::to("/").into_response();
     response.headers_mut().append(
         header::SET_COOKIE,

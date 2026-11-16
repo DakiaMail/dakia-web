@@ -1,9 +1,5 @@
 .conversation-title { display: flex; align-items: baseline; flex-wrap: wrap; gap: 8px 14px; margin-bottom: 24px; }
 .conversation-title h2 { margin: 0; overflow-wrap: anywhere; flex: 1; min-width: 0; }
-.conversation-refresh { color: var(--color-secondary); flex-shrink: 0; }
-.reader-status { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; color: var(--color-secondary); font-size: 12px; margin: 0 0 12px; }
-.reader-status button { padding: 2px 0; color: inherit; text-decoration: underline; }
-.image-status { color: var(--color-secondary); font-size: 12px; margin-top: 12px; }
 .message-body-placeholder { display: grid; gap: 10px; padding: 8px 0; }
 .message-body-placeholder span { height: 10px; border-radius: 4px; background: var(--color-subtle); }
 .message-body-placeholder span:last-child { width: 60%; }
@@ -37,8 +33,6 @@
   .message.conversation { padding: 18px 0 16px; }
   .conversation-title { gap: 4px; margin: 0 16px 16px; align-items: center; }
   .conversation-title h2 { font-size: 20px; line-height: 1.35; margin: 0; }
-  .conversation-refresh { display: none; }
-  .conversation > .reader-status { margin: 0 16px 12px; }
   .conversation-message { border: 0; border-radius: 0; }
   .conversation-summary { padding: 8px 16px; grid-template-columns: 32px minmax(0, 1fr) auto 16px; }
   .conversation-summary .avatar { grid-row: auto; }

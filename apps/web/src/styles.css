@@ -1723,3 +1723,44 @@ body {
   .mailbox > .mail-search-toolbar { grid-template-columns: minmax(0, 1fr) auto auto auto; }
   .mail-search-toolbar > .list-compose { grid-column: 4; grid-row: 1; margin: 0; }
 }
+
+.account-entry { min-width: 0; }
+.account-entry > button { width: 100%; }
+.account-indexing {
+  height: 2px;
+  margin: 0 10px 3px 36px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+.account-indexing > span {
+  display: block;
+  height: 100%;
+  background: var(--color-accent);
+  opacity: .85;
+  transition: width .5s ease;
+}
+.account-indexing.indeterminate > span {
+  width: 35%;
+  animation: account-indexing 2s ease-in-out infinite;
+}
+.account-indexing.paused > span { animation-play-state: paused; }
+@keyframes account-indexing { from { transform: translateX(-100%); } to { transform: translateX(386%); } }
+@media (prefers-reduced-motion: reduce) {
+  .account-indexing > span { transition: none; animation: none !important; }
+}
+
+.preference-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.install-guide-host { position: fixed; inset: 0; width: 100%; height: 100%; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; background: transparent; color: var(--color-text); }
+.install-guide-host::backdrop { background: rgb(0 0 0 / 38%); backdrop-filter: blur(5px); }
+.install-guide-error { margin: 20vh auto; max-width: 360px; padding: 24px; background: var(--color-bg); border-radius: 16px; }
+.mobile-install-invitation { position: fixed; z-index: 44; left: max(16px, env(safe-area-inset-left)); right: max(16px, env(safe-area-inset-right)); bottom: calc(20px + env(safe-area-inset-bottom)); display: flex; align-items: flex-start; gap: 14px; max-width: 420px; margin-inline: auto; padding: 20px; border: 1px solid var(--color-border); border-radius: 20px; background: var(--color-bg); box-shadow: 0 12px 40px rgb(0 0 0 / 18%); animation: install-invitation-in 280ms ease-out; }
+.mobile-install-invitation img { border-radius: 12px; flex-shrink: 0; }
+.mobile-install-invitation h2 { font-size: 16px; line-height: 1.35; margin: 0 22px 4px 0; }
+.mobile-install-invitation p { color: var(--color-secondary); margin: 0 0 14px; font-size: 13px; }
+.mobile-install-invitation .primary { min-height: 40px; padding-inline: 16px; }
+.mobile-install-invitation .install-dismiss { position: absolute; right: 8px; top: 8px; display: grid; place-items: center; width: 40px; height: 40px; padding: 0; }
+@keyframes install-invitation-in { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .mobile-install-invitation { animation: none; } }
+
+body:has([role="dialog"], dialog[open]) .mobile-install-invitation { display: none; }

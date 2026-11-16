@@ -80,6 +80,7 @@ test("production manifest, real worker, installability and static-only Cache Sto
   writeFileSync(`${dir}/chromium-installed.json`, JSON.stringify({ installed, launched }, null, 2));
   const app = await opening;
   await app.waitForURL(manifestId);
+  await fixture(app);
   await expect.poll(() => app.evaluate(() => matchMedia("(display-mode: standalone)").matches)).toBe(true);
   await screenshot(app, "chromium-installed-standalone");
   // Traverse the actual installed app's browser history, not only a viewport
@@ -101,12 +102,25 @@ test("production manifest, real worker, installability and static-only Cache Sto
   }
 });
 test("iPhone Safari instructions, safe-area layout, reader and compose", async ({ page, context }) => {
-  await page.addInitScript(() => Object.defineProperty(navigator, "userAgent", { get: () => "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1" }));
+  let announceUpdate: (() => Promise<void>) | undefined;
+  await page.route("**/app-version.json", route => { announceUpdate = () => route.fulfill({ json: { version: "pwa-next" } }); });
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "userAgent", { get: () => "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1" });
+    Object.defineProperty(navigator, "platform", { get: () => "iPhone" });
+    Object.defineProperty(navigator, "maxTouchPoints", { get: () => 5 });
+  });
   await fixture(page);
   await workspace(page);
-  await page.getByText("How to install", { exact: true }).click();
-  await expect(page.getByText(/In Safari, tap Share/)).toBeVisible();
+  await page.getByRole("button", { name: "Install Dakia", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Install Dakia", exact: true })).toBeVisible();
+  await expect(page.locator("pwa-install").getByRole("button", { name: "Add to Home Screen", exact: true })).toBeVisible();
+  await expect.poll(() => !!announceUpdate).toBe(true);
+  await announceUpdate!();
+  await expect(page.locator('.app-update button[title="Reload"]')).toBeDisabled();
   await screenshot(page, "chromium-iphone-ua-install-instructions");
+  await page.keyboard.press("Escape");
+  await expect(page.locator('.app-update button[title="Reload"]')).toBeEnabled();
+  await page.unroute("**/app-version.json");
   // Chromium does not emulate display-mode via Emulation.setEmulatedMedia.
   // Simulate Safari's standalone property, not a native iOS installation.
   await page.addInitScript(() => Object.defineProperty(navigator, "standalone", { value: true }));

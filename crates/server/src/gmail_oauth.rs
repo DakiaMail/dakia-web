@@ -44,9 +44,6 @@ fn http() -> reqwest::Client {
         .build()
         .expect("HTTP client")
 }
-fn unavailable(_: impl std::fmt::Display) -> ApiFailure {
-    ApiFailure(StatusCode::BAD_GATEWAY, "google_sign_in_unavailable")
-}
 pub(super) async fn status(State(app): State<App>) -> Json<serde_json::Value> {
     Json(serde_json::json!({"enabled": app.mail.gmail.is_some()}))
 }
@@ -80,16 +77,22 @@ pub(super) async fn start(
     let state = random();
     let (challenge, verifier) = PkceCodeChallenge::new_random_sha256();
     let now = Utc::now().timestamp();
-    sqlx::query("DELETE FROM gmail_oauth_flows WHERE expires_at<=? OR session_hash=?")
-        .bind(now)
-        .bind(&id.token_hash)
-        .execute(app.store.control())
-        .await
-        .map_err(StorageError::from)?;
-    sqlx::query("INSERT INTO gmail_oauth_flows(state_hash,session_hash,user_id,verifier,email,display_name,account_id,expires_at) VALUES(?,?,?,?,?,?,?,?)")
-        .bind(hash(&state)).bind(&id.token_hash).bind(&id.user).bind(verifier.secret())
-        .bind(&input.email).bind(&input.display_name).bind(&input.account_id).bind(now+600)
-        .execute(app.store.control()).await.map_err(StorageError::from)?;
+    app.store
+        .control_repository()
+        .start_gmail_flow(
+            &dakia_storage::control_repository::MailOAuthFlow {
+                state_hash: hash(&state),
+                session_hash: id.token_hash.clone(),
+                user_id: id.user.clone(),
+                verifier: verifier.secret().to_owned(),
+                email: input.email.clone(),
+                display_name: input.display_name.clone(),
+                account_id: input.account_id.clone(),
+                expires_at: now + 600,
+            },
+            now,
+        )
+        .await?;
     let mut url = url::Url::parse("https://accounts.google.com/o/oauth2/v2/auth").unwrap();
     url.query_pairs_mut().extend_pairs([
         ("client_id", config.client_id.as_str()),
@@ -133,12 +136,41 @@ async fn complete(
     Extension(id): Extension<Identity>,
     Query(input): Query<Callback>,
 ) -> Result<Redirect> {
-    let config = configured(&app)?;
+    let a = authorize(
+        &app,
+        &id,
+        input,
+        TOKEN_URL,
+        "https://openidconnect.googleapis.com/v1/userinfo",
+    )
+    .await?;
+    // Probe never sends a message. A failure leaves the saved account available to reconnect.
+    app.mail.probe(&app.store, &a).await?;
+    Ok(Redirect::to("/"))
+}
+async fn authorize(
+    app: &App,
+    id: &Identity,
+    input: Callback,
+    token_url: &str,
+    profile_url: &str,
+) -> Result<dakia_storage::AuthorizedAccount> {
+    let config = configured(app)?;
     // Atomically consume only a flow belonging to this exact signed-in session.
-    let row = sqlx::query("DELETE FROM gmail_oauth_flows WHERE state_hash=? AND session_hash=? AND user_id=? AND expires_at>? RETURNING *")
-        .bind(hash(&input.state)).bind(&id.token_hash).bind(&id.user).bind(Utc::now().timestamp())
-        .fetch_optional(app.store.control()).await.map_err(StorageError::from)?
-        .ok_or(ApiFailure(StatusCode::BAD_REQUEST, "google_sign_in_expired"))?;
+    let row = app
+        .store
+        .control_repository()
+        .consume_gmail_flow(
+            &hash(&input.state),
+            &id.token_hash,
+            &id.user,
+            Utc::now().timestamp(),
+        )
+        .await?
+        .ok_or(ApiFailure(
+            StatusCode::BAD_REQUEST,
+            "google_sign_in_expired",
+        ))?;
     if input.error.is_some() {
         return Err(ApiFailure(
             StatusCode::BAD_REQUEST,
@@ -150,7 +182,7 @@ async fn complete(
         "google_sign_in_cancelled",
     ))?;
     let response = http()
-        .post(TOKEN_URL)
+        .post(token_url)
         .form(&[
             ("grant_type", "authorization_code"),
             ("code", &code),
@@ -160,14 +192,17 @@ async fn complete(
                 "redirect_uri",
                 &format!("{}/api/accounts/gmail/callback", app.config.origin),
             ),
-            ("code_verifier", &row.get::<String, _>("verifier")),
+            ("code_verifier", &row.verifier),
         ])
         .send()
         .await
-        .map_err(unavailable)?
+        .map_err(|_| ApiFailure(StatusCode::BAD_GATEWAY, "google_token_exchange_failed"))?
         .error_for_status()
-        .map_err(unavailable)?;
-    let tokens: Tokens = response.json().await.map_err(unavailable)?;
+        .map_err(|_| ApiFailure(StatusCode::BAD_GATEWAY, "google_token_exchange_failed"))?;
+    let tokens: Tokens = response
+        .json()
+        .await
+        .map_err(|_| ApiFailure(StatusCode::BAD_GATEWAY, "google_token_exchange_failed"))?;
     if !valid_tokens(&tokens)
         || !tokens
             .scope
@@ -185,17 +220,17 @@ async fn complete(
         email_verified: bool,
     }
     let profile: Profile = http()
-        .get("https://openidconnect.googleapis.com/v1/userinfo")
+        .get(profile_url)
         .bearer_auth(&tokens.access_token)
         .send()
         .await
-        .map_err(unavailable)?
+        .map_err(|_| ApiFailure(StatusCode::BAD_GATEWAY, "google_profile_failed"))?
         .error_for_status()
-        .map_err(unavailable)?
+        .map_err(|_| ApiFailure(StatusCode::BAD_GATEWAY, "google_profile_failed"))?
         .json()
         .await
-        .map_err(unavailable)?;
-    let email: String = row.get("email");
+        .map_err(|_| ApiFailure(StatusCode::BAD_GATEWAY, "google_profile_failed"))?;
+    let email = row.email;
     if !profile.email_verified || !profile.email.eq_ignore_ascii_case(&email) {
         return Err(ApiFailure(
             StatusCode::BAD_REQUEST,
@@ -211,7 +246,7 @@ async fn complete(
         ))?;
     let connection = ConnectAccount {
         email,
-        display_name: row.get("display_name"),
+        display_name: row.display_name,
         provider: ProviderKind::Gmail,
         imap_host: "imap.gmail.com".into(),
         imap_port: 993,
@@ -227,17 +262,14 @@ async fn complete(
         }),
         microsoft_oauth: None,
     };
-    let account: Option<String> = row.get("account_id");
+    let account = row.account_id;
     let account = if let Some(account) = account {
         let a = app.store.authorize(&id.user, &account).await?;
         app.mail.reconnect(&app.store, &a, &connection).await?
     } else {
         app.store.connect(&id.user, &connection).await?
     };
-    let a = app.store.authorize(&id.user, &account.id).await?;
-    // Probe never sends a message. A failure leaves the saved account available to reconnect.
-    app.mail.probe(&app.store, &a).await?;
-    Ok(Redirect::to("/"))
+    Ok(app.store.authorize(&id.user, &account.id).await?)
 }
 
 pub(crate) struct GoogleToken {
@@ -282,6 +314,13 @@ impl AccessToken for GoogleToken {
                 error: String,
             }
             let failure = response.json::<Failure>().await.ok();
+            let reason = match failure.as_ref().map(|e| e.error.as_str()) {
+                Some("invalid_grant") => "invalid_grant",
+                Some("invalid_client") => "invalid_client",
+                Some("unauthorized_client") => "unauthorized_client",
+                _ => "unavailable",
+            };
+            tracing::warn!(reason, "Google token renewal failed");
             let kind = if failure.is_some_and(|e| {
                 matches!(
                     e.error.as_str(),
@@ -320,12 +359,19 @@ pub(super) async fn callback(
     match complete(state, id, query).await {
         Ok(redirect) => redirect,
         Err(error) => {
+            tracing::warn!(reason = error.1, "Google sign-in did not complete");
             let reason = match error.1 {
                 "google_sign_in_cancelled" => "cancelled",
                 "google_sign_in_expired" => "expired",
                 "google_account_mismatch" => "mismatch",
                 "gmail_permission_required" => "permission",
                 "google_offline_access_required" => "offline",
+                "google_token_exchange_failed" => "exchange",
+                "google_profile_failed" => "profile",
+                "imap_authentication_rejected"
+                | "smtp_authentication_rejected"
+                | "account_reconnect_required" => "authentication",
+                "provider_unavailable" => "connection",
                 _ => "failed",
             };
             Redirect::to(&format!("/?gmail_error={reason}"))
@@ -333,6 +379,9 @@ pub(super) async fn callback(
     }
 }
 
+#[cfg(test)]
+#[path = "gmail_reconnect_tests.rs"]
+mod reconnect_tests;
 #[cfg(test)]
 mod tests {
     use super::*;

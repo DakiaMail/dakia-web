@@ -1,15 +1,15 @@
 //! Ownership is resolved before opening account databases. All public account access
 //! requires an unforgeable capability tied to this Store instance.
-mod classification;
-use classification::CLASSIFICATION_SQL;
 mod attachments;
 mod backup;
 mod cache;
+mod classification;
 mod graph;
 mod inbox;
 mod jobs;
 mod lists;
 mod models;
+mod portable;
 pub use models::ModelFailureReason;
 mod notifications;
 mod snoozes;
@@ -18,7 +18,9 @@ mod mutation_jobs;
 mod rules;
 mod sender_cleanup;
 pub use sender_cleanup::{CleanupJob, CleanupLocation, CleanupRequest, CleanupTarget};
+mod account_repository;
 mod content_references;
+pub mod control_repository;
 mod operations;
 #[cfg(test)]
 mod pool_tests;
@@ -29,7 +31,16 @@ mod remove;
 mod search;
 pub use search::CachedSearchFilter;
 mod full_text;
-pub use full_text::{normalize_search, TextCoverage};
+mod lexical_text;
+mod search_backend;
+mod search_delivery;
+mod search_legacy;
+mod search_progress;
+mod search_vectors;
+pub use full_text::{normalize_search, SearchContent, TextCoverage};
+/// Bounded federated account work and matching per-component read capacity.
+pub const SEARCH_ACCOUNT_CONCURRENCY: usize = 8;
+
 mod sender_mail;
 mod sync;
 mod thread_graph;
@@ -41,9 +52,11 @@ use aes_gcm::{
 use chrono::{DateTime, Duration, SecondsFormat, Utc};
 use dakia_domain::*;
 use rand::RngCore;
+#[cfg(test)]
+use sqlx::Row;
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqlitePoolOptions},
-    Row, SqlitePool,
+    SqlitePool,
 };
 use std::{
     collections::HashMap,
@@ -97,13 +110,20 @@ pub fn lock_data_directory(root: impl AsRef<Path>) -> Result<std::fs::File> {
 #[derive(Clone)]
 pub struct Store {
     root: PathBuf,
-    control: SqlitePool,
+    control: control_repository::ControlRepository,
     key: Arc<[u8; 32]>,
     identity: Arc<()>,
     gate: Arc<RwLock<()>>,
     account_pools: Arc<Mutex<HashMap<String, SqlitePool>>>,
     rules_gate: Arc<RwLock<()>>,
     attachment_budget: u64,
+    application_database: Option<account_repository::ApplicationDatabase>,
+    default_search_url: Option<Arc<str>>,
+    search_database: Option<Arc<search_backend::SearchConnection>>,
+    expected_search_model: Option<Arc<str>>,
+    search_embeddings_enabled: Arc<std::sync::atomic::AtomicBool>,
+    search_warm: Option<Arc<search_backend::SearchWarm>>,
+    search_cleanup_done: Arc<std::sync::atomic::AtomicBool>,
 }
 #[derive(Clone, Debug)]
 pub struct AuthorizedAccount {
@@ -127,6 +147,9 @@ async fn pool(path: &Path) -> Result<SqlitePool> {
         .filename(path)
         .create_if_missing(true)
         .foreign_keys(true)
+        // Let a 200-message validation page fit in the bounded row buffer,
+        // rather than applying backpressure at the driver's 50-row default.
+        .row_buffer_size(512)
         .pragma("secure_delete", "ON")
         .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
         .busy_timeout(std::time::Duration::from_secs(5));
@@ -144,25 +167,122 @@ impl Store {
         key: [u8; 32],
         attachment_budget: u64,
     ) -> Result<Self> {
-        if attachment_budget == 0 {
+        Self::open_with_database(root, key, attachment_budget, None).await
+    }
+    /// Select the complete application backend without inspecting process state.
+    /// SQLite keeps account files and durable blobs in the existing data root.
+    pub async fn open_with_database(
+        root: impl AsRef<Path>,
+        key: [u8; 32],
+        attachment_budget: u64,
+        url: Option<&str>,
+    ) -> Result<Self> {
+        Self::open_database_mode(root, key, attachment_budget, url, false).await
+    }
+    /// Offline commands retain an exclusive database-wide PostgreSQL lease in
+    /// addition to the caller's local data-directory lock.
+    pub async fn open_offline_database(
+        root: impl AsRef<Path>,
+        key: [u8; 32],
+        url: Option<&str>,
+    ) -> Result<Self> {
+        Self::open_database_mode(root, key, 1024 * 1024 * 1024, url, true).await
+    }
+    async fn open_database_mode(
+        root: impl AsRef<Path>,
+        key: [u8; 32],
+        attachment_budget: u64,
+        url: Option<&str>,
+        offline: bool,
+    ) -> Result<Self> {
+        if attachment_budget == 0 || root.as_ref().join("backend-import-in-progress").exists() {
             return Err(Error::Invalid);
         }
         tokio::fs::create_dir_all(root.as_ref().join("accounts")).await?;
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            tokio::fs::set_permissions(root.as_ref(), std::fs::Permissions::from_mode(0o700))
-                .await?;
-            tokio::fs::set_permissions(
-                root.as_ref().join("accounts"),
-                std::fs::Permissions::from_mode(0o700),
-            )
-            .await?;
+            for path in [root.as_ref().to_owned(), root.as_ref().join("accounts")] {
+                tokio::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).await?;
+            }
         }
-        let control = pool(&root.as_ref().join("control.sqlite")).await?;
-        sqlx::migrate!("./migrations/control").run(&control).await?;
+        let postgres = url.is_some_and(|value| {
+            value.starts_with("postgresql://") || value.starts_with("postgres://")
+        });
+        let lease = if postgres {
+            Some(account_repository::DatabaseLease::acquire(url.unwrap(), offline).await?)
+        } else {
+            None
+        };
+        let control = if postgres {
+            control_repository::ControlRepository::open_postgres(url.unwrap()).await?
+        } else {
+            let control = match url {
+                None => pool(&root.as_ref().join("control.sqlite")).await?,
+                Some(value) if value.starts_with("sqlite:") => {
+                    let options = SqliteConnectOptions::from_str(value)?
+                        .create_if_missing(true)
+                        .foreign_keys(true)
+                        .pragma("secure_delete", "ON")
+                        .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
+                        .busy_timeout(std::time::Duration::from_secs(5));
+                    SqlitePoolOptions::new()
+                        .max_connections(1)
+                        .connect_with(options)
+                        .await?
+                }
+                Some(_) => return Err(Error::Invalid),
+            };
+            sqlx::migrate!("./migrations/control").run(&control).await?;
+            control_repository::ControlRepository::sqlite(control)
+        };
+        if control.setting("backend_import").await?.as_deref() == Some("incomplete") {
+            return Err(Error::Invalid);
+        }
+        let mut store =
+            Self::from_control(root.as_ref().to_owned(), key, attachment_budget, control).await?;
+        if postgres {
+            store.application_database = Some(
+                account_repository::ApplicationDatabase::open_with_lease(
+                    url.unwrap(),
+                    lease.unwrap(),
+                )
+                .await?,
+            );
+            store.default_search_url = Some(Arc::from(url.unwrap()));
+            for (user, account) in store.control_repository().all_accounts().await? {
+                let a = store.authorize(&user, &account.id).await?;
+                let repository = store.account_repository(&a).await?;
+                repository.initialize_account().await?;
+                store
+                    .cleanup_received_orphans(&a, repository.cache_blobs().await?)
+                    .await?;
+            }
+            // PostgreSQL has no embedded compatibility FTS. The independently
+            // managed search tables default to the same database.
+            store.configure_search_database(None).await?;
+        }
+        Ok(store)
+    }
+    pub(crate) async fn from_control(
+        root: PathBuf,
+        key: [u8; 32],
+        attachment_budget: u64,
+        control: control_repository::ControlRepository,
+    ) -> Result<Self> {
+        if attachment_budget == 0 {
+            return Err(Error::Invalid);
+        }
+        tokio::fs::create_dir_all(root.join("accounts")).await?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            for path in [&root, &root.join("accounts")] {
+                tokio::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).await?;
+            }
+        }
         let store = Self {
-            root: root.as_ref().to_owned(),
+            root,
             control,
             key: Arc::new(key),
             identity: Arc::new(()),
@@ -170,36 +290,27 @@ impl Store {
             account_pools: Arc::new(Mutex::new(HashMap::new())),
             rules_gate: Arc::new(RwLock::new(())),
             attachment_budget,
+            application_database: None,
+            default_search_url: None,
+            search_database: None,
+            expected_search_model: None,
+            search_embeddings_enabled: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            search_warm: None,
+            search_cleanup_done: Arc::new(std::sync::atomic::AtomicBool::new(false)),
         };
         store.cleanup_removed_accounts().await?;
         Ok(store)
     }
-    pub fn control(&self) -> &SqlitePool {
-        &self.control
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn sqlite_control_for_test(&self) -> &SqlitePool {
+        self.control.sqlite_for_test()
     }
     pub async fn user(&self, issuer: &str, subject: &str) -> Result<String> {
         let _guard = self.gate.read().await;
-        sqlx::query("INSERT OR IGNORE INTO users(id,issuer,subject) VALUES(?,?,?)")
-            .bind(Uuid::new_v4().to_string())
-            .bind(issuer)
-            .bind(subject)
-            .execute(&self.control)
-            .await?;
-        Ok(
-            sqlx::query_scalar("SELECT id FROM users WHERE issuer=? AND subject=?")
-                .bind(issuer)
-                .bind(subject)
-                .fetch_one(&self.control)
-                .await?,
-        )
+        self.control_repository().user(issuer, subject).await
     }
     pub async fn authorize(&self, user: &str, id: &str) -> Result<AuthorizedAccount> {
-        let exists: bool =
-            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM accounts WHERE id=? AND user_id=?)")
-                .bind(id)
-                .bind(user)
-                .fetch_one(&self.control)
-                .await?;
+        let exists = self.control_repository().owns_account(user, id).await?;
         if !exists {
             return Err(Error::NotFound);
         }
@@ -210,13 +321,16 @@ impl Store {
         })
     }
     async fn db(&self, a: &AuthorizedAccount) -> Result<SqlitePool> {
+        if self.application_database.is_some() {
+            return Err(Error::Invalid);
+        }
         if !Arc::ptr_eq(&self.identity, &a.identity) {
             return Err(Error::NotFound);
         }
         // Serialize opening with revocation. Cached handles still require current
         // ownership; stale capabilities must not recreate removed databases.
         let mut timing = timing::Timing::new("account_pool_lock");
-        let mut pools = self.account_pools.lock().await;
+        let mut pools = self.account_pools.clone().lock_owned().await;
         timing.stage("ownership");
         self.authorize(&a.user_id, &a.id).await?;
         timing.stage("account_pool_open");
@@ -227,21 +341,32 @@ impl Store {
         if let Some(db) = pools.get(&a.id) {
             return Ok(db.clone());
         }
-        let db = pool(&self.root.join("accounts").join(format!("{}.sqlite", a.id))).await?;
-        sqlx::migrate!("./migrations/account").run(&db).await?;
-        self.cleanup_received_orphans(a, &db).await?;
-        pools.insert(a.id.clone(), db.clone());
-        Ok(db)
+        let store = self.clone();
+        let a = a.clone();
+        // A caller's deadline must not repeatedly roll back a long first-open migration.
+        tokio::spawn(async move {
+            let db = pool(&store.root.join("accounts").join(format!("{}.sqlite", a.id))).await?;
+            search_legacy::prepare(&db, store.search_database.is_some()).await?;
+            sqlx::migrate!("./migrations/account")
+                .run(&db)
+                .await
+                .map_err(|error| {
+                    tracing::warn!(target: "dakia_server::diagnostics", operation = "account_migration", error = ?error, "account migration failed");
+                    error
+                })?;
+            search_legacy::configure(&db, store.search_database.is_some()).await?;
+            let retained = account_repository::AccountRepository::sqlite(db.clone(), &a)
+                .cache_blobs()
+                .await?;
+            store.cleanup_received_orphans(&a, retained).await?;
+            pools.insert(a.id.clone(), db.clone());
+            Ok(db)
+        })
+        .await
+        .map_err(|_| Error::Invalid)?
     }
     pub async fn accounts(&self, user: &str) -> Result<Vec<Account>> {
-        let rows: Vec<String> =
-            sqlx::query_scalar("SELECT metadata FROM accounts WHERE user_id=? ORDER BY id")
-                .bind(user)
-                .fetch_all(&self.control)
-                .await?;
-        rows.into_iter()
-            .map(|s| Ok(serde_json::from_str(&s)?))
-            .collect()
+        self.control_repository().accounts(user).await
     }
     pub async fn connect(&self, user: &str, input: &ConnectAccount) -> Result<Account> {
         let _guard = self.gate.read().await;
@@ -265,19 +390,34 @@ impl Store {
             state: AccountState::Connecting,
             revision: 1,
         };
-        let sealed = self.seal_credential(&format!("{user}:{}", a.id), input)?;
-        sqlx::query(
-            "INSERT INTO accounts(id,user_id,metadata,credential,connected_at) VALUES(?,?,?,?,?)",
-        )
-        .bind(&a.id)
-        .bind(user)
-        .bind(serde_json::to_string(&a)?)
-        .bind(sealed)
-        .bind(Utc::now().to_rfc3339_opts(SecondsFormat::Nanos, true))
-        .execute(&self.control)
-        .await?;
+        let mut nonce = [0u8; 12];
+        rand::thread_rng().fill_bytes(&mut nonce);
+        let cipher = Aes256Gcm::new_from_slice(self.key.as_ref()).map_err(|_| Error::Crypto)?;
+        let aad = format!("{user}:{}", a.id);
+        let encrypted = cipher
+            .encrypt(
+                &Nonce::from(nonce),
+                Payload {
+                    msg: &serde_json::to_vec(input)?,
+                    aad: aad.as_bytes(),
+                },
+            )
+            .map_err(|_| Error::Crypto)?;
+        let mut sealed = nonce.to_vec();
+        sealed.extend(encrypted);
+        self.control_repository()
+            .insert_account(
+                user,
+                &a,
+                &sealed,
+                &Utc::now().to_rfc3339_opts(SecondsFormat::Nanos, true),
+            )
+            .await?;
         let scope = self.authorize(user, &a.id).await?;
-        self.db(&scope).await?;
+        self.account_repository(&scope)
+            .await?
+            .initialize_account()
+            .await?;
         Ok(a)
     }
     /// Replace credentials in-place. Mail identity and durable account data do not change.
@@ -287,7 +427,7 @@ impl Store {
         input: &ConnectAccount,
     ) -> Result<Account> {
         let _guard = self.gate.read().await;
-        self.db(a).await?;
+        self.account_repository(a).await?;
         if (input.password.is_empty()
             && input.gmail_oauth.is_none()
             && input.microsoft_oauth.is_none())
@@ -300,56 +440,35 @@ impl Store {
         {
             return Err(Error::Invalid);
         }
-        let mut tx = self.control.begin().await?;
-        sqlx::query("UPDATE accounts SET metadata=metadata WHERE id=? AND user_id=?")
-            .bind(&a.id)
-            .bind(&a.user_id)
-            .execute(&mut *tx)
-            .await?;
-        let raw: String =
-            sqlx::query_scalar("SELECT metadata FROM accounts WHERE id=? AND user_id=?")
-                .bind(&a.id)
-                .bind(&a.user_id)
-                .fetch_one(&mut *tx)
-                .await?;
-        let mut account: Account = serde_json::from_str(&raw)?;
-        let same_microsoft_identity = if account.provider == ProviderKind::Microsoft
-            && input.provider == ProviderKind::Microsoft
-        {
-            let sealed: Vec<u8> =
-                sqlx::query_scalar("SELECT credential FROM accounts WHERE id=? AND user_id=?")
-                    .bind(&a.id)
-                    .bind(&a.user_id)
-                    .fetch_one(&mut *tx)
-                    .await?;
-            let old = self.open_credential(a, &sealed)?;
-            old.microsoft_oauth
-                .zip(input.microsoft_oauth.clone())
-                .is_some_and(|(old, new)| !old.subject.is_empty() && old.subject == new.subject)
-        } else {
-            false
-        };
-        if (!account.email.eq_ignore_ascii_case(&input.email) && !same_microsoft_identity)
-            || account.provider != input.provider
-        {
-            return Err(Error::Invalid);
-        }
         let sealed = self.seal_credential(&format!("{}:{}", a.user_id, a.id), input)?;
-        if same_microsoft_identity {
-            account.email = input.email.clone();
-        }
-        account.state = AccountState::Connecting;
-        account.display_name = input.display_name.clone();
-        account.revision = account.revision.checked_add(1).ok_or(Error::Invalid)?;
-        sqlx::query("UPDATE accounts SET metadata=?,credential=? WHERE id=? AND user_id=?")
-            .bind(serde_json::to_string(&account)?)
-            .bind(sealed)
-            .bind(&a.id)
-            .bind(&a.user_id)
-            .execute(&mut *tx)
-            .await?;
-        tx.commit().await?;
-        Ok(account)
+        self.control_repository()
+            .mutate_account_credential(&a.user_id, &a.id, Some(&sealed), |account, previous| {
+                let same_identity = if account.provider == ProviderKind::Microsoft
+                    && input.provider == ProviderKind::Microsoft
+                {
+                    self.open_credential(a, previous)?
+                        .microsoft_oauth
+                        .zip(input.microsoft_oauth.clone())
+                        .is_some_and(|(old, new)| {
+                            !old.subject.is_empty() && old.subject == new.subject
+                        })
+                } else {
+                    false
+                };
+                if (!account.email.eq_ignore_ascii_case(&input.email) && !same_identity)
+                    || account.provider != input.provider
+                {
+                    return Err(Error::Invalid);
+                }
+                if same_identity {
+                    account.email = input.email.clone();
+                }
+                account.state = AccountState::Connecting;
+                account.display_name = input.display_name.clone();
+                account.revision = account.revision.checked_add(1).ok_or(Error::Invalid)?;
+                Ok(())
+            })
+            .await
     }
     fn seal_credential(&self, aad: &str, input: &ConnectAccount) -> Result<Vec<u8>> {
         let mut nonce = [0u8; 12];
@@ -376,13 +495,11 @@ impl Store {
         new: &str,
     ) -> Result<()> {
         let _guard = self.gate.read().await;
-        self.db(a).await?;
-        let sealed: Vec<u8> =
-            sqlx::query_scalar("SELECT credential FROM accounts WHERE id=? AND user_id=?")
-                .bind(&a.id)
-                .bind(&a.user_id)
-                .fetch_one(&self.control)
-                .await?;
+        self.account_repository(a).await?;
+        let sealed = self
+            .control_repository()
+            .credential(&a.user_id, &a.id)
+            .await?;
         let mut input = self.open_credential(a, &sealed)?;
         let grant = input.microsoft_oauth.as_mut().ok_or(Error::Conflict)?;
         if grant.refresh_token != old || new.is_empty() {
@@ -390,28 +507,17 @@ impl Store {
         }
         grant.refresh_token = new.into();
         let replacement = self.seal_credential(&format!("{}:{}", a.user_id, a.id), &input)?;
-        let changed = sqlx::query(
-            "UPDATE accounts SET credential=? WHERE id=? AND user_id=? AND credential=?",
-        )
-        .bind(replacement)
-        .bind(&a.id)
-        .bind(&a.user_id)
-        .bind(sealed)
-        .execute(&self.control)
-        .await?;
-        if changed.rows_affected() != 1 {
-            return Err(Error::Conflict);
-        }
+        self.control_repository()
+            .replace_credential(&a.user_id, &a.id, &sealed, &replacement)
+            .await?;
         Ok(())
     }
     pub async fn credential(&self, a: &AuthorizedAccount) -> Result<ConnectAccount> {
-        self.db(a).await?;
-        let sealed: Vec<u8> =
-            sqlx::query_scalar("SELECT credential FROM accounts WHERE id=? AND user_id=?")
-                .bind(&a.id)
-                .bind(&a.user_id)
-                .fetch_one(&self.control)
-                .await?;
+        self.account_repository(a).await?;
+        let sealed = self
+            .control_repository()
+            .credential(&a.user_id, &a.id)
+            .await?;
         self.open_credential(a, &sealed)
     }
     fn open_credential(&self, a: &AuthorizedAccount, sealed: &[u8]) -> Result<ConnectAccount> {
@@ -433,153 +539,32 @@ impl Store {
         Ok(serde_json::from_slice(&plain)?)
     }
     pub async fn draft(&self, a: &AuthorizedAccount, id: &str) -> Result<Draft> {
-        let db = self.db(a).await?;
-        let s: Option<String> = sqlx::query_scalar("SELECT document FROM drafts WHERE id=?")
-            .bind(id)
-            .fetch_optional(&db)
-            .await?;
-        Ok(serde_json::from_str(&s.ok_or(Error::NotFound)?)?)
+        self.account_repository(a).await?.draft(id).await
     }
-    pub async fn save_draft(&self, a: &AuthorizedAccount, mut draft: Draft) -> Result<Draft> {
+    pub async fn save_draft(&self, a: &AuthorizedAccount, draft: Draft) -> Result<Draft> {
         let _guard = self.gate.read().await;
-        if draft.account_id != a.id || draft.id.is_empty() || draft.subject.contains(['\r', '\n']) {
-            return Err(Error::Invalid);
-        }
-        if draft
-            .attachments
-            .iter()
-            .map(|x| u64::from(x.size_bytes))
-            .sum::<u64>()
-            > 20 * 1024 * 1024
-        {
-            return Err(Error::Invalid);
-        }
-        let db = self.db(a).await?;
-        let mut tx = db.begin().await?;
-        // Obtain the writer lock before reading the revision.
-        sqlx::query("UPDATE drafts SET revision=revision WHERE id=?")
-            .bind(&draft.id)
-            .execute(&mut *tx)
-            .await?;
-        let current: Option<i64> = sqlx::query_scalar("SELECT revision FROM drafts WHERE id=?")
-            .bind(&draft.id)
-            .fetch_optional(&mut *tx)
-            .await?;
-        if current.unwrap_or(0) != i64::from(draft.revision) {
-            return Err(Error::Conflict);
-        }
-        for attachment in &draft.attachments {
-            let exists: bool = sqlx::query_scalar(
-                "SELECT EXISTS(SELECT 1 FROM blobs WHERE id=? AND size_bytes=?)",
-            )
-            .bind(&attachment.id)
-            .bind(attachment.size_bytes)
-            .fetch_one(&mut *tx)
-            .await?;
-            if !exists {
-                return Err(Error::Invalid);
-            }
-        }
-        draft.revision = draft.revision.checked_add(1).ok_or(Error::Invalid)?;
-        draft.saved_at = now();
-        sqlx::query("INSERT INTO drafts(id,revision,document) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,document=excluded.document").bind(&draft.id).bind(draft.revision).bind(serde_json::to_string(&draft)?).execute(&mut *tx).await?;
-        sqlx::query("DELETE FROM draft_blobs WHERE draft_id=?")
-            .bind(&draft.id)
-            .execute(&mut *tx)
-            .await?;
-        for attachment in &draft.attachments {
-            sqlx::query("INSERT OR IGNORE INTO draft_blobs(draft_id,blob_id) VALUES(?,?)")
-                .bind(&draft.id)
-                .bind(&attachment.id)
-                .execute(&mut *tx)
-                .await?;
-            sqlx::query("UPDATE blobs SET pinned=1 WHERE id=?")
-                .bind(&attachment.id)
-                .execute(&mut *tx)
-                .await?;
-        }
-        sqlx::query("INSERT INTO events(revision,kind,target_id) VALUES(?,'draft_saved',?)")
-            .bind(draft.revision)
-            .bind(&draft.id)
-            .execute(&mut *tx)
-            .await?;
-        tx.commit().await?;
-        Ok(draft)
+        self.account_repository(a).await?.save_draft(draft).await
     }
-    pub async fn submit(&self, a: &AuthorizedAccount, r: &SubmitRequest) -> Result<Submission> {
+    pub async fn submit(
+        &self,
+        a: &AuthorizedAccount,
+        request: &SubmitRequest,
+    ) -> Result<Submission> {
         let _guard = self.gate.read().await;
-        if r.operation_id.is_empty() || r.timezone.is_empty() {
-            return Err(Error::Invalid);
-        }
-        let due = match &r.due_at {
+        let due = match &request.due_at {
             Some(s) => DateTime::parse_from_rfc3339(s)
                 .map_err(|_| Error::Invalid)?
                 .with_timezone(&Utc)
                 .to_rfc3339_opts(SecondsFormat::Millis, true),
             None => now(),
         };
-        let request = serde_json::to_string(r)?;
-        let db = self.db(a).await?;
-        let mut tx = db.begin().await?;
-        sqlx::query("UPDATE submissions SET state=state WHERE operation_id=?")
-            .bind(&r.operation_id)
-            .execute(&mut *tx)
-            .await?;
-        if let Some(row) =
-            sqlx::query("SELECT request,document FROM submissions WHERE operation_id=?")
-                .bind(&r.operation_id)
-                .fetch_optional(&mut *tx)
-                .await?
-        {
-            if row.get::<String, _>("request") != request {
-                return Err(Error::Conflict);
-            }
-            return Ok(serde_json::from_str(row.get("document"))?);
-        }
-        let raw: Option<String> =
-            sqlx::query_scalar("SELECT document FROM drafts WHERE id=? AND revision=?")
-                .bind(&r.draft_id)
-                .bind(r.expected_revision)
-                .fetch_optional(&mut *tx)
-                .await?;
-        let raw = raw.ok_or(Error::Conflict)?;
-        let d: Draft = serde_json::from_str(&raw)?;
-        if d.to.is_empty() && d.cc.is_empty() && d.bcc.is_empty() {
-            return Err(Error::Invalid);
-        }
-        let s = Submission {
-            id: Uuid::new_v4().to_string(),
-            account_id: a.id.clone(),
-            operation_id: r.operation_id.clone(),
-            draft_id: d.id.clone(),
-            draft_revision: d.revision,
-            state: SubmissionState::Scheduled,
-            due_at: due,
-            timezone: r.timezone.clone(),
-            filing_status: FilingStatus::Pending,
-            revision: 1,
-        };
-        sqlx::query("INSERT INTO submissions(id,operation_id,request,draft_id,draft_revision,snapshot,document,state,due_at,filing_status) VALUES(?,?,?,?,?,?,?,'scheduled',?,'pending')").bind(&s.id).bind(&s.operation_id).bind(request).bind(&d.id).bind(d.revision).bind(raw).bind(serde_json::to_string(&s)?).bind(&s.due_at).execute(&mut *tx).await?;
-        sqlx::query("INSERT INTO outbox(kind,target_id) VALUES('submit',?)")
-            .bind(&s.id)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query(
-            "INSERT INTO events(revision,kind,target_id) VALUES(1,'submission_scheduled',?)",
-        )
-        .bind(&s.id)
-        .execute(&mut *tx)
-        .await?;
-        tx.commit().await?;
-        Ok(s)
+        self.account_repository(a)
+            .await?
+            .submit(request, &due)
+            .await
     }
     pub async fn submission(&self, a: &AuthorizedAccount, id: &str) -> Result<Submission> {
-        let db = self.db(a).await?;
-        let raw: Option<String> = sqlx::query_scalar("SELECT document FROM submissions WHERE id=?")
-            .bind(id)
-            .fetch_optional(&db)
-            .await?;
-        Ok(serde_json::from_str(&raw.ok_or(Error::NotFound)?)?)
+        self.account_repository(a).await?.submission(id).await
     }
     /// CAS transition and event are atomic. Never turn an uncertain delivery back into scheduled.
     pub async fn transition(
@@ -590,64 +575,19 @@ impl Store {
         to: SubmissionState,
     ) -> Result<Submission> {
         let _guard = self.gate.read().await;
-        use SubmissionState::*;
-        if !matches!(
-            (&from, &to),
-            (Scheduled, Claimed)
-                | (Scheduled, Cancelled)
-                | (Claimed, Cancelled)
-                | (Claimed, Submitting)
-                | (Claimed, Scheduled)
-                | (Claimed, Failed)
-                | (Submitting, Accepted)
-                | (Submitting, Failed)
-                | (Submitting, DeliveryUnknown)
-        ) {
-            return Err(Error::Invalid);
-        }
-        let db = self.db(a).await?;
-        let mut tx = db.begin().await?;
-        sqlx::query("UPDATE submissions SET state=state WHERE id=?")
-            .bind(id)
-            .execute(&mut *tx)
-            .await?;
-        let raw: Option<String> = sqlx::query_scalar("SELECT document FROM submissions WHERE id=?")
-            .bind(id)
-            .fetch_optional(&mut *tx)
-            .await?;
-        let mut s: Submission = serde_json::from_str(&raw.ok_or(Error::NotFound)?)?;
-        if s.state != from {
-            return Err(Error::Conflict);
-        }
-        s.state = to;
-        s.revision += 1;
-        let state = serde_json::to_value(&s.state)?
-            .as_str()
-            .ok_or(Error::Invalid)?
-            .to_owned();
-        let lease =
-            (Utc::now() + Duration::seconds(60)).to_rfc3339_opts(SecondsFormat::Millis, true);
-        sqlx::query("UPDATE submissions SET state=?,document=?,lease_until=? WHERE id=?")
-            .bind(state)
-            .bind(serde_json::to_string(&s)?)
-            .bind(lease)
-            .bind(id)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query("INSERT INTO events(revision,kind,target_id) VALUES(?,'submission_changed',?)")
-            .bind(s.revision)
-            .bind(id)
-            .execute(&mut *tx)
-            .await?;
-        tx.commit().await?;
-        Ok(s)
+        self.account_repository(a)
+            .await?
+            .transition(id, from, to)
+            .await
     }
     pub async fn recover_expired(&self, a: &AuthorizedAccount, at: &str) -> Result<u32> {
-        let db = self.db(a).await?;
-        let rows=sqlx::query("SELECT id,state FROM submissions WHERE state IN ('claimed','submitting') AND lease_until <= ?").bind(at).fetch_all(&db).await?;
+        let rows = self
+            .account_repository(a)
+            .await?
+            .expired_submissions(at)
+            .await?;
         let mut count = 0;
-        for row in rows {
-            let state: String = row.get("state");
+        for (id, state) in rows {
             let (from, to) = if state == "submitting" {
                 (
                     SubmissionState::Submitting,
@@ -656,7 +596,7 @@ impl Store {
             } else {
                 (SubmissionState::Claimed, SubmissionState::Scheduled)
             };
-            match self.transition(a, row.get("id"), from, to).await {
+            match self.transition(a, &id, from, to).await {
                 Ok(_) => count += 1,
                 Err(Error::Conflict) => {}
                 Err(e) => return Err(e),
@@ -665,31 +605,15 @@ impl Store {
         Ok(count)
     }
     pub async fn event_cursor(&self, a: &AuthorizedAccount) -> Result<u32> {
-        let db = self.db(a).await?;
-        Ok(
-            sqlx::query_scalar("SELECT COALESCE(MAX(cursor),0) FROM events")
-                .fetch_one(&db)
-                .await?,
-        )
+        self.account_repository(a).await?.event_cursor().await
     }
     pub async fn events(&self, a: &AuthorizedAccount, after: u32) -> Result<Vec<Event>> {
-        let db = self.db(a).await?;
-        let min: Option<i64> = sqlx::query_scalar("SELECT MIN(cursor) FROM events")
-            .fetch_one(&db)
-            .await?;
-        if after > 0 && min.is_some_and(|n| i64::from(after) + 1 < n) {
-            return Err(Error::CursorExpired);
-        }
-        let rows=sqlx::query("SELECT cursor,revision,kind,target_id FROM events WHERE cursor>? ORDER BY cursor LIMIT 500").bind(after).fetch_all(&db).await?;
-        Ok(rows
-            .into_iter()
-            .map(|r| Event {
-                account_id: a.id.clone(),
-                cursor: r.get("cursor"),
-                revision: r.get("revision"),
-                kind: r.get("kind"),
-                target_id: r.get("target_id"),
-            })
-            .collect())
+        self.account_repository(a).await?.events(after).await
     }
 }
+
+pub use search_backend::embedding::{EmbeddedPassage, EmbeddingCoverage, EmbeddingTurn};
+pub use search_backend::semantic::SemanticMatch;
+#[cfg(feature = "test-support")]
+pub use search_backend::SearchTestLease;
+pub use search_vectors::check_search_accelerator;

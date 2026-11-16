@@ -97,8 +97,9 @@ test("keyboard workspace settings persist and notifications never request permis
   await expect(page.getByRole("combobox", { name: "Archive folder" })).toHaveValue("Projects");
   await page.keyboard.press("Escape");
   await page.evaluate(() => { Notification.requestPermission = () => { throw new Error("Permission prompt was called"); }; });
-  await tabTo(page, "Enable notifications"); await page.keyboard.press("Enter");
-  await expect(page.getByRole("region", { name: "Notifications", exact: true }).getByRole("status")).toContainText("Notifications are not available in this browser.");
+  const notifications = page.getByRole("region", { name: "Notifications", exact: true });
+  await expect(notifications.getByRole("button", { name: "Enable notifications" })).toHaveCount(0);
+  await expect(notifications.getByRole("status")).toContainText("Notifications aren’t available in the demo.");
 });
 
 for (const theme of ["light", "dark"] as const) {

@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Button, FilterChip, FilterList, FilterPopover, IconButton, SearchField, type SearchOption } from "@dakia/ui";
-import { ArrowLeft, CalendarDays, ChevronRight, Folder, Mail, Plus, Search, Send, SlidersHorizontal, Type, UserRound, X } from "lucide-react";
+import { ArrowLeft, CalendarDays, ChevronRight, Folder, Mail, Paperclip, Plus, Search, Send, SlidersHorizontal, Type, UserRound, X } from "lucide-react";
 import type { Account, Message } from "@dakia/api-types";
 import { KeyHint } from "./KeyboardHints";
 import { useSearchSuggestions } from "./SearchSuggestions";
 import { filterFields, filterLabel, mergeSearch, readSearch, type SearchFilter } from "./searchFilters";
 
-const filterIcons = { from: UserRound, to: Send, subject: Type, folder: Folder, is: Mail, after: CalendarDays, before: CalendarDays };
+const filterIcons = { from: UserRound, to: Send, subject: Type, folder: Folder, is: Mail, has: Paperclip, after: CalendarDays, before: CalendarDays };
 
 export function MailSearch({ value, committed, ids, accounts, onChange, onSearch, onOpen, onBack, actions, backLabel }: {
   value: string; committed: string; ids: string[]; accounts: Account[];
@@ -58,7 +58,7 @@ export function MailSearch({ value, committed, ids, accounts, onChange, onSearch
       group: senders.length ? "Messages" : undefined, icon: <Mail size={16} />, onSelect: () => { setSuggesting(false); onOpen(message); } })),
   ];
   function edit(filter?: SearchFilter) {
-    setCandidate(filter || { key: "from", value: "" }); setChoosing(!filter); setSuggesting(false); setEditing(true);
+    setCandidate(filter || { key: "from", value: "" }); setChoosing(!filter || filter.key === "has"); setSuggesting(false); setEditing(true);
   }
   const field = filterFields.find(field => field.key === candidate.key)!;
   useEffect(() => { if (editing && !choosing) editorInput.current?.focus(); }, [editing, choosing, candidate.key]);
@@ -79,6 +79,7 @@ export function MailSearch({ value, committed, ids, accounts, onChange, onSearch
           detail: filters.find(filter => filter.key === field.key)?.value }; })}
         onSelect={key => {
           const selected = filterFields.find(field => field.key === key)!;
+          if (selected.key === "has") { applyFilter({ key: "has", value: "attachment" }); setEditing(false); return; }
           setCandidate(filters.find(filter => filter.key === key) || { key: selected.key, value: selected.type === "status" ? "unread" : "" });
           setChoosing(false);
         }} /> : <form className="mail-search-filter-form" onSubmit={event => {

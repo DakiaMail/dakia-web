@@ -21,6 +21,7 @@
     "@tanstack/react-virtual": "3.13.12",
     "@radix-ui/react-dialog": "1.1.15",
     "@fontsource/inter": "5.2.8",
+    "@khmyznikov/pwa-install": "0.7.0",
     "lucide-react": "0.468.0",
     "dompurify": "3.4.17",
     "squire-rte": "2.4.10",

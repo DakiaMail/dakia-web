@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { mergeSearch, readSearch, writeSearch } from "./searchFilters";
+import { filterLabel, mergeSearch, readSearch, writeSearch } from "./searchFilters";
 
 test("supported filters round-trip quoted values without changing literal text", () => {
   const filters = [{ key: "from" as const, value: 'Alex "A" \\ Morgan' }, { key: "folder" as const, value: "Sent Mail" }];
@@ -24,4 +24,12 @@ test("a field value cannot inject another search operator", () => {
 
 test("typed operators replace an existing chip instead of retaining the older value", () => {
   expect(mergeSearch('subject:"New phrase"', [{ key: "subject", value: "Old phrase" }, { key: "is", value: "unread" }])).toBe('is:unread subject:"New phrase"');
+});
+
+test("attachment filters become a single chip and preserve other search conditions", () => {
+  expect(readSearch('launch has:attachment has:attachment subject:"Review notes"')).toEqual({ text: "launch", filters: [
+    { key: "has", value: "attachment" }, { key: "subject", value: "Review notes" },
+  ] });
+  expect(filterLabel({ key: "has", value: "attachment" })).toBe("Has attachment");
+  expect(readSearch("has:unknown")).toEqual({ text: "has:unknown", filters: [] });
 });

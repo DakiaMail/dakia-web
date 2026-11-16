@@ -46,6 +46,14 @@ for (const arch of ['amd64', 'arm64']) test(`packages the complete ${arch} runti
     assert.notEqual(run(arch).status, 0, 'existing archives must not be replaced');
   } finally { cleanup(); }
 });
+test('also packages runtimes with statically linked ONNX', () => {
+  const { app, run, cleanup } = fixture();
+  try {
+    fs.unlinkSync(path.join(app, 'libonnxruntime.so.1'));
+    const result = run();
+    assert.equal(result.status, 0, result.stderr);
+  } finally { cleanup(); }
+});
 test('missing runtime assets fail packaging and clean up the temporary container', () => {
   const { dir, app, run, cleanup } = fixture();
   try {

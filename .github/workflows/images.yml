@@ -142,7 +142,13 @@ jobs:
           DIGEST: ${{ steps.build.outputs.digest }}
         run: |
           scripts/package-runtime.sh "$IMAGE@$DIGEST" "$VERSION" "${{ matrix.arch }}" native-dist
-          scripts/check-native-runtime.sh "native-dist/dakia-$VERSION-linux-${{ matrix.arch }}.tar.gz"
+          docker build -t dakia-native-check -f deploy/native/runtime-check.Dockerfile deploy/native
+          docker run --rm --network none --read-only --cap-drop ALL --security-opt no-new-privileges \
+            --tmpfs /tmp:rw,nosuid,nodev,size=2g,mode=1777 \
+            -v "$GITHUB_WORKSPACE/scripts:/source/scripts:ro" \
+            -v "$GITHUB_WORKSPACE/native-dist:/source/native-dist:ro" \
+            dakia-native-check sh /source/scripts/check-native-runtime.sh \
+            "/source/native-dist/dakia-$VERSION-linux-${{ matrix.arch }}.tar.gz"
       - uses: actions/upload-artifact@v4
         with:
           name: native-runtime-${{ matrix.arch }}

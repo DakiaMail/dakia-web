@@ -14,7 +14,7 @@ Use the source-revision label and immutable digest to identify an image. Keep op
 
 The image matrix exports each verified image with `scripts/package-runtime.sh`. Archives include the native binaries, Node 24 and its license, web assets, production worker dependencies, search models, ONNX libraries, a native launcher, and a systemd unit. `VERSION` and `REVISION` identify the build. Packaging reuses the image rather than compiling a second runtime.
 
-On each architecture, `scripts/check-native-runtime.sh` extracts the archive into fresh temporary storage and checks classification, search-model loading, translation-worker startup, health, local owner setup, synthetic OAuth, CSRF rejection, and session/key persistence after restart. Both architectures must pass before either archive is published. No owner data is used. Published releases cannot be overwritten.
+On each architecture, `scripts/check-native-runtime.sh` extracts the archive into fresh temporary storage in clean Ubuntu without a Node installation or network access, then checks classification, search-model loading, translation-worker startup, health, local owner setup, synthetic OAuth, CSRF rejection, and session/key persistence after restart. Both architectures must pass before either archive is published. No owner data is used. Published releases cannot be overwritten.
 
 Archives target Ubuntu 24.04 and require its runtime libraries. Node is bundled; users do not need npm, Rust, or Docker. `SHA256SUMS` covers both archives.
 

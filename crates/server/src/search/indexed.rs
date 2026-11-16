@@ -27,7 +27,7 @@ pub(super) async fn page(
     let fusion_initial = !r.suggest
         && query.text.is_some()
         && cursor.fused.is_none()
-        && app.mail.search_queries.state() != crate::search_query_model::QueryModelState::Disabled;
+        && app.mail.search_queries.state() == crate::search_query_model::QueryModelState::Ready;
     let vector = if fusion_initial {
         app.mail
             .search_queries

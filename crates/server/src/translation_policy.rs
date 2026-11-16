@@ -44,7 +44,7 @@ pub(crate) async fn mode(app: &App) -> Result<Mode> {
         }),
     }
 }
-async fn can_manage(app: &App, user: &str) -> Result<bool> {
+pub(crate) async fn can_manage(app: &App, user: &str) -> Result<bool> {
     // OIDC installations explicitly nominate stable Dakia user IDs, never an
     // arbitrary first visitor, email domain, or sender-controlled claim.
     if std::env::var("DAKIA_ADMIN_USERS")
@@ -185,10 +185,10 @@ pub(crate) async fn download(Path(hash): Path<String>) -> Result<Response> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use tower::ServiceExt;
-    async fn fixture() -> (tempfile::TempDir, App) {
+    pub(crate) async fn fixture() -> (tempfile::TempDir, App) {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(dir.path(), [57; 32]).await.unwrap();
         let owner = store

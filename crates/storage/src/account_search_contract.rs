@@ -1,7 +1,7 @@
 use super::*;
 use crate::full_text::SearchContent;
 async fn assert_inventory(a: &AccountRepository) {
-    let (coverage, _) = a.source_coverage(None).await.unwrap();
+    let (coverage, _) = a.source_coverage(None, true).await.unwrap();
     let fields = [
         ("headers", "search_documents", "1=1", coverage.headers),
         (

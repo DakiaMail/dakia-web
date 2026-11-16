@@ -527,6 +527,9 @@ impl SearchConnection {
         )?;
         Ok(())
     }
+    pub async fn unload_vectors(&self) -> Result<()> {
+        self.vectors.unload().await
+    }
     pub async fn maintain_vectors(&self, snapshot: bool) -> Result<bool> {
         let SearchDatabase::Sqlite(db) = self.connection().await? else {
             return Ok(false);

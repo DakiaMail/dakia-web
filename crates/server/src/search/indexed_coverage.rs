@@ -48,10 +48,6 @@ pub(super) async fn read(
         && text.lexical_discovered
         && text.lexical_pending == 0
         && !text.lexical_failed
-        && (!text.semantic_required || text.semantic_available)
-        && !text.semantic_failed
-        && text.semantic_retrying == 0
-        && text.processed == text.eligible
         && text.delivery_pending == 0
         && text.dirty == 0
         && text.pending == 0

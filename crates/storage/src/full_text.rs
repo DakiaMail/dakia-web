@@ -75,7 +75,10 @@ impl Store {
     ) -> Result<(TextCoverage, Option<String>)> {
         let repository = self.account_repository(a).await?;
         let (mut coverage, identity) = repository
-            .source_coverage(self.expected_search_model.as_deref())
+            .source_coverage(
+                self.expected_search_model.as_deref(),
+                self.search_embeddings_enabled(),
+            )
             .await?;
         if self.search_database.is_none() {
             coverage.processed = coverage.bodies + coverage.gaps - coverage.retrying;

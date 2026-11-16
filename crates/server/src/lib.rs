@@ -19,7 +19,9 @@ mod rules;
 mod search;
 pub mod search_lexical;
 pub mod search_models;
+pub mod search_policy;
 mod search_query_model;
+mod search_resources;
 mod search_status;
 mod sender_cleanup;
 mod sender_mail;
@@ -218,6 +220,10 @@ pub fn router(app: App) -> Router {
 pub fn router_with_shutdown(app: App, shutdown: tokio::sync::watch::Sender<bool>) -> Router {
     let api = Router::new()
         .route("/session", get(session))
+        .route(
+            "/search/settings",
+            get(search_policy::get_policy).put(search_policy::set_policy),
+        )
         .route(
             "/translation/settings",
             get(translation_policy::get_policy).put(translation_policy::set_policy),

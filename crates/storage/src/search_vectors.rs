@@ -218,6 +218,16 @@ fn apply(state: &mut State, changes: Vec<Row>, metadata_only: bool) -> Result<()
     Ok(())
 }
 impl VectorAccelerator {
+    pub async fn unload(&self) -> Result<()> {
+        let _turn = self.turn.lock().await;
+        let state = self.state.clone();
+        tokio::task::spawn_blocking(move || {
+            *state.write().map_err(|_| crate::Error::Invalid)? = None;
+            Ok(())
+        })
+        .await
+        .map_err(|_| crate::Error::Invalid)?
+    }
     pub fn new(root: &Path) -> Self {
         Self {
             root: root.join("search/vectors"),

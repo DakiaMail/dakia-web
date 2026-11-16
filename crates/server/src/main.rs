@@ -82,16 +82,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if config.issuer.is_empty() {
         dakia_server::initialize_local_login(&store).await?;
     }
+    let semantic_enabled = dakia_server::search_policy::initialize(&store).await?;
     let state = App {
         store,
         config: Arc::new(config),
         mail: dakia_server::mail::MailRuntime::default()
             .with_gmail(gmail)
             .with_microsoft(microsoft)
-            .with_search_model(
+            .with_search_model_enabled(
                 std::env::var("DAKIA_SEARCH_MODEL_DIR")
                     .unwrap_or_else(|_| "crates/inference/assets/multilingual-e5-small".into())
                     .into(),
+                semantic_enabled,
             ),
     };
     let executor = tokio::spawn(dakia_server::executor::run(state.clone()));

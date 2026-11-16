@@ -267,6 +267,7 @@ impl MailboxTransaction<'_> {
     async fn source_coverage(
         &mut self,
         expected: Option<&str>,
+        semantic_enabled: bool,
     ) -> Result<(crate::full_text::TextCoverage, Option<String>)> {
         let row:Option<SourceInventoryRow>=tuples!(self,"SELECT t.headers,t.bodies,t.pending,t.gaps,t.body_bytes,t.dirty,t.retrying,t.delivery_pending,t.eligible,t.processed,v.document,COALESCE(?1,p.model_revision),COALESCE(s.processed,0),CASE WHEN p.model_revision=COALESCE(?1,p.model_revision) THEN p.available ELSE -1 END,COALESCE(c.pending,0) FROM search_totals t LEFT JOIN provider_documents v ON v.key='search:database' LEFT JOIN search_semantic_profile p ON p.id=1 LEFT JOIN search_stage_totals s ON s.model_revision=COALESCE(?1,p.model_revision) AND s.lexical_revision=MAX(COALESCE(p.lexical_revision,2),?2) LEFT JOIN search_cleanup_totals c ON c.id=1 WHERE t.id=1",[expected,crate::lexical_text::REVISION],"SELECT t.headers,t.bodies,t.pending,t.gaps,t.body_bytes,t.dirty,t.retrying,t.delivery_pending,t.eligible,t.processed,v.document,COALESCE($2,p.model_revision),COALESCE(s.processed,0),CASE WHEN p.model_revision=COALESCE($2,p.model_revision) THEN p.available ELSE -1 END,COALESCE(c.pending,0) FROM search_totals t LEFT JOIN provider_documents v ON v.account_id=t.account_id AND v.key='search:database' LEFT JOIN search_semantic_profile p ON p.account_id=t.account_id LEFT JOIN search_stage_totals s ON s.account_id=t.account_id AND s.model_revision=COALESCE($2,p.model_revision) AND s.lexical_revision=GREATEST(COALESCE(p.lexical_revision,2),$3) LEFT JOIN search_cleanup_totals c ON c.account_id=t.account_id WHERE t.account_id=$1",[&self.account,expected,crate::lexical_text::REVISION],fetch_optional);
         let Some((
@@ -289,6 +290,7 @@ impl MailboxTransaction<'_> {
         else {
             return Ok((Default::default(), None));
         };
+        let model_revision = model_revision.filter(|_| semantic_enabled);
         Ok((
             crate::full_text::TextCoverage {
                 headers,
@@ -307,8 +309,8 @@ impl MailboxTransaction<'_> {
                 },
                 semantic_required: model_revision.is_some(),
                 semantic_revision: model_revision.clone(),
-                semantic_available: semantic_available == 1,
-                semantic_failed: semantic_available == 0,
+                semantic_available: semantic_enabled && semantic_available == 1,
+                semantic_failed: semantic_enabled && semantic_available == 0,
                 semantic_pending: if model_revision.is_some() {
                     (eligible - semantic_processed).max(0)
                 } else {
@@ -329,9 +331,10 @@ impl AccountRepository {
     pub(crate) async fn source_coverage(
         &self,
         expected: Option<&str>,
+        semantic_enabled: bool,
     ) -> Result<(crate::full_text::TextCoverage, Option<String>)> {
         scoped!(self, scope, false, {
-            scope.source_coverage(expected).await
+            scope.source_coverage(expected, semantic_enabled).await
         })
     }
 }

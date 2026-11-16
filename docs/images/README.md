@@ -2,7 +2,7 @@
 
 Captured on 2026-11-15 from source revision `c63030c`, using the running Dakia frontend in an isolated Google Chrome session. All mail, names, addresses, and attachments are fictional. No real mailbox, personal browser profile, provider connection, or email delivery was used.
 
-The mobile inbox was refreshed on 2026-11-16 from source revision `5c20f3c`, with the compact folder/account row, expandable attention summary, and underline tabs. Other captures retain the revision above.
+The mobile inbox was refreshed on 2026-11-16 from source revision `8e0f5ea`, with a single-row search toolbar, expandable attention summary, and underline tabs. Accounts and Refresh mail are available in the mobile sidebar. Other captures retain the revision above.
 
 ## Inbox, sending, and mobile
 
@@ -22,8 +22,8 @@ Open `http://127.0.0.1:5188/?reset=1` in an isolated Chrome profile. Desktop vie
 | `transactions.webp` | Transactions selected, with matching receipts and an attachment |
 | `attention.webp` | Needs attention sidebar view with a verification code and cancelled flight |
 | `compose.webp` | New message to Maya, with Send later → Pick date & time open; cropped to the composer and picker |
-| `inbox-mobile.webp` | 390 × 844 | 42656 | `5a983cac1f58c36f34e57b819c335944747426fb3bf5b1ce08d2e527ca54f4bd` |
-| `reader-mobile.webp` | 390 × 844 | 22564 | `9a283eb0b6c28981288d7ad2260997baefa3e3340d09d6764ede98d82bc151a0` |
+| `inbox-mobile.webp` | Personal inbox with a single-row search toolbar and collapsed attention summary |
+| `reader-mobile.webp` | Maya’s conversation in the narrow layout, with dark theme enabled |
 
 Mobile images are responsive browser captures, not native phone screenshots. The demo read-state notice was dismissed with its normal control before capturing the mobile reader. Normal scroll boundaries, toolbar behavior, and the app's email-rendering colors are retained.
 
@@ -57,7 +57,7 @@ Google Chrome reported version 157.0.8103.51. Source captures were PNG. Exports 
 | `attention.webp` | 1440 × 960 | 29524 | `1d724bbd4a1753bef4fb89f5d1aa1af6b80889655ef7dbfbd06e7636a0258020` |
 | `automated.webp` | 1440 × 960 | 79088 | `f22cbe69facd83aa82e706d9e0a5fbebac277b2757ade646a3b2d78e4862acde` |
 | `compose.webp` | 800 × 580 | 19902 | `297b2b04471a76c9e6823b563518c24d2bc6eefbc6a1ab99dd2462282bd34a3f` |
-| `inbox-mobile.webp` | 390 × 844 | 42656 | `5a983cac1f58c36f34e57b819c335944747426fb3bf5b1ce08d2e527ca54f4bd` |
+| `inbox-mobile.webp` | 390 × 844 | 45250 | `d0ea167078171e0d88348fda506bb35b5103f880fc281644cb2999acd03d3b51` |
 | `personal.webp` | 1440 × 960 | 103696 | `fd43279417b2f085a94c8e96ea34b7b64c7764df19a395752f93a017ee7fba8f` |
 | `reader-mobile.webp` | 390 × 844 | 22564 | `9a283eb0b6c28981288d7ad2260997baefa3e3340d09d6764ede98d82bc151a0` |
 | `transactions.webp` | 1440 × 960 | 54008 | `cbb701dfd85856775987e4e4390e675b8a345bd934a6f54006b33a03c9b7f1c1` |

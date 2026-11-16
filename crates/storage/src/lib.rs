@@ -93,6 +93,8 @@ pub enum Error {
     QuotaExceeded,
     #[error("account has pending or uncertain mail actions")]
     AccountBusy,
+    #[error("storage operation deadline exceeded")]
+    DeadlineExceeded,
 }
 pub type Result<T> = std::result::Result<T, Error>;
 impl Error {
@@ -107,6 +109,7 @@ impl Error {
             Self::Sql(_) => "database_error".into(),
             Self::Io(_) => "filesystem_error".into(),
             Self::Json(_) => "serialization_error".into(),
+            Self::DeadlineExceeded => "deadline_exceeded".into(),
             _ => "storage_error".into(),
         }
     }

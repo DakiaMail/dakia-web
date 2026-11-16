@@ -51,6 +51,10 @@ async fn storage_diagnostic_codes_exclude_driver_details() {
         "database_pool_timeout"
     );
     assert_eq!(
+        Error::DeadlineExceeded.diagnostic_code(),
+        "deadline_exceeded"
+    );
+    assert_eq!(
         Error::Sql(sqlx::Error::Protocol("private fixture".into())).diagnostic_code(),
         "database_error"
     );

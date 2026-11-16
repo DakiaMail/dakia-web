@@ -47,10 +47,9 @@ impl Store {
         };
         let _guard = self.gate.read().await;
         let repository = self.account_repository(a).await?;
-        let identity =
-            tokio::time::timeout(std::time::Duration::from_millis(250), target.identity())
-                .await
-                .map_err(|_| Error::Invalid)??;
+        let identity = tokio::time::timeout(std::time::Duration::from_secs(10), target.identity())
+            .await
+            .map_err(|_| Error::DeadlineExceeded)??;
         if !self
             .search_cleanup_done
             .load(std::sync::atomic::Ordering::Acquire)

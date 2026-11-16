@@ -8,6 +8,8 @@ use std::{
     time::{Duration, Instant},
 };
 type Model = Arc<Mutex<LocalSearchEmbedder>>;
+// A bounded index batch can hold SQLite's writer lock for several seconds.
+const STORAGE_TURN: Duration = Duration::from_secs(10);
 pub async fn run(app: App) {
     let path = std::env::var("DAKIA_SEARCH_MODEL_DIR")
         .unwrap_or_else(|_| "crates/inference/assets/multilingual-e5-small".into());
@@ -60,7 +62,7 @@ pub async fn run(app: App) {
                 // First delivery or index recovery can reset durable model preparation.
                 if !matches!(
                     tokio::time::timeout(
-                        Duration::from_millis(250),
+                        STORAGE_TURN,
                         app.store.prepare_embeddings(&a, &revision, available)
                     )
                     .await,
@@ -71,7 +73,7 @@ pub async fn run(app: App) {
                 if enabled {
                     if let Some(model) = &model {
                         let _ = tokio::time::timeout(
-                            Duration::from_millis(250),
+                            STORAGE_TURN,
                             app.store.discover_embeddings(&a, &revision),
                         )
                         .await;
@@ -86,11 +88,8 @@ pub async fn run(app: App) {
                         }
                     }
                 }
-                match tokio::time::timeout(
-                    Duration::from_millis(250),
-                    app.store.flush_embedding_receipts(&a),
-                )
-                .await
+                match tokio::time::timeout(STORAGE_TURN, app.store.flush_embedding_receipts(&a))
+                    .await
                 {
                     Ok(Ok(worked)) => progressed |= worked,
                     result => {
@@ -121,12 +120,9 @@ async fn execute_turn(
     model: Model,
     oldest: bool,
 ) -> Result<bool, Error> {
-    let turn = tokio::time::timeout(
-        Duration::from_millis(250),
-        store.claim_embedding(a, revision, oldest),
-    )
-    .await
-    .map_err(|_| Error::Invalid)??;
+    let turn = tokio::time::timeout(STORAGE_TURN, store.claim_embedding(a, revision, oldest))
+        .await
+        .map_err(|_| Error::DeadlineExceeded)??;
     let Some(turn) = turn else {
         return Ok(false);
     };
@@ -217,6 +213,24 @@ mod tests {
         let revision = search_model_revision();
         store.prepare_embeddings(&a, &revision, true).await.unwrap();
         store.discover_embeddings(&a, &revision).await.unwrap();
+        if url.is_none() {
+            let target = sqlx::SqlitePool::connect(&format!(
+                "sqlite:{}",
+                dir.path().join("search/index.sqlite").display()
+            ))
+            .await
+            .unwrap();
+            let lock = target.begin_with("BEGIN IMMEDIATE").await.unwrap();
+            let release = tokio::spawn(async move {
+                tokio::time::sleep(Duration::from_millis(350)).await;
+                lock.rollback().await.unwrap();
+            });
+            assert!(execute_turn(&store, &a, &revision, model.clone(), true)
+                .await
+                .is_ok());
+            release.await.unwrap();
+            target.close().await;
+        }
         for _ in 0..100 {
             execute_turn(&store, &a, &revision, model.clone(), true)
                 .await

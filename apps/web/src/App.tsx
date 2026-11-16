@@ -1033,7 +1033,8 @@ export function App() {
           </button>
           {(accounts.data || []).map((a) => (
             <div className="account-entry" key={a.id}>
-            <button title={a.display_name}
+            <AccountIndexingProgress account={a} online={online}>
+            <button
               aria-describedby={`indexing-${a.id}-status`}
               className={account === a.id ? "selected" : ""}
               onClick={() => {
@@ -1050,7 +1051,7 @@ export function App() {
                 <span className="account-state">{a.state}</span>
               )}
             </button>
-            <AccountIndexingProgress account={a} online={online} />
+            </AccountIndexingProgress>
             </div>
           ))}
         </nav>

@@ -76,7 +76,10 @@ for (const width of [390, 1480]) {
     f.releasePost();
     f.state.projectPending = true;
     const reads = f.state.reads;
-    await page.locator(".header-refresh").click();
+    if (width === 390) {
+      await page.getByRole("button", { name: "Open navigation", exact: true }).click();
+      await page.locator(".sidebar").getByRole("button", { name: "Refresh mail", exact: true }).click();
+    } else await page.locator(".header-refresh").click();
     await expect.poll(() => f.state.reads).toBeGreaterThan(reads);
     f.settle("work", "failed");
     await expect(page.getByRole("checkbox", { name: "Select Quiet work" })).toBeChecked();

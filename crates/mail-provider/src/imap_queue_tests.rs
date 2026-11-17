@@ -2,6 +2,197 @@ use super::*;
 use std::time::Duration;
 
 #[tokio::test]
+async fn foreground_bodies_reuse_a_connection_independent_of_background_and_idle() {
+    use crate::test_common::{command, credentials, imap_login, Fixture};
+    let f = Fixture::new().await;
+    let provider = ImapProvider::new(f.config(Security::Tls), credentials())
+        .unwrap()
+        .with_root(native_tls::Certificate::from_der(&f.cert).unwrap())
+        .unwrap();
+    let _background = provider.lane.lock().await;
+    let _idle = provider.idle_lane.lock().await;
+    let task = tokio::spawn(async move {
+        let mut w = f.accept(false, false).await;
+        imap_login(&mut w, false).await;
+        for uid in [9, 10] {
+            command(
+                &mut w,
+                "SELECT \"INBOX\"",
+                "* OK [UIDVALIDITY 17] valid\r\n$TAG OK selected\r\n",
+            )
+            .await;
+            command(
+                &mut w,
+                &format!("UID SEARCH UID {uid}"),
+                &format!("* SEARCH {uid}\r\n$TAG OK found\r\n"),
+            )
+            .await;
+            command(
+                &mut w,
+                &format!("UID FETCH {uid} (UID RFC822.SIZE)"),
+                &format!("* 1 FETCH (UID {uid} RFC822.SIZE 3)\r\n$TAG OK size\r\n"),
+            )
+            .await;
+            command(
+                &mut w,
+                &format!("UID FETCH {uid} (UID BODY.PEEK[]<0.1025>)"),
+                &format!("* 1 FETCH (UID {uid} BODY[]<0> {{3}}\r\none)\r\n$TAG OK body\r\n"),
+            )
+            .await;
+        }
+    });
+    for uid in [9, 10] {
+        let reference = MessageRef {
+            graph_id: None,
+            account_id: "fixture-account".into(),
+            folder: "INBOX".into(),
+            uidvalidity: 17,
+            uid,
+        };
+        let body = tokio::time::timeout(
+            Duration::from_secs(1),
+            provider.fetch_foreground(&reference, 1024),
+        )
+        .await
+        .expect("opening a body must not wait for background work")
+        .unwrap();
+        assert_eq!(body, b"one");
+    }
+    task.await.unwrap();
+    provider.retire();
+    let reference = MessageRef {
+        graph_id: None,
+        account_id: "fixture-account".into(),
+        folder: "INBOX".into(),
+        uidvalidity: 17,
+        uid: 9,
+    };
+    assert_eq!(
+        provider
+            .fetch_foreground(&reference, 1024)
+            .await
+            .unwrap_err()
+            .kind,
+        ErrorKind::Authentication
+    );
+}
+
+#[tokio::test]
+async fn foreground_queue_is_bounded_and_checks_account_before_checkout() {
+    let f = crate::test_common::Fixture::new().await;
+    let mut config = f.config(Security::Tls);
+    config.timeout = Duration::from_millis(20);
+    let provider = ImapProvider::new(config, crate::test_common::credentials()).unwrap();
+    let _reader = provider.read_lane.lock().await;
+    let mut reference = MessageRef {
+        graph_id: None,
+        account_id: "other-account".into(),
+        folder: "INBOX".into(),
+        uidvalidity: 17,
+        uid: 9,
+    };
+    assert_eq!(
+        provider
+            .fetch_foreground(&reference, 1024)
+            .await
+            .unwrap_err()
+            .kind,
+        ErrorKind::InvalidInput
+    );
+    reference.account_id = "fixture-account".into();
+    let error = tokio::time::timeout(
+        Duration::from_secs(1),
+        provider.fetch_foreground(&reference, 1024),
+    )
+    .await
+    .unwrap()
+    .unwrap_err();
+    assert_eq!(error.message, "IMAP operation deadline exceeded");
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), f.listener.accept())
+            .await
+            .is_err()
+    );
+}
+
+#[tokio::test]
+async fn cancelling_a_foreground_body_discards_its_stream_before_the_next_read() {
+    use crate::test_common::{command, credentials, imap_login, line, Fixture};
+    let f = Fixture::new().await;
+    let provider = ImapProvider::new(f.config(Security::Tls), credentials())
+        .unwrap()
+        .with_root(native_tls::Certificate::from_der(&f.cert).unwrap())
+        .unwrap();
+    let started = std::sync::Arc::new(tokio::sync::Notify::new());
+    let signal = started.clone();
+    let task = tokio::spawn(async move {
+        for cancelled in [true, false] {
+            let (tcp, _) = f.listener.accept().await.unwrap();
+            let mut w = BufReader::new(f.acceptor.accept(tcp).await.unwrap());
+            imap_login(&mut w, false).await;
+            command(
+                &mut w,
+                "SELECT \"INBOX\"",
+                "* OK [UIDVALIDITY 17] valid\r\n$TAG OK selected\r\n",
+            )
+            .await;
+            command(
+                &mut w,
+                "UID SEARCH UID 9",
+                "* SEARCH 9\r\n$TAG OK found\r\n",
+            )
+            .await;
+            command(
+                &mut w,
+                "UID FETCH 9 (UID RFC822.SIZE)",
+                "* 1 FETCH (UID 9 RFC822.SIZE 3)\r\n$TAG OK size\r\n",
+            )
+            .await;
+            if cancelled {
+                assert!(line(&mut w).await.contains("UID BODY.PEEK[]"));
+                signal.notify_one();
+                let result = w.read(&mut [0u8; 1]).await;
+                assert!(result.is_err() || result.unwrap() == 0);
+            } else {
+                command(
+                    &mut w,
+                    "UID FETCH 9 (UID BODY.PEEK[]<0.1025>)",
+                    "* 1 FETCH (UID 9 BODY[]<0> {3}\r\none)\r\n$TAG OK body\r\n",
+                )
+                .await;
+            }
+        }
+    });
+    let reference = MessageRef {
+        graph_id: None,
+        account_id: "fixture-account".into(),
+        folder: "INBOX".into(),
+        uidvalidity: 17,
+        uid: 9,
+    };
+    {
+        let request = provider.fetch_foreground(&reference, 1024);
+        tokio::pin!(request);
+        tokio::select! {
+            result = &mut request => panic!("the first body must still be stalled: {result:?}"),
+            _ = started.notified() => {},
+            _ = tokio::time::sleep(Duration::from_secs(2)) => panic!("fixture did not receive the first body request"),
+        }
+    }
+    assert_eq!(
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            provider.fetch_foreground(&reference, 1024)
+        )
+        .await
+        .unwrap()
+        .unwrap(),
+        b"one"
+    );
+    task.await.unwrap();
+}
+
+#[tokio::test]
 async fn queue_wait_counts_toward_every_imap_operation_deadline() {
     let endpoint = Endpoint {
         host: "must-not-connect.invalid".into(),
@@ -27,7 +218,8 @@ async fn queue_wait_counts_toward_every_imap_operation_deadline() {
     )
     .unwrap();
     let reference = MessageRef {
-        graph_id: None, account_id: "owned".into(),
+        graph_id: None,
+        account_id: "owned".into(),
         folder: "INBOX".into(),
         uidvalidity: 1,
         uid: 1,
@@ -109,7 +301,8 @@ async fn queued_user_actions_that_never_acquire_a_connection_are_safe_to_retry()
     )
     .unwrap();
     let reference = MessageRef {
-        graph_id: None, account_id: "owned".into(),
+        graph_id: None,
+        account_id: "owned".into(),
         folder: "INBOX".into(),
         uidvalidity: 1,
         uid: 1,
@@ -158,12 +351,25 @@ async fn failed_handshake_suppresses_both_lanes_then_clean_read_restores_pooling
     assert!(provider.probe().await.is_err());
     let f = task.await.unwrap();
     for _ in 0..20 {
-        let (folders, head, idle) = tokio::join!(
+        let reference = MessageRef {
+            graph_id: None,
+            account_id: "fixture-account".into(),
+            folder: "INBOX".into(),
+            uidvalidity: 17,
+            uid: 9,
+        };
+        let (folders, head, idle, reader) = tokio::join!(
             provider.probe(),
             provider.head("INBOX", None),
             provider.wait_for_change("INBOX", Duration::from_secs(1)),
+            provider.fetch_foreground(&reference, 1024),
         );
-        for failure in [folders.unwrap_err(), head.unwrap_err(), idle.unwrap_err()] {
+        for failure in [
+            folders.unwrap_err(),
+            head.unwrap_err(),
+            idle.unwrap_err(),
+            reader.unwrap_err(),
+        ] {
             assert_eq!(failure.message, "IMAP reconnect cooling down");
         }
     }

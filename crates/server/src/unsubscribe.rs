@@ -248,7 +248,7 @@ async fn action(app: &App, a: &AuthorizedAccount, id: &str) -> Result<Option<Act
             .map_err(dakia_storage::Error::from)
             .map_err(Into::into);
     }
-    let raw = app.mail.raw(&app.store, a, id).await?;
+    let raw = app.mail.raw_foreground(&app.store, a, id).await?;
     remember(&app.store, a, id, &raw).await
 }
 pub(crate) async fn info(

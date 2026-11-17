@@ -265,7 +265,7 @@ pub(crate) async fn execute(
     }
     let content = app
         .mail
-        .content(&app.store, a, &job.message_id)
+        .content_background(&app.store, a, &job.message_id)
         .await
         .map_err(|error| {
             *reason = content_failure_reason(&error);

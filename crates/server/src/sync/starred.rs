@@ -114,7 +114,7 @@ pub(crate) async fn tick(app: &App, a: &AuthorizedAccount) -> crate::Result<()> 
         }
         break;
     }
-    // A keyset walk includes cached entries: content() repairs missing and old
+    // A keyset walk includes cached entries: background reads repair missing and old
     // cache formats, overlays current flags, and avoids redundant provider I/O.
     // Advance after failures too so one oversized/offline message cannot starve
     // other stars. Retry on the next pass; cache eviction is never a flag change.
@@ -126,7 +126,7 @@ pub(crate) async fn tick(app: &App, a: &AuthorizedAccount) -> crate::Result<()> 
         }
         for message in rows {
             state.body_after = message.id.clone();
-            if let Err(error) = app.mail.content(&app.store, a, &message.id).await {
+            if let Err(error) = app.mail.content_background(&app.store, a, &message.id).await {
                 state.error = Some(error.1.into());
             }
         }

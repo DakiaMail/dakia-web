@@ -96,6 +96,10 @@ pub trait MailProvider: Send + Sync {
     ) -> Result<Page>;
     async fn wait_for_change(&self, folder: &str, max_wait: std::time::Duration) -> Result<bool>;
     async fn fetch(&self, reference: &MessageRef, max_bytes: u32) -> Result<Vec<u8>>;
+    /// Opening mail and downloading its attachments must not queue behind backfill.
+    async fn fetch_foreground(&self, reference: &MessageRef, max_bytes: u32) -> Result<Vec<u8>> {
+        self.fetch(reference, max_bytes).await
+    }
     /// At most 50 small messages in one folder/epoch, in input order.
     /// Unsupported callers retain their existing single-message semantics.
     async fn fetch_batch(
@@ -328,6 +332,9 @@ impl MailProvider for AccountProvider {
     async fn fetch(&self, reference: &MessageRef, max_bytes: u32) -> Result<Vec<u8>> {
         tracing::info!(target: "dakia_server::provider_io", operation = "fetch", "provider_io");
         retry_read(|| self.imap.fetch(reference, max_bytes)).await
+    }
+    async fn fetch_foreground(&self, reference: &MessageRef, max_bytes: u32) -> Result<Vec<u8>> {
+        retry_read(|| self.imap.fetch_foreground(reference, max_bytes)).await
     }
     #[tracing::instrument(target = "dakia_server::provider_io", skip_all, fields(account_key = %crate::telemetry::key(&self.imap.config.account_id), request_key = %crate::telemetry::request_key(), purpose="reference_recovery", request_kind = "resolve_gmail"))]
     async fn resolve_gmail_message(

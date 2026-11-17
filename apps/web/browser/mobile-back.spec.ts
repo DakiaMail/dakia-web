@@ -113,7 +113,7 @@ test("typing stays in the inbox until Enter and Back restores it", async ({ page
 test("a late failed deep-link lookup cannot add an error after manual navigation", async ({ page }) => {
   await fixture(page);
   let pending: import("@playwright/test").Route | undefined;
-  await page.route(`**/api/accounts/${accounts[0].id}/messages/${mail.rows[0].id}`, route => {
+  await page.route(url => url.pathname === `/api/accounts/${accounts[0].id}/messages/${mail.rows[0].id}`, route => {
     if (!pending) { pending = route; return; }
     return route.fallback();
   });

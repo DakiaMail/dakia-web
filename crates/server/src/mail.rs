@@ -31,7 +31,7 @@ use tokio::sync::Mutex;
 pub(crate) const RECEIVED_MESSAGE_LIMIT: u32 = 40 * 1024 * 1024;
 type InboxRefreshSlot = Arc<Mutex<Option<std::time::Instant>>>;
 type ConversationSlot = (String, Arc<Mutex<conversation::Discovery>>);
-type ContentLanes = HashMap<(String, String), std::sync::Weak<Mutex<()>>>;
+type ContentLanes = HashMap<(String, String, bool), std::sync::Weak<Mutex<()>>>;
 pub(crate) struct SyncActivity(Arc<std::sync::atomic::AtomicUsize>);
 impl Drop for SyncActivity {
     fn drop(&mut self) {
@@ -336,10 +336,15 @@ impl MailRuntime {
         self.gmail = config;
         self
     }
-    async fn content_lane(&self, a: &AuthorizedAccount, id: &str) -> Arc<Mutex<()>> {
+    async fn content_lane(
+        &self,
+        a: &AuthorizedAccount,
+        id: &str,
+        foreground: bool,
+    ) -> Arc<Mutex<()>> {
         let mut lanes = self.content_lanes.lock().await;
         lanes.retain(|_, lane| lane.strong_count() > 0);
-        let lane = lanes.entry((a.id().into(), id.into())).or_default();
+        let lane = lanes.entry((a.id().into(), id.into(), foreground)).or_default();
         if let Some(existing) = lane.upgrade() {
             return existing;
         }
@@ -978,13 +983,31 @@ impl MailRuntime {
         self.raw_with_limit(store, a, id, RECEIVED_MESSAGE_LIMIT)
             .await
     }
-    #[tracing::instrument(target = "dakia_server::diagnostics", skip_all, fields(account_key = crate::diagnostics::correlation(a.id()), message_key = crate::diagnostics::correlation(id)))]
     pub(crate) async fn raw_with_limit(
         &self,
         store: &Store,
         a: &AuthorizedAccount,
         id: &str,
         limit: u32,
+    ) -> Result<Vec<u8>> {
+        self.raw_with_priority(store, a, id, limit, false).await
+    }
+    pub(crate) async fn raw_foreground(
+        &self,
+        store: &Store,
+        a: &AuthorizedAccount,
+        id: &str,
+    ) -> Result<Vec<u8>> {
+        self.raw_with_priority(store, a, id, RECEIVED_MESSAGE_LIMIT, true).await
+    }
+    #[tracing::instrument(target = "dakia_server::diagnostics", skip_all, fields(account_key = crate::diagnostics::correlation(a.id()), message_key = crate::diagnostics::correlation(id), foreground))]
+    async fn raw_with_priority(
+        &self,
+        store: &Store,
+        a: &AuthorizedAccount,
+        id: &str,
+        limit: u32,
+        foreground: bool,
     ) -> Result<Vec<u8>> {
         if let Some(raw) = store.cached_raw(a, id).await? {
             tracing::info!(target: "dakia_server::diagnostics", operation = "content_cache", outcome = "hit", "mail_work");
@@ -1003,10 +1026,17 @@ impl MailRuntime {
         let reference: p::MessageRef = serde_json::from_str(&reference).map_err(Error::from)?;
         let message = store.message(a, id).await?;
         if message.provider_id.starts_with("gmail:") {
-            return self.gmail_raw(store, a, &message, reference, limit).await;
+            return self
+                .gmail_raw(store, a, &message, reference, limit, foreground)
+                .await;
         }
         let provider = self.provider(store, a).await?;
-        let first_error = match provider.fetch(&reference, limit).await {
+        let fetched = if foreground {
+            provider.fetch_foreground(&reference, limit).await
+        } else {
+            provider.fetch(&reference, limit).await
+        };
+        let first_error = match fetched {
             Ok(raw) => return Ok(raw),
             Err(error) => error,
         };
@@ -1032,15 +1062,45 @@ impl MailRuntime {
         a: &AuthorizedAccount,
         id: &str,
     ) -> Result<MessageContent> {
+        self.content_with_priority(store, a, id, true).await
+    }
+    pub(crate) async fn content_background(
+        &self,
+        store: &Store,
+        a: &AuthorizedAccount,
+        id: &str,
+    ) -> Result<MessageContent> {
+        self.content_with_priority(store, a, id, false).await
+    }
+    async fn content_with_priority(
+        &self,
+        store: &Store,
+        a: &AuthorizedAccount,
+        id: &str,
+        foreground: bool,
+    ) -> Result<MessageContent> {
         store.request_classification(a, &[id.to_owned()]).await?;
-        let lane = self.content_lane(a, id).await;
+        let lane = self.content_lane(a, id, foreground).await;
         let _guard = lane.lock().await;
         if let Some(mut c) = store.cached_content(a, id).await? {
             // Re-evaluate legacy cached documents too, without fetching or mutating mail.
             c.detected_language = self.languages.detect(a.id(), id, &c.text, &c.html);
             return Ok(c);
         }
-        let raw = self.raw(store, a, id).await?;
+        let raw = self
+            .raw_with_priority(store, a, id, RECEIVED_MESSAGE_LIMIT, foreground)
+            .await?;
+        // Publish under the reader's lock only after background network work ends.
+        // This keeps attachment identities single-flight without delaying an open.
+        let _publish = if foreground {
+            None
+        } else {
+            Some(self.content_lane(a, id, true).await.lock_owned().await)
+        };
+        if let Some(mut c) = store.cached_content(a, id).await? {
+            c.detected_language = self.languages.detect(a.id(), id, &c.text, &c.html);
+            return Ok(c);
+        }
         self.cache_parsed_content(store, a, id, &raw).await
     }
     async fn cache_parsed_content(
@@ -1179,12 +1239,12 @@ impl MailRuntime {
             .await?
             .ok_or(Error::NotFound)?;
         let part: PartRef = serde_json::from_str(&part).map_err(Error::from)?;
-        let lane = self.content_lane(a, &part.message_id).await;
+        let lane = self.content_lane(a, &part.message_id, true).await;
         let _guard = lane.lock().await;
         let raw = match store.cached_raw(a, &part.message_id).await? {
             Some(raw) => raw,
             None => {
-                let raw = self.raw(store, a, &part.message_id).await?;
+                let raw = self.raw_foreground(store, a, &part.message_id).await?;
                 self.cache_parsed_content(store, a, &part.message_id, &raw)
                     .await?;
                 raw

@@ -39,18 +39,30 @@ test("serializes background reads and yields to foreground requests", async () =
   prefetch.request({ ...target, id: "two" }); await vi.advanceTimersByTimeAsync(300);
   expect(api.contentById).toHaveBeenCalledTimes(1);
   const signal = vi.mocked(api.contentById).mock.calls[0][2]!;
-  prefetch.foreground({ ...target, id: "three" });
+  prefetch.foreground();
   expect(signal.aborted).toBe(true);
 });
-test("opening prefetched content shares the request and cancellation preserves the reader", async () => {
+test("cancellation never interrupts a body with an active reader", async () => {
   vi.mocked(api.contentById).mockImplementation(() => new Promise(() => {}));
   prefetch.request(target); await vi.advanceTimersByTimeAsync(151);
   const observer = new QueryObserver(client, messageContent(target.account_id, target.id));
   const unsubscribe = observer.subscribe(() => {});
-  prefetch.foreground(target); prefetch.cancel();
+  prefetch.foreground(); prefetch.cancel();
   expect(api.contentById).toHaveBeenCalledTimes(1);
   expect(vi.mocked(api.contentById).mock.calls[0][2]!.aborted).toBe(false);
   unsubscribe();
+});
+test("opening the same message promotes a stalled prefetch to a foreground read", async () => {
+  vi.mocked(api.contentById).mockImplementation((_account, _id, signal, speculative) => speculative
+    ? new Promise((_, reject) => signal!.addEventListener("abort", () => reject(new DOMException("Cancelled", "AbortError"))))
+    : Promise.resolve({} as never));
+  prefetch.request(target); await vi.advanceTimersByTimeAsync(151);
+  expect(vi.mocked(api.contentById).mock.calls[0][3]).toBe(true);
+  prefetch.foreground();
+  await client.fetchQuery(messageContent(target.account_id, target.id));
+  expect(api.contentById).toHaveBeenCalledTimes(2);
+  expect(vi.mocked(api.contentById).mock.calls[0][2]!.aborted).toBe(true);
+  expect(vi.mocked(api.contentById).mock.calls[1][3]).toBe(false);
 });
 test("failed speculation never retries automatically", async () => {
   vi.mocked(api.contentById).mockRejectedValue(new Error("offline"));

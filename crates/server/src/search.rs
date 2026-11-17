@@ -505,7 +505,7 @@ pub(super) async fn search(
                         continue;
                     }
                     if has_attachment {
-                        let content = app.mail.content(&app.store, &a, &row.id).await?;
+                        let content = app.mail.content_background(&app.store, &a, &row.id).await?;
                         if content.attachments.is_empty() {
                             continue;
                         }

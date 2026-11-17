@@ -119,6 +119,7 @@ export type FixtureState = {
 };
 
 export async function selectAccount(page: Page, id: string) {
+  await page.locator(".app").waitFor();
   const navigation = page.getByRole("navigation", { name: "Accounts", exact: true });
   const open = page.getByRole("button", { name: "Open navigation", exact: true });
   if (await open.isVisible() && !await page.locator(".app").evaluate(element => element.classList.contains("nav-open"))) await open.click();

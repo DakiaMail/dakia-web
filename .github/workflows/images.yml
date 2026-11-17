@@ -53,6 +53,9 @@ jobs:
       - run: cargo test --workspace --locked
       - run: npm test
       - run: npm run build
+      - run: npm run test:browser --workspace @dakia/web -- foreground-reads.spec.ts
+        env:
+          CHROME_PATH: /usr/bin/google-chrome
       - run: npm run test:browser --workspace @dakia/web -- --config playwright.personal-first.config.ts
         env:
           CHROME_PATH: /usr/bin/google-chrome
@@ -60,7 +63,9 @@ jobs:
         if: always()
         with:
           name: classification-evidence
-          path: apps/web/artifacts/personal-first
+          path: |
+            apps/web/artifacts/personal-first
+            apps/web/test-results
           retention-days: 7
   image:
     if: github.event_name != 'pull_request'

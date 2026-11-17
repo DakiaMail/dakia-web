@@ -789,7 +789,7 @@ export function App() {
   }
 
   async function open(m: Message, linkedAccount?: string) {
-    prefetch.foreground(m);
+    prefetch.foreground();
     if (!selected && listRef.current)
       positions.current[`${account}/${nav}/${q}/${view}/${typeFilter}`] = listRef.current.scrollTop;
     const url = new URL(location.href);

@@ -147,8 +147,8 @@ export const api = {
     request<MessageContent>(
       `${accountPath(m.account_id)}/messages/${key(m.id)}`,
     ),
-  contentById: (account: string, id: string, signal?: AbortSignal) =>
-    request<MessageContent>(`${accountPath(account)}/messages/${key(id)}`, { signal }),
+  contentById: (account: string, id: string, signal?: AbortSignal, prefetch = false) =>
+    request<MessageContent>(`${accountPath(account)}/messages/${key(id)}?prefetch=${prefetch}`, { signal }),
   conversation: (m: Message, continuation?: string | null, signal?: AbortSignal, mode?: "snapshot" | "refresh") => {
     const params = new URLSearchParams();
     if (continuation) params.set("continuation", continuation);

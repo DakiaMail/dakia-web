@@ -28,6 +28,9 @@ jobs:
         run: |
           sh -n scripts/upgrade.sh
           sh -n scripts/install.sh
+          for script in ct/dakia.sh install/dakia-install.sh scripts/setup-proxmox-lxc.sh; do bash -n "$script"; done
+          node --test scripts/tests/proxmox-lxc.test.mjs
+          python3 -m unittest discover -s scripts/tests -p test_upgrade_native.py
           for script in scripts/package-runtime.sh scripts/check-native-runtime.sh deploy/native/dakia; do sh -n "$script"; done
           node --test scripts/tests/native-runtime.test.mjs
           node --test scripts/tests/upgrade*.test.mjs scripts/tests/install.test.mjs

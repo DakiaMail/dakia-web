@@ -142,6 +142,24 @@ impl AuthorizedAccount {
 fn now() -> String {
     Utc::now().to_rfc3339_opts(SecondsFormat::Millis, true)
 }
+async fn reusable_sqlite_connection(connection: &mut sqlx::SqliteConnection) -> sqlx::Result<bool> {
+    use sqlx::Connection;
+    // Flush queued rollbacks before checking for SQLx 0.8's cancelled-BEGIN leak.
+    connection.ping().await?;
+    let reusable = !connection.is_in_transaction();
+    if !reusable {
+        tracing::warn!(
+            operation = "sqlite_pool",
+            reason = "open_transaction",
+            "discarding SQLite connection"
+        );
+    }
+    Ok(reusable)
+}
+fn sqlite_pool_options() -> SqlitePoolOptions {
+    SqlitePoolOptions::new()
+        .after_release(|connection, _| Box::pin(reusable_sqlite_connection(connection)))
+}
 async fn pool(path: &Path) -> Result<SqlitePool> {
     let options = SqliteConnectOptions::from_str("sqlite:")?
         .filename(path)
@@ -153,7 +171,7 @@ async fn pool(path: &Path) -> Result<SqlitePool> {
         .pragma("secure_delete", "ON")
         .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
         .busy_timeout(std::time::Duration::from_secs(5));
-    Ok(SqlitePoolOptions::new()
+    Ok(sqlite_pool_options()
         .max_connections(1)
         .connect_with(options)
         .await?)
@@ -226,7 +244,7 @@ impl Store {
                         .pragma("secure_delete", "ON")
                         .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
                         .busy_timeout(std::time::Duration::from_secs(5));
-                    SqlitePoolOptions::new()
+                    sqlite_pool_options()
                         .max_connections(1)
                         .connect_with(options)
                         .await?

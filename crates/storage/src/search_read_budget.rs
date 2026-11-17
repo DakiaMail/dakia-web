@@ -12,12 +12,12 @@ use std::sync::{
 // Outage safeguard, not a search latency target.
 const TURN: std::time::Duration = std::time::Duration::from_secs(10);
 pub(super) fn sqlite_pool() -> SqlitePoolOptions {
-    SqlitePoolOptions::new()
+    crate::sqlite_pool_options()
         .max_connections(4)
         .after_release(|connection, _| {
             Box::pin(async move {
                 connection.lock_handle().await?.remove_progress_handler();
-                Ok(true)
+                crate::reusable_sqlite_connection(connection).await
             })
         })
 }

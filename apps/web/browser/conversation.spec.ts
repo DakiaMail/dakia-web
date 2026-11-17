@@ -28,6 +28,7 @@ async function fixture(page: Page, options: { failure?: boolean; third?: boolean
       discovered = true;
       return respond({rows,continuation:null,complete:true});
     }
+    if (path.endsWith("/thread-counts")) return respond(Object.fromEntries((url.searchParams.get("messages") || "").split(",").map(id => [id, path.includes("/personal/") ? 1 : rows.length])));
     if (path.endsWith("/unsubscribe")) return respond(null);
     if (path.includes("/messages/")) {
       const id=path.split("/").at(-1);
@@ -84,6 +85,20 @@ test("a transient pagination failure recovers silently without duplicating, with
   await expect(sentCard.frameLocator("iframe").locator("body")).toContainText("schedule looks good");
   expect(state.calls.filter(c=>c.includes("continuation=")).length).toBe(2);
 });
+test("collapsed message summary expands on click and its preview stays below the timestamp", async ({ page }) => {
+  await page.setViewportSize({ width: 899, height: 1256 });
+  await fixture(page, { third: true });
+  const card = page.getByRole("region", { name: "Message from You", exact: true });
+  const summary = card.getByRole("button", { name: "Expand message from You", exact: true });
+  await expect(summary).toBeVisible();
+  const date = (await summary.locator("time").boundingBox())!;
+  const preview = (await summary.locator("small").boundingBox())!;
+  expect(preview.y).toBeGreaterThanOrEqual(date.y + date.height);
+  await summary.click();
+  await expect(card.getByRole("button", { name: "Collapse message", exact: true })).toHaveAttribute("aria-expanded", "true");
+  await expect(card.locator("iframe")).toBeVisible();
+});
+
 test("reply, reply-all and forward use the chosen card, including sent-to-original recipients",async({page})=>{
   const state=await fixture(page);
   const sentCard=page.getByRole("region",{name:"Message from You",exact:true});
@@ -95,16 +110,37 @@ test("reply, reply-all and forward use the chosen card, including sent-to-origin
   expect(state.drafts.at(-1)?.references).toEqual(["<m0@example.invalid>","<sent-reply@example.invalid>"]);
   await page.getByRole("button",{name:"Close",exact:true}).click();
   const original=page.getByRole("region",{name:"Message from Maya Chen",exact:true});
-  await original.getByRole("button",{name:"Reply all",exact:true}).click();
+  await original.getByRole("button",{name:"More message actions"}).click();
+  await page.getByRole("menuitem",{name:"Reply all",exact:true}).click();
   await page.waitForTimeout(900);
   expect(state.drafts.at(-1)?.in_reply_to).toBe("<m0@example.invalid>");
   expect(state.drafts.at(-1)?.to.map(a=>a.email)).toEqual(["maya@example.org"]);
   await page.getByRole("button",{name:"Close",exact:true}).click();
-  await sentCard.getByRole("button",{name:"Forward",exact:true}).click();
+  await sentCard.getByRole("button",{name:"More message actions"}).click();
+  await page.getByRole("menuitem",{name:"Forward",exact:true}).click();
   await page.waitForTimeout(900);
   expect(state.drafts.at(-1)?.in_reply_to).toBeNull();
   expect(state.drafts.at(-1)?.to).toEqual([]);
 });
+test("replying to a collapsed message reports a load error beside the action and can retry", async ({ page }) => {
+  const state = await fixture(page, { third: true });
+  const card = page.getByRole("region", { name: "Message from You", exact: true });
+  await expect(card.locator("iframe")).toHaveCount(0);
+  let fail = true;
+  await page.route("**/api/accounts/work/messages/sent-reply?*", route => fail
+    ? route.fulfill({ status: 503, json: { code: "provider_unavailable", message: "This message couldn’t be loaded. Please try again." } })
+    : route.fallback());
+  await card.getByRole("button", { name: "Reply", exact: true }).click();
+  await expect(card.getByRole("alert")).toHaveText("This message couldn’t be loaded. Please try again.");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  fail = false;
+  await card.getByRole("button", { name: "Reply", exact: true }).click();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(card.getByRole("alert")).toHaveCount(0);
+  await expect.poll(() => state.drafts.at(-1)?.in_reply_to).toBe("<sent-reply@example.invalid>");
+  await expect(card.locator("iframe")).toHaveCount(0);
+});
+
 test("isolated body resizing grows and shrinks, rejects forged frame messages, and preserves sandbox security",async({page})=>{
   await fixture(page);
   const frames=page.locator(".conversation-message iframe");
@@ -127,8 +163,8 @@ test("isolated body resizing grows and shrinks, rejects forged frame messages, a
   await expect.poll(async()=> (await first.boundingBox())?.height || 0).toBeGreaterThan(1000);
   await body.evaluate(el=>{ el.innerHTML="<p>Short synthetic message</p>"; });
   await expect.poll(async()=> (await first.boundingBox())?.height || 0).toBeLessThan(120);
-  await page.getByRole("region",{name:"Message from You",exact:true}).getByRole("button",{name:"Forward",exact:true}).scrollIntoViewIfNeeded();
-  await expect(page.getByRole("region",{name:"Message from You",exact:true}).getByRole("button",{name:"Forward",exact:true})).toBeVisible();
+  await page.getByRole("region",{name:"Message from You",exact:true}).getByRole("button",{name:"More message actions",exact:true}).scrollIntoViewIfNeeded();
+  await expect(page.getByRole("region",{name:"Message from You",exact:true}).getByRole("button",{name:"More message actions",exact:true})).toBeVisible();
 });
 
 test("switching to a separate account never retains previous conversation cards",async({page})=>{
@@ -151,46 +187,68 @@ for (const [name, width, height, dark] of [
     if (dark) await page.addInitScript(() => localStorage.setItem("dakia-theme", "dark"));
     await fixture(page);
     const card = page.getByRole("region", { name: "Message from Maya Chen", exact: true });
-    const details = card.locator("details");
-    const summary = details.locator("summary");
+    const trigger = card.getByRole("button", { name: "Message details", exact: true });
+    const panel = page.getByRole("dialog", { name: "Message details" });
     const toggle = card.getByRole("button", { name: "Collapse message", exact: true });
-    await expect(details).not.toHaveAttribute("open");
-    await expect(card.getByRole("button", { name: "Copy sender email address" })).toBeHidden();
+    await expect(panel).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Copy sender email address" })).toHaveCount(0);
     await card.locator("b").click();
     await expect(toggle).toHaveAttribute("aria-expanded", "true");
-    await summary.focus();
+    await expect(card.locator("iframe")).toBeVisible();
+    const bodyTop = (await card.locator("iframe").boundingBox())!.y;
+    await trigger.focus();
     await page.keyboard.press("Enter");
-    await expect(details).toHaveAttribute("open");
-    await expect(summary).toBeFocused();
+    await expect(panel).toBeVisible();
+    await expect(panel).toBeFocused();
+    await expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect((await card.locator("iframe").boundingBox())!.y).toBe(bodyTop);
     await page.keyboard.press("r");
-    await expect(page.getByRole("dialog")).toHaveCount(0);
-    await expect(details.locator("dd").first()).toContainText("Maya Chen <maya@example.org>");
-    await expect(details).toContainText(accounts[0].email);
-    await expect(details).toContainText("<m0@example.invalid>");
-    await page.keyboard.press("Tab");
-    const copy = card.getByRole("button", { name: "Copy sender email address" });
-    await expect(copy).toBeFocused();
-    await page.keyboard.press("Enter");
-    await expect(copy).toHaveAttribute("data-copy-state", "copied");
-    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("maya@example.org");
-    await expect(toggle).toHaveAttribute("aria-expanded", "true");
-    expect(await details.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-    await details.scrollIntoViewIfNeeded();
+    await expect(page.getByRole("dialog")).toHaveCount(1);
+    await expect(panel.locator("dd").first()).toHaveText("Maya Chen <maya@example.org>");
+    await expect(panel).toContainText(accounts[0].email);
+    await expect(panel).toContainText("<m0@example.invalid>");
+    const alignment = await panel.evaluate(el => {
+      const labels = [...el.querySelectorAll("dt")], values = [...el.querySelectorAll("dd")];
+      return labels.every((label, i) => Math.abs(label.getBoundingClientRect().top - values[i].getBoundingClientRect().top) < 1);
+    });
+    expect(alignment).toBe(true);
+    expect(await panel.locator("dd").first().evaluate(el => getComputedStyle(el).userSelect)).toBe("text");
+    expect(await panel.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    const bounds = (await panel.boundingBox())!;
+    expect(bounds.x).toBeGreaterThanOrEqual(0);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(height);
     await page.screenshot({ path: testInfo.outputPath(`${name}-details.png`), fullPage: true });
+    await page.keyboard.press("Control+Escape");
+    await expect(panel).toBeVisible();
     await page.keyboard.press("Escape");
-    await expect(details).not.toHaveAttribute("open");
-    await expect(summary).toBeFocused();
+    await expect(panel).toHaveCount(0);
+    await expect(trigger).toBeFocused();
     await expect(toggle).toHaveAttribute("aria-expanded", "true");
-    await page.keyboard.press("Shift+Tab");
-    await expect(toggle).toBeFocused();
+    await trigger.press("Space");
+    await expect(panel).toBeVisible();
+    await page.locator(".conversation-title h2").click();
+    await expect(panel).toHaveCount(0);
+    const more = card.getByRole("button", { name: "More message actions" });
+    await more.focus();
+    await page.keyboard.press("ArrowDown");
+    const menu = page.getByRole("menu", { name: "Message actions", exact: true });
+    await expect(menu.getByRole("menuitem", { name: "Reply", exact: true })).toBeFocused();
+    await expect(menu.getByRole("menuitem")).toHaveCount(3);
+    await page.screenshot({ path: testInfo.outputPath(`${name}-menu.png`), fullPage: true });
+    await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
+    await expect(more).toBeFocused();
+    await toggle.focus();
     await page.keyboard.press("Space");
     await expect(card.getByRole("button", { name: "Expand message", exact: true })).toBeFocused();
     await expect(card.locator("iframe")).toHaveCount(0);
     await page.keyboard.press("Enter");
-    await expect(summary).toBeVisible();
-    await expect(details).not.toHaveAttribute("open");
+    await expect(trigger).toBeVisible();
+    await expect(panel).toHaveCount(0);
+    if (width < 1100) await page.getByRole("button", { name: "Back to inbox", exact: true }).click();
+    await expect(page.locator(".message-list .thread-message-count")).toHaveText("2");
     await page.reload();
-    await expect(page.locator(".conversation-details[open]")).toHaveCount(0);
+    await expect(page.getByRole("dialog", { name: "Message details" })).toHaveCount(0);
   });
 }

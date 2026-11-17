@@ -50,7 +50,7 @@ use serde::Deserialize;
 use sha2::{Digest, Sha256};
 #[cfg(test)]
 use sqlx::Row;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 use tower_http::services::{ServeDir, ServeFile};
 
 #[derive(Clone)]
@@ -276,6 +276,7 @@ pub fn router_with_shutdown(app: App, shutdown: tokio::sync::watch::Sender<bool>
         .route("/accounts/{account}/folders", get(folders))
         .route("/accounts/{account}/snoozes", get(snoozes))
         .route("/accounts/{account}/mailbox-counts", get(mailbox_counts))
+        .route("/accounts/{account}/thread-counts", get(thread_counts))
         .route("/accounts/{account}/sync-active", get(sync_active))
         .route("/accounts/{account}/indexing", get(search_status::status))
         .route(
@@ -406,6 +407,28 @@ struct MailPage {
     folder: Option<String>,
     continuation: Option<String>,
     q: Option<String>,
+}
+#[derive(Deserialize)]
+struct ThreadCountsQuery {
+    messages: String,
+}
+async fn thread_counts(
+    State(app): State<App>,
+    Extension(user): Extension<Identity>,
+    Path(account): Path<String>,
+    Query(query): Query<ThreadCountsQuery>,
+) -> Result<Json<HashMap<String, usize>>> {
+    let account = app.store.authorize(&user.user, &account).await?;
+    let ids = query
+        .messages
+        .split(',')
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    Ok(Json(
+        app.mail
+            .conversation_counts(&app.store, &account, &ids)
+            .await?,
+    ))
 }
 async fn messages(
     State(app): State<App>,

@@ -26,6 +26,9 @@ describe("browser-local mailbox", () => {
     const content: MessageContent = (await call("/accounts/work/messages/letter-0")).data;
     expect(content.attachments).toHaveLength(1);
     expect((await call("/accounts/work/messages/letter-0/conversation")).data.rows).toHaveLength(2);
+    expect((await call("/accounts/work/thread-counts?messages=letter-0,letter-12")).data).toEqual({ "letter-0": 2, "letter-12": 2 });
+    expect((await call("/accounts/personal/thread-counts?messages=letter-0")).data).toEqual({});
+    expect((await call(`/accounts/work/thread-counts?messages=${Array(51).fill("letter-0").join(",")}`)).status).toBe(400);
     expect((await call('/search?accounts=work&q=has:attachment%20subject:%22launch%22')).data.rows).toHaveLength(1);
     expect((await call('/search?accounts=work&q=subject:%22launch%22%20-is:unread')).data.rows.length).toBeGreaterThan(0);
   });

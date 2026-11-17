@@ -159,3 +159,7 @@
   line-height: 1.5;
   overflow-wrap: anywhere;
 }
+
+.dakia-floating-anchor { display: inline-flex; min-width: 0; max-width: 100%; }
+.dakia-floating-panel.dakia-floating-panel { max-width: calc(100vw - 16px); max-height: calc(100dvh - 24px); overflow: auto; padding: 16px; border: 1px solid var(--ui-surface-border); border-radius: var(--ui-panel-radius); background: var(--ui-surface-raised); color: var(--color-text); box-shadow: var(--ui-panel-shadow); font: 400 var(--ui-font-size)/1.5 var(--ui-font-family); overscroll-behavior: contain; text-wrap: pretty; }
+.dakia-floating-panel:focus-visible { outline: var(--ui-focus-width) solid var(--ui-focus-color); outline-offset: 2px; }

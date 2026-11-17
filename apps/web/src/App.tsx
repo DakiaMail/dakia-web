@@ -1,3 +1,4 @@
+import { useThreadCounts } from "./useThreadCounts";
 import { MatchingSelection } from "./MatchingSelection";
 import { snoozeTime } from "./snoozeTime";
 import { IconButton, Toast, useDakiaColorScheme } from "@dakia/ui";
@@ -426,6 +427,7 @@ export function App() {
     if (nav === "Starred") all = all.filter((m) => m.starred);
     return all.filter(m => matchesClassification(m, inboxFilter));
   }, [mail.data, supplements.pages, overrides, removed, restoredRows, nav, q, account, categoryFilter, accounts.data, cleanupRows, snoozedThreads, snoozeState.isSuccess, attentionNow]);
+  const threadCounts = useThreadCounts(rows);
   const searchMatches=useMemo(()=>new Map([...mail.data?.pages||[],...supplements.pages].flatMap(page=>page.search?.matches||[]).map(match=>[`${match.account_id}/${match.message_id}`,match])),[mail.data,supplements.pages]);
   const lastContinuation = primaryHasNext ? mail.data?.pages.at(-1)?.continuation : undefined;
   // Start provider reconciliation after a preview without waiting for scroll.
@@ -1295,6 +1297,7 @@ export function App() {
                               aria-label={item.message.unread ? "Unread" : undefined}
                             />
                             <bdi className="sender-name">{item.message.sender.name || item.message.sender.email || "Unknown sender"}</bdi>
+                            {threadCounts[identity(item.message)] > 1 && <span className="thread-message-count" aria-label={`${threadCounts[identity(item.message)]} messages in thread`}>{threadCounts[identity(item.message)]}</span>}
                           </span>
                           <time dateTime={item.message.received_at} title={item.message.received_at}>{time(item.message.received_at)}</time>
                           <span className="message-summary">

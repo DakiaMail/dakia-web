@@ -27,7 +27,7 @@ export function canDismissMail(event: KeyboardEvent): boolean {
 // Global mail actions leave editing, native widgets, popovers and selected text alone.
 export function canUseMailShortcut(event: KeyboardEvent): boolean {
   if (!plainKey(event, true) || event.repeat || !(event.target instanceof Element)) return false;
-  if (event.target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox"],[role="combobox"],[role="menu"],[role="listbox"],details[open],.message-actions-popover,.message-actions-more')) return false;
+  if (event.target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="textbox"],[role="combobox"],[role="menu"],[role="listbox"],.message-actions-popover,.message-actions-more')) return false;
   if (document.querySelector('[role="dialog"],[role="alertdialog"],dialog[open]')) return false;
   return !window.getSelection()?.toString();
 }

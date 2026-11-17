@@ -371,6 +371,19 @@ async fn incoming_sent_transitive_out_of_order_copies_collision_pagination_failu
         .rows
         .iter()
         .any(|m| m.folder_ids.contains(&"Sent Items".into())));
+    let scans = provider.scans.load(Ordering::SeqCst);
+    let ids = page.rows.iter().map(|m| m.id.clone()).collect::<Vec<_>>();
+    let counts = runtime.conversation_counts(&store, &a, &ids).await.unwrap();
+    assert!(ids.iter().all(|id| counts[id] == 4));
+    assert_eq!(provider.scans.load(Ordering::SeqCst), scans);
+    assert!(runtime
+        .conversation_counts(&store, &a, &vec![seed.clone(); 51])
+        .await
+        .is_err());
+    assert_eq!(
+        runtime.conversation_counts(&store, &b, &[seed.clone()]).await.unwrap()[&seed],
+        1
+    );
     assert!(provider.scans.load(Ordering::SeqCst) < 100);
     // Unknown and expired continuations never restart unbounded provider work.
     assert!(runtime

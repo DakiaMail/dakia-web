@@ -16,3 +16,4 @@ export { FilterPopover, type FilterPopoverProps } from "./FilterPopover";
 export { FilterList, type FilterListProps, type FilterListItem } from "./FilterList";
 
 export { Tooltip, type TooltipProps } from "./Tooltip";
+export { FloatingPanel, type FloatingPanelProps } from "./FloatingPanel";

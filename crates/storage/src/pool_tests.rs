@@ -53,6 +53,71 @@ fn message(a: &AuthorizedAccount, id: &str) -> Message {
 }
 
 #[tokio::test]
+async fn cancelled_writer_begin_does_not_poison_the_account_pool() {
+    use sqlx::Connection;
+    use std::{
+        future::Future,
+        task::{Context, Poll},
+    };
+
+    struct Ready(tokio::sync::Notify);
+    impl futures_util::task::ArcWake for Ready {
+        fn wake_by_ref(ready: &Arc<Self>) {
+            ready.0.notify_one();
+        }
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("cancelled.sqlite");
+    let db = pool(&path).await.unwrap();
+    sqlx::query("CREATE TABLE writes(value INTEGER)")
+        .execute(&db)
+        .await
+        .unwrap();
+    let mut connection = db.acquire().await.unwrap();
+    let mut begin = Box::pin(connection.begin_with("BEGIN IMMEDIATE"));
+    let ready = Arc::new(Ready(tokio::sync::Notify::new()));
+    let waker = futures_util::task::waker(ready.clone());
+    let mut context = Context::from_waker(&waker);
+    assert!(matches!(begin.as_mut().poll(&mut context), Poll::Pending));
+    // Let BEGIN execute, then acknowledge it and cancel during handle validation.
+    tokio::time::timeout(std::time::Duration::from_secs(5), ready.0.notified())
+        .await
+        .unwrap();
+    assert!(matches!(begin.as_mut().poll(&mut context), Poll::Pending));
+    drop(begin);
+    connection.ping().await.unwrap();
+    assert!(connection.is_in_transaction());
+    sqlx::query("INSERT INTO writes VALUES(99)")
+        .execute(&mut *connection)
+        .await
+        .unwrap();
+    drop(connection);
+
+    let mut next = db.begin_with("BEGIN IMMEDIATE").await.unwrap();
+    sqlx::query("INSERT INTO writes VALUES(1)")
+        .execute(&mut *next)
+        .await
+        .unwrap();
+    next.commit().await.unwrap();
+    let independent = pool(&path).await.unwrap();
+    independent
+        .begin_with("BEGIN IMMEDIATE")
+        .await
+        .unwrap()
+        .rollback()
+        .await
+        .unwrap();
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM writes")
+            .fetch_one(&independent)
+            .await
+            .unwrap(),
+        1
+    );
+}
+
+#[tokio::test]
 async fn inbox_keysets_projection_batch_rollback_and_legacy_pruning() {
     let (_dir, store, _user, a, _input) = fixture().await;
     for start in [0, 50] {

@@ -13,7 +13,7 @@
 .conversation-sender b, .conversation-expand-summary b { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .conversation-expand-summary small { font-size: 12px; color: var(--color-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .conversation-expand-summary { grid-column: 2 / 4; grid-row: 1; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 8px; width: 100%; min-width: 0; padding: 3px 0; text-align: start; border-radius: 0; background: transparent; }
-.conversation-expand-summary:hover { background: var(--color-subtle); }
+.conversation-expand-summary:hover, .conversation-recipient-line .conversation-recipients:hover { background: transparent; }
 .conversation-expand-summary small { grid-column: 1 / -1; }
 .conversation-expand-summary time { color: var(--color-secondary); font-size: 11px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .conversation-summary > time { grid-column: 3; grid-row: 1; color: var(--color-secondary); font-size: 11px; white-space: nowrap; font-variant-numeric: tabular-nums; }

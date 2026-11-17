@@ -1,10 +1,12 @@
 //! Server-local inference. No account paths, network calls or result caches.
 pub mod classification;
+mod rules;
 pub mod signals;
 use anyhow::{bail, Result};
 use chrono::{DateTime, Utc};
-pub use classification::{EmailClassificationInput, LocalEmailClassifier, POLICY_REVISION};
+pub use classification::{EmailClassificationInput, LocalEmailClassifier};
 use dakia_domain::{JobKind, JobStatus, ModelJob};
+pub use rules::policy_revision;
 
 /// Trusted metadata loaded by the caller from its authorized account DB, never
 /// constructed from a client request. Recheck this snapshot at durable commit.
@@ -64,12 +66,12 @@ mod tests {
             account_id: "a".into(),
             message_id: "m".into(),
             content_revision: 3,
-            model_revision: POLICY_REVISION.into(),
+            model_revision: policy_revision().into(),
             kind: JobKind::Classify,
             status: JobStatus::Running,
             deadline: "2099-01-01T00:00:00Z".into(),
         };
-        assert!(validate_job(&job, &snapshot, POLICY_REVISION, Utc::now()).is_ok());
+        assert!(validate_job(&job, &snapshot, policy_revision(), Utc::now()).is_ok());
         for bad in [
             ModelJob {
                 account_id: "foreign".into(),
@@ -92,7 +94,7 @@ mod tests {
                 ..job
             },
         ] {
-            assert!(validate_job(&bad, &snapshot, POLICY_REVISION, Utc::now()).is_err());
+            assert!(validate_job(&bad, &snapshot, policy_revision(), Utc::now()).is_err());
         }
     }
 }

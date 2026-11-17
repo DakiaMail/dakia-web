@@ -290,7 +290,7 @@ async fn browser_release_fixture() {
                     &a,
                     &m.id,
                     JobKind::Classify,
-                    dakia_inference::POLICY_REVISION,
+                    dakia_inference::policy_revision(),
                     None,
                 )
                 .await

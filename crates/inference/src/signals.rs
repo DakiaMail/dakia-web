@@ -1,5 +1,6 @@
 //! Structural policy inputs extracted only from parsed RFC headers and
 //! provider labels. Header values/URLs and arbitrary user labels are discarded.
+use crate::rules::RULES;
 use mail_parser::{Message, MimeHeaders};
 
 pub fn classification_signals(mail: &Message<'_>, gmail_labels: &[String]) -> String {
@@ -44,23 +45,16 @@ pub fn classification_signals(mail: &Message<'_>, gmail_labels: &[String]) -> St
             },
         );
     }
-    if [
-        "X-SES-Outgoing",
-        "X-SG-EID",
-        "X-Mailgun-Sid",
-        "X-MC-User",
-        "Feedback-ID",
-    ]
-    .iter()
-    .any(|name| mail.header_raw(*name).is_some())
+    if RULES
+        .delivery_headers
+        .iter()
+        .any(|name| mail.header_raw(name.as_str()).is_some())
     {
         signals.push("Bulk delivery service header present");
     }
     if mail.header_raw("X-Mailer").is_some_and(|v| {
         let value = v.trim().to_ascii_lowercase();
-        value.starts_with("sap netweaver")
-            || value.contains("quadient inspire")
-            || value.contains("opentext exstream")
+        RULES.pattern("document_mailer").is_match(&value)
     }) {
         signals.push("Document generation application header present");
     }

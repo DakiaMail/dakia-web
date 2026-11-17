@@ -711,6 +711,7 @@ dependencies = [
  "mail-parser",
  "regex",
  "scraper",
+ "serde",
  "serde_json",
  "url",
 ]

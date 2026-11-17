@@ -37,6 +37,7 @@ async function fixture(page: Page, options: { thread?: boolean; direct?: boolean
 }
 const list = (page: Page) => page.locator(".message-list");
 const reader = (page: Page) => page.getByRole("region", { name: "Reading pane" });
+const actionError = (page: Page) => page.locator('.error[role="alert"]');
 async function capture(page: Page, name: string) {
   mkdirSync("artifacts/reader-return", { recursive: true });
   await page.screenshot({ path: `artifacts/reader-return/${name}.png`, fullPage: true });
@@ -88,16 +89,16 @@ for (const width of [1480, 390]) for (const action of ["Archive", "Move to trash
     await reader(page).getByRole("button", { name: action, exact: true }).click();
     await expect.poll(() => state.operations.size).toBe(1);
     state.settle("failed");
-    await expect(page.getByRole("alert")).toHaveText(`${action} could not be verified for “Return fixture 0”. Refresh mail and check its current state before trying again.`);
-    await expect(page.getByRole("alert")).toBeVisible();
+    await expect(actionError(page)).toHaveText(`${action} could not be verified for “Return fixture 0”. Refresh mail and check its current state before trying again.`);
+    await expect(actionError(page)).toBeVisible();
     await expect(page.getByRole("checkbox", { name: "Select Return fixture 0", exact: true })).toBeVisible();
     await page.locator(".message-open").first().click();
     await reader(page).getByRole("button", { name: "Mark unread", exact: true }).click();
-    await expect(page.getByRole("alert")).toBeVisible();
+    await expect(actionError(page)).toBeVisible();
     await capture(page, `${width}-${action}-queued-error`);
     state.settle("applied");
     await page.getByRole("button", { name: "Dismiss mail action error" }).click();
-    await expect(page.getByRole("alert")).toHaveCount(0);
+    await expect(actionError(page)).toHaveCount(0);
   });
   test(`direct link safe fallback and immediate error ${width} ${action}`, async ({ page }) => {
     await page.setViewportSize({ width, height: 980 });
@@ -106,8 +107,8 @@ for (const width of [1480, 390]) for (const action of ["Archive", "Move to trash
     const history = await page.evaluate(() => window.history.length);
     await reader(page).getByRole("button", { name: action, exact: true }).click();
     await expect(list(page)).toBeVisible();
-    await expect(page.getByRole("alert")).toContainText("Disposable provider unavailable");
-    await expect(page.getByRole("alert")).toBeVisible();
+    await expect(actionError(page)).toContainText(`${action} could not be verified`);
+    await expect(actionError(page)).toBeVisible();
     const url = new URL(page.url());
     expect(url.searchParams.has("account")).toBe(false);
     expect(url.searchParams.has("message")).toBe(false);

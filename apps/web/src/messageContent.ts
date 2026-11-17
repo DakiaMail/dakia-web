@@ -4,7 +4,7 @@ import { queryOptions } from "@tanstack/react-query";
 import { api } from "./api";
 
 // Foreground and speculative reads must share cancellation, timeout and keys.
-export function messageContent(account: string, id: string, client?: QueryClient) {
+export function messageContent(account: string, id: string, client?: QueryClient, prefetch = false) {
   return queryOptions({
     queryKey: ["content", account, id],
     queryFn: async ({ signal }) => {
@@ -19,7 +19,7 @@ export function messageContent(account: string, id: string, client?: QueryClient
           client.setQueryData(["content", account, id], cached, { updatedAt: 1 });
           if (!navigator.onLine) return cached;
         }
-        const fresh = await api.contentById(account, id, controller.signal);
+        const fresh = await api.contentById(account, id, controller.signal, prefetch);
         localMailCache.verifiedBody(account, id);
         return fresh;
       } catch (error) {

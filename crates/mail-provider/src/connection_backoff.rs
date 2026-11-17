@@ -8,6 +8,7 @@ use std::{
 #[derive(Default)]
 pub(super) struct ConnectionBackoff {
     state: Mutex<State>,
+    ready: tokio::sync::Notify,
 }
 #[derive(Default)]
 struct State {
@@ -16,6 +17,33 @@ struct State {
     active: bool,
 }
 impl ConnectionBackoff {
+    pub(super) async fn begin_waiting(&self, account: &str) -> Result<Attempt<'_>> {
+        loop {
+            // Register before inspecting admission so a completed handshake cannot
+            // be missed between the state check and awaiting its notification.
+            let ready = self.ready.notified();
+            tokio::pin!(ready);
+            ready.as_mut().enable();
+            match self.begin(account) {
+                Ok(attempt) => return Ok(attempt),
+                Err(error) => {
+                    let (active, cooling_down) = {
+                        let state = self.state.lock().unwrap();
+                        (
+                            state.active,
+                            state.until.is_some_and(|until| until > Instant::now()),
+                        )
+                    };
+                    if !active && cooling_down {
+                        return Err(error);
+                    }
+                    if active {
+                        ready.await;
+                    }
+                }
+            }
+        }
+    }
     pub(super) fn begin(&self, account: &str) -> Result<Attempt<'_>> {
         let mut state = self.state.lock().unwrap();
         let now = Instant::now();
@@ -94,6 +122,7 @@ impl Drop for Attempt<'_> {
                 Duration::from_secs((5u64 << state.failures.saturating_sub(1).min(6)).min(300));
             state.until = Some(Instant::now() + delay);
         }
+        self.backoff.ready.notify_waiters();
         tracing::info!(target: "dakia_server::provider_io", account_key = %self.account_key, operation = "connection_attempt", stage = self.stage, reason = self.reason, outcome = self.outcome, elapsed_ms = self.started.elapsed().as_millis() as u64, "provider_io");
     }
 }
@@ -123,5 +152,46 @@ mod tests {
         assert_eq!(b.state.lock().unwrap().failures, 0);
         assert!(b.begin("fixture").is_ok());
         assert!(ConnectionBackoff::default().begin("other-account").is_ok());
+    }
+
+    #[tokio::test]
+    async fn readers_wait_for_active_authentication_but_never_bypass_failed_handshake_backoff() {
+        let b = ConnectionBackoff::default();
+        let mut background = b.begin("fixture").unwrap();
+        {
+            let reader = b.begin_waiting("fixture");
+            tokio::pin!(reader);
+            tokio::select! {
+                _ = &mut reader => panic!("a second handshake must not start concurrently"),
+                _ = tokio::time::sleep(Duration::from_millis(10)) => {},
+            }
+            background.finished(&Ok::<_, crate::ProviderError>(()));
+            drop(background);
+            let mut foreground = tokio::time::timeout(Duration::from_secs(1), &mut reader)
+                .await
+                .unwrap()
+                .unwrap();
+            foreground.finished(&Ok::<_, crate::ProviderError>(()));
+        }
+        let failed = b.begin("fixture").unwrap();
+        {
+            let reader = b.begin_waiting("fixture");
+            tokio::pin!(reader);
+            tokio::select! {
+                _ = &mut reader => panic!("reader must wait for the active handshake"),
+                _ = tokio::time::sleep(Duration::from_millis(10)) => {},
+            }
+            drop(failed);
+            assert_eq!(
+                tokio::time::timeout(Duration::from_secs(1), &mut reader)
+                    .await
+                    .unwrap()
+                    .err()
+                    .unwrap()
+                    .message,
+                "IMAP reconnect cooling down"
+            );
+        }
+        assert!(b.begin("fixture").is_err());
     }
 }

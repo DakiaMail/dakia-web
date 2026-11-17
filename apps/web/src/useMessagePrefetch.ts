@@ -39,7 +39,7 @@ export class MessagePrefetch {
       return state?.status !== "error" && !(state?.dataUpdatedAt && Date.now() - state.dataUpdatedAt < 30000);
     });
     if (!target) return;
-    const options = messageContent(target.account_id, target.id, this.client);
+    const options = messageContent(target.account_id, target.id, this.client, true);
     this.running = target;
     void this.client.prefetchQuery({ ...options, gcTime: 60000, meta: { speculative: true } }).finally(() => {
       this.running = undefined;
@@ -51,9 +51,10 @@ export class MessagePrefetch {
       this.schedule(0);
     });
   }
-  foreground(target: Target) {
+  foreground() {
     this.intent = undefined;
-    if (this.running && !same(this.running, target)) this.cancelInactive();
+    // An open must restart an unobserved prefetch on the foreground connection.
+    if (this.running) this.cancelInactive();
     this.schedule();
   }
   private cancelInactive() {

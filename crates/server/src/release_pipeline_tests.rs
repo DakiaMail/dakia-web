@@ -14,6 +14,8 @@ mod search_preview_tests;
 mod sender_cleanup_pipeline_tests;
 #[path = "unsubscribe_pipeline_tests.rs"]
 mod unsubscribe_pipeline_tests;
+#[path = "foreground_content_tests.rs"]
+mod foreground_content_tests;
 
 struct Controlled {
     base: Arc<InboxProvider>,
@@ -21,12 +23,31 @@ struct Controlled {
     failure: Mutex<Option<p::ErrorKind>>,
     head_calls: AtomicUsize,
     fetch_calls: AtomicUsize,
+    foreground_fetch_calls: AtomicUsize,
+    background_fetch: Mutex<()>,
+    background_started: tokio::sync::Notify,
     recovery_calls: AtomicUsize,
     recovered: Mutex<Option<p::Metadata>>,
     raw: Mutex<Vec<u8>>,
     mutations: Mutex<Vec<p::MessageRef>>,
     stale_inbox: AtomicBool,
     search_delay: Mutex<Duration>,
+}
+impl Controlled {
+    async fn body(&self, limit: u32) -> p::Result<Vec<u8>> {
+        self.fetch_calls.fetch_add(1, Ordering::SeqCst);
+        if let Some(kind) = *self.failure.lock().await {
+            return Err(p::error(kind, "fixture-only"));
+        }
+        let raw = self.raw.lock().await;
+        if raw.len() > limit as usize {
+            return Err(p::error(
+                p::ErrorKind::InvalidInput,
+                "message exceeds content limit",
+            ));
+        }
+        Ok(raw.clone())
+    }
 }
 #[async_trait]
 impl p::MailProvider for Controlled {
@@ -90,18 +111,13 @@ impl p::MailProvider for Controlled {
         })
     }
     async fn fetch(&self, _: &p::MessageRef, limit: u32) -> p::Result<Vec<u8>> {
-        self.fetch_calls.fetch_add(1, Ordering::SeqCst);
-        if let Some(kind) = *self.failure.lock().await {
-            return Err(p::error(kind, "fixture-only"));
-        }
-        let raw = self.raw.lock().await;
-        if raw.len() > limit as usize {
-            return Err(p::error(
-                p::ErrorKind::InvalidInput,
-                "message exceeds content limit",
-            ));
-        }
-        Ok(raw.clone())
+        self.background_started.notify_one();
+        let _guard = self.background_fetch.lock().await;
+        self.body(limit).await
+    }
+    async fn fetch_foreground(&self, _: &p::MessageRef, limit: u32) -> p::Result<Vec<u8>> {
+        self.foreground_fetch_calls.fetch_add(1, Ordering::SeqCst);
+        self.body(limit).await
     }
     async fn resolve_gmail_message(
         &self,
@@ -380,6 +396,9 @@ async fn controlled() -> (
         failure: Mutex::new(None),
         head_calls: AtomicUsize::new(0),
         fetch_calls: AtomicUsize::new(0),
+        foreground_fetch_calls: AtomicUsize::new(0),
+        background_fetch: Mutex::new(()),
+        background_started: tokio::sync::Notify::new(),
         recovery_calls: AtomicUsize::new(0),
         recovered: Mutex::new(None),
         raw: Mutex::new(MIME.to_vec()),
@@ -629,7 +648,7 @@ async fn simultaneous_opens_share_one_body_fetch_and_attachment_identity() {
     assert_eq!(
         provider.fetch_calls.load(Ordering::SeqCst),
         1,
-        "reader/background callers must share an in-flight body fetch"
+        "simultaneous readers must share an in-flight body fetch"
     );
     assert_eq!(left.attachments, right.attachments);
 }

@@ -8,6 +8,7 @@ impl MailRuntime {
         m: &Message,
         primary: p::MessageRef,
         limit: u32,
+        foreground: bool,
     ) -> Result<Vec<u8>> {
         let mut state = store.content_references(a, m).await?;
         let mut candidates = vec![primary];
@@ -26,7 +27,12 @@ impl MailRuntime {
             if state.blocked.contains(&raw) {
                 continue;
             }
-            match provider.fetch(&reference, limit).await {
+            let fetched = if foreground {
+                provider.fetch_foreground(&reference, limit).await
+            } else {
+                provider.fetch(&reference, limit).await
+            };
+            match fetched {
                 Ok(bytes) => {
                     store
                         .promote_content_reference(a, m, &raw, &state.token)

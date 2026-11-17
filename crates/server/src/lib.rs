@@ -444,9 +444,19 @@ async fn content(
     State(app): State<App>,
     Extension(user): Extension<Identity>,
     Path((account, id)): Path<(String, String)>,
+    Query(query): Query<ContentQuery>,
 ) -> Result<Json<MessageContent>> {
     let a = app.store.authorize(&user.user, &account).await?;
-    Ok(Json(app.mail.content(&app.store, &a, &id).await?))
+    Ok(Json(if query.prefetch {
+        app.mail.content_background(&app.store, &a, &id).await?
+    } else {
+        app.mail.content(&app.store, &a, &id).await?
+    }))
+}
+#[derive(Deserialize)]
+struct ContentQuery {
+    #[serde(default)]
+    prefetch: bool,
 }
 #[derive(Deserialize)]
 struct ConversationQuery {

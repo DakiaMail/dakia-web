@@ -139,3 +139,58 @@ test("switching to a separate account never retains previous conversation cards"
   await expect(page.locator(".conversation h2")).toHaveText("Separate account");
   await expect(page.getByRole("region",{name:"Message from You",exact:true})).toHaveCount(0);
 });
+
+for (const [name, width, height, dark] of [
+  ["desktop-light", 1480, 980, false], ["desktop-dark", 1480, 980, true],
+  ["narrow-light", 390, 600, false], ["narrow-dark", 390, 600, true],
+  ["short-light", 800, 450, false], ["short-dark", 800, 450, true],
+] as const) {
+  test(`sender details stay separate from message collapse: ${name}`, async ({ page, context }, testInfo) => {
+    await page.setViewportSize({ width, height });
+    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+    if (dark) await page.addInitScript(() => localStorage.setItem("dakia-theme", "dark"));
+    await fixture(page);
+    const card = page.getByRole("region", { name: "Message from Maya Chen", exact: true });
+    const details = card.locator("details");
+    const summary = details.locator("summary");
+    const toggle = card.getByRole("button", { name: "Collapse message", exact: true });
+    await expect(details).not.toHaveAttribute("open");
+    await expect(card.getByRole("button", { name: "Copy sender email address" })).toBeHidden();
+    await card.locator("b").click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await summary.focus();
+    await page.keyboard.press("Enter");
+    await expect(details).toHaveAttribute("open");
+    await expect(summary).toBeFocused();
+    await page.keyboard.press("r");
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(details.locator("dd").first()).toContainText("Maya Chen <maya@example.org>");
+    await expect(details).toContainText(accounts[0].email);
+    await expect(details).toContainText("<m0@example.invalid>");
+    await page.keyboard.press("Tab");
+    const copy = card.getByRole("button", { name: "Copy sender email address" });
+    await expect(copy).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(copy).toHaveAttribute("data-copy-state", "copied");
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("maya@example.org");
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(await details.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await details.scrollIntoViewIfNeeded();
+    await page.screenshot({ path: testInfo.outputPath(`${name}-details.png`), fullPage: true });
+    await page.keyboard.press("Escape");
+    await expect(details).not.toHaveAttribute("open");
+    await expect(summary).toBeFocused();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await page.keyboard.press("Shift+Tab");
+    await expect(toggle).toBeFocused();
+    await page.keyboard.press("Space");
+    await expect(card.getByRole("button", { name: "Expand message", exact: true })).toBeFocused();
+    await expect(card.locator("iframe")).toHaveCount(0);
+    await page.keyboard.press("Enter");
+    await expect(summary).toBeVisible();
+    await expect(details).not.toHaveAttribute("open");
+    await page.reload();
+    await expect(page.locator(".conversation-details[open]")).toHaveCount(0);
+  });
+}

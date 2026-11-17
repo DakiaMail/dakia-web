@@ -2,10 +2,12 @@ import { messageContent } from "./messageContent";
 import { useEffect, useId, useState } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, CornerUpRight, FileText, Reply, ReplyAll } from "lucide-react";
-import type { Account, Draft, Message, MessageContent } from "@dakia/api-types";
+import { CopyButton } from "@dakia/ui";
+import type { Account, Address, Draft, Message, MessageContent } from "@dakia/api-types";
 import { api } from "./api";
 import { KeyHint } from "./KeyboardHints";
 import { ErrorNotice } from "./ui";
+import { plainKey } from "./keyboard";
 import { Translation } from "./Translation";
 import { Unsubscribe } from "./Unsubscribe";
 
@@ -99,15 +101,34 @@ function ConversationMessage({ message, initiallyOpen, multiple, ...props }: Pro
   const self = account?.email.toLowerCase() === message.sender.email.toLowerCase();
   const sender = self ? "You" : message.sender.name || message.sender.email || "Unknown sender";
   const region = useId();
+  const addresses = (values: Address[]) => values.map(a => a.name ? `${a.name} <${a.email}>` : a.email).join(", ");
   return <section className={`conversation-message ${expanded ? "expanded" : "collapsed"}`} aria-label={`Message from ${sender}`}>
-    <button title={expanded ? "Collapse message" : "Expand message"} className="conversation-summary" aria-expanded={expanded} aria-controls={region} onClick={() => setUserExpanded(!expanded)}>
+    <header className="conversation-summary">
       <span className={`avatar ${self ? "self-avatar" : ""}`} aria-hidden="true">{sender.slice(0, 2).toUpperCase()}</span>
-      <span className="conversation-sender"><b dir="auto">{sender}</b><small dir="auto">{expanded ? message.sender.email : message.preview || message.subject}</small></span>
+      <span className="conversation-sender"><b dir="auto">{sender}</b>{!expanded && <small dir="auto">{message.preview || message.subject}</small>}</span>
       <time dateTime={message.received_at}>{new Date(message.received_at).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", year: "numeric" })}</time>
-      <ChevronDown className="conversation-chevron" size={16} aria-hidden="true" />
-    </button>
+      <button title={expanded ? "Collapse message" : "Expand message"} aria-label={expanded ? "Collapse message" : "Expand message"} className="conversation-toggle" aria-expanded={expanded} aria-controls={region} onClick={() => setUserExpanded(!expanded)}>
+        <ChevronDown className="conversation-chevron" size={16} aria-hidden="true" />
+      </button>
+      {expanded && <details className="conversation-details" onKeyDown={event => {
+        if (event.key !== "Escape" || !plainKey(event.nativeEvent) || event.repeat || !event.currentTarget.open || window.getSelection()?.toString()) return;
+        event.preventDefault(); event.stopPropagation();
+        event.currentTarget.open = false;
+        event.currentTarget.querySelector("summary")?.focus();
+      }}>
+        <summary aria-label="Message details"><span dir="auto">to {message.to.map(a => a.email.toLowerCase() === account?.email.toLowerCase() ? "you" : a.name || a.email).join(", ") || "undisclosed recipients"}</span><ChevronDown size={12} aria-hidden="true" /></summary>
+        <dl>
+          <dt>From</dt><dd><span dir="auto">{addresses([message.sender])}</span>{message.sender.email && <CopyButton value={message.sender.email} aria-label="Copy sender email address" title="Copy sender email address">Copy</CopyButton>}</dd>
+          <dt>To</dt><dd dir="auto">{addresses(message.to) || "Undisclosed recipients"}</dd>
+          {!!content.data?.cc.length && <><dt>Cc</dt><dd dir="auto">{addresses(content.data.cc)}</dd></>}
+          {!!content.data?.reply_to.length && <><dt>Reply to</dt><dd dir="auto">{addresses(content.data.reply_to)}</dd></>}
+          <dt>Date</dt><dd>{new Date(message.received_at).toLocaleString()}</dd>
+          <dt>Subject</dt><dd dir="auto">{message.subject || "(No subject)"}</dd>
+          {content.data?.message_id && <><dt>Message ID</dt><dd dir="auto">{content.data.message_id}</dd></>}
+        </dl>
+      </details>}
+    </header>
     <div id={region} hidden={!expanded} className="conversation-body">
-      <p className="conversation-recipients" dir="auto">to {message.to.map(a => a.name || a.email).join(", ") || "undisclosed recipients"}{content.data?.cc.length ? ` · cc ${content.data.cc.map(a => a.name || a.email).join(", ")}` : ""}</p>
       <ErrorNotice error={content.error} />
       {content.isError && <button title="Retry message" onClick={() => void content.refetch()}>Retry message</button>}
       {expanded && content.isPending && (slow

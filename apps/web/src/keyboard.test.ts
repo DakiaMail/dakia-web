@@ -54,7 +54,7 @@ describe("mail shortcut boundaries", () => {
   it("accepts mail buttons but leaves native widgets, editors and popovers alone", () => {
     document.body.innerHTML = '<button>Archive</button>';
     expect(canUseMailShortcut(escape(document.querySelector("button")!))).toBe(true);
-    for (const html of ['<input type="checkbox">', '<input>', '<textarea></textarea>', '<select></select>', '<div contenteditable><span>x</span></div>', '<div role="textbox"></div>', '<div role="combobox"></div>', '<div class="message-actions-popover"><button>x</button></div>']) {
+    for (const html of ['<input type="checkbox">', '<input>', '<textarea></textarea>', '<select></select>', '<div contenteditable><span>x</span></div>', '<div role="textbox"></div>', '<div role="combobox"></div>', '<div class="message-actions-popover"><button>x</button></div>', '<details open><summary>Message details</summary><button>Copy</button></details>']) {
       document.body.innerHTML = html;
       expect(canUseMailShortcut(escape(document.querySelector("button,span") || document.body.firstElementChild!))).toBe(false);
     }

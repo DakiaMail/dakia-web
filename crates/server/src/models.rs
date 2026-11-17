@@ -156,7 +156,7 @@ pub(crate) async fn node_worker(
     result
 }
 pub async fn run(app: App) {
-    let revision = dakia_inference::POLICY_REVISION.to_owned();
+    let revision = dakia_inference::policy_revision().to_owned();
     let classifier = Some(Arc::new(Mutex::new(LocalEmailClassifier)));
     let mut recovered = std::collections::HashSet::new();
     loop {

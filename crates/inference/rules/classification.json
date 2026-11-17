@@ -1,0 +1,208 @@
+{
+  "format_version": 1,
+  "revision": "personal-first-6",
+  "type_phrases": [
+    {
+      "type": "receipt",
+      "any": [
+        "payment receipt",
+        "your receipt",
+        "purchase receipt",
+        "payment received",
+        "payment was received"
+      ]
+    },
+    {
+      "type": "invoice",
+      "any": [
+        "your invoice",
+        "customer invoice",
+        "invoice attached",
+        "invoice number",
+        "invoice #"
+      ]
+    },
+    {
+      "type": "order",
+      "any": [
+        "order confirmation",
+        "your order #",
+        "your order number",
+        "thanks for your order",
+        "thank you for your order"
+      ]
+    },
+    {
+      "type": "shipping",
+      "any": [
+        "your shipment",
+        "your package",
+        "your parcel",
+        "has shipped",
+        "has been shipped",
+        "out for delivery",
+        "delivery confirmation"
+      ]
+    },
+    {
+      "type": "event_invitation",
+      "any": [
+        "you have been invited",
+        "invitation:",
+        "event invitation",
+        "canceled event:",
+        "cancelled event:",
+        "rescheduled event:",
+        "meeting invitation"
+      ]
+    },
+    {
+      "type": "verification_code",
+      "any": [
+        "verification code",
+        "security code",
+        "one-time code",
+        "one time code",
+        "login code",
+        "sign-in code",
+        "authentication code",
+        "pin code",
+        "one-time password",
+        "your otp"
+      ]
+    },
+    {
+      "type": "flight_booking",
+      "any": [
+        "flight booking",
+        "flight confirmation",
+        "flight itinerary",
+        "your flight",
+        "flight cancelled",
+        "flight canceled",
+        "flight cancellation",
+        "flight delayed",
+        "flight rescheduled"
+      ]
+    },
+    {
+      "type": "newsletter",
+      "any": [
+        "your weekly newsletter",
+        "this week's newsletter",
+        "newsletter:",
+        "weekly digest"
+      ]
+    },
+    {
+      "type": "offer",
+      "any": [
+        "exclusive offer",
+        "shop now",
+        "discount code",
+        "sale ends",
+        "special offer"
+      ]
+    },
+    {
+      "type": "security_alert",
+      "any": [
+        "new login to",
+        "new login from",
+        "new sign-in",
+        "new sign in",
+        "suspicious activity",
+        "unrecognized login",
+        "password was changed",
+        "password has been changed"
+      ]
+    }
+  ],
+  "phrases": {
+    "service_notice": [
+      "your pre-payment has been used",
+      "restore nameservers for",
+      "data has been exported",
+      "submission approved",
+      "submission rejected",
+      "is now available to test",
+      "important security update (action required)"
+    ],
+    "job_offer": [
+      "new opportunities for you",
+      "recommended jobs for you"
+    ],
+    "payment_failure": [
+      "payment failed",
+      "payment failure",
+      "payment declined",
+      "couldn't process your payment",
+      "could not process your payment"
+    ],
+    "invoice_subject": [
+      "customer invoice",
+      "invoice number",
+      "invoice #"
+    ],
+    "flight_changed": [
+      "cancelled",
+      "canceled",
+      "delayed",
+      "rescheduled",
+      "schedule change"
+    ],
+    "event_changed": [
+      "cancelled",
+      "canceled",
+      "rescheduled"
+    ],
+    "track_shipment": [
+      "track shipment",
+      "track package",
+      "track your order"
+    ],
+    "manage_booking": [
+      "manage booking",
+      "manage your booking"
+    ],
+    "export_archive": [
+      "archive of",
+      "data requested"
+    ],
+    "shipping_status": [
+      "out for delivery",
+      "delivered",
+      "in transit",
+      "has shipped"
+    ],
+    "flight_status": [
+      "cancelled",
+      "canceled",
+      "delayed",
+      "rescheduled"
+    ]
+  },
+  "patterns": {
+    "automated_sender": "(?i)^(?:(?:no[-_.]?(?:reply|replies|response)|do[-_.]?not[-_.]?(?:reply|respond)|auto(?:mated|matic)?[-_.]?(?:repl(?:y|ies)|response|mail(?:er)?|notifications?)|info|automated|autoresponder|unmonitored|notifications?|alerts?|updates?|newsletters?|news|announcements?|bulletins?|digests?|reminders?|mailing[-_.]?list|mailer[-_.]?daemon|postmaster|bounces?|robot|bot)[0-9]*(?:[+._-].*)?|.+[._-](?:no[-_.]?reply|do[-_.]?not[-_.]?reply)[0-9]*)$",
+    "valid_amount": "(?i)^(?:(?:USD|EUR|GBP|\\$|€|£)\\s*\\d+(?:[., \\x{00a0}\\x{202f}]\\d{3})*(?:[.,]\\d{2})?|\\d+(?:[., \\x{00a0}\\x{202f}]\\d{3})*(?:[.,]\\d{2})?\\s*(?:USD|EUR|GBP|€|£|\\$))$",
+    "amount": "(?i)\\b(?:total(?: paid| due)?|amount paid|amount due|payment of)\\s*:?\\s*((?:USD|EUR|GBP|\\$|€|£)\\s*\\d[\\d., \\x{00a0}\\x{202f}]*|\\d[\\d., \\x{00a0}\\x{202f}]*\\s*(?:USD|EUR|GBP|€|£|\\$))(?:\\s|[;:!?)]|$)",
+    "reference": "(?i)(?:order (?:number|reference|#)|booking reference|tracking number)\\s*[:#]?\\s*([A-Z0-9][A-Z0-9-]{3,24})\\b",
+    "code_validity": "(?i)(?:expires? in|valid for)\\s+(\\d{1,3})\\s+(seconds?|minutes?|hours?)",
+    "verification_code": "(?i)(?:verification code|security code|one[- ]time code|login code|sign-in code|authentication code|pin code|one[- ]time password|otp)\\s*(?:is|:|=)?\\s*([A-Z0-9]{4,10})\\b",
+    "flight_route": "(?i)\\bfrom\\s+([A-Z]{3}\\s+to\\s+[A-Z]{3})\\b",
+    "flight_number": "(?i)flight\\s*(?:number|no\\.?|#)?\\s*([A-Z]{2}\\s?\\d{1,4})\\b",
+    "delivery_role_sender": "(?i)^(?:no[-_.]?reply|do[-_.]?not[-_.]?reply|notifications?|billing|invoices?|receipts?)(?:[+._-].*)?$",
+    "receipt_subject": "(?i)\\byour(?: [\\p{L}\\p{N}'’-]+){0,4} receipt\\b|\\byour recent purchase\\b|^(?:thank you|thanks) for your(?: [\\p{L}\\p{N}'’-]+){0,4} purchase[!.]?\\s*$",
+    "event_title": "(?s)^Invitation:(.*)",
+    "document_mailer": "^sap netweaver|quadient inspire|opentext exstream",
+    "reply_subject": "^re:",
+    "unsubscribe_path": "unsubscribe"
+  },
+  "delivery_headers": [
+    "X-SES-Outgoing",
+    "X-SG-EID",
+    "X-Mailgun-Sid",
+    "X-MC-User",
+    "Feedback-ID"
+  ]
+}

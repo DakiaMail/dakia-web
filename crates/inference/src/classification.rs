@@ -7,7 +7,7 @@ use serde_json::Value;
 use std::sync::LazyLock;
 use url::Url;
 
-pub const POLICY_REVISION: &str = "personal-first-4";
+use crate::rules::{policy_revision, RULES};
 const MAX_TEXT: usize = 16_000;
 #[derive(Debug, Clone)]
 pub struct EmailClassificationInput {
@@ -50,7 +50,7 @@ impl EmailClassificationInput {
 pub struct LocalEmailClassifier;
 impl LocalEmailClassifier {
     pub fn revision(&self) -> &str {
-        POLICY_REVISION
+        policy_revision()
     }
     pub fn classify(
         &mut self,
@@ -103,9 +103,8 @@ fn visible_html(doc: &Html) -> String {
         .take(MAX_TEXT)
         .collect()
 }
-fn regex(pattern: &str, text: &str) -> Option<String> {
-    Regex::new(pattern)
-        .expect("reviewed detector regex")
+fn regex(pattern: &Regex, text: &str) -> Option<String> {
+    pattern
         .captures(text)
         .and_then(|c| c.get(1))
         .map(|m| m.as_str().trim().into())
@@ -276,7 +275,7 @@ fn calendar(input: &str, out: &mut Classification) {
 pub fn detect(input: &EmailClassificationInput) -> Classification {
     let mut out = Classification {
         status: CategoryStatus::Ready,
-        policy_revision: POLICY_REVISION.into(),
+        policy_revision: policy_revision().into(),
         ..Default::default()
     };
     let html: String = input.html.chars().take(256_000).collect();
@@ -323,7 +322,9 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
             }) || a.value().attr("href").is_some_and(|href| {
                 Url::parse(href).is_ok_and(|url| {
                     matches!(url.scheme(), "http" | "https")
-                        && url.path().to_ascii_lowercase().contains("unsubscribe")
+                        && RULES
+                            .pattern("unsubscribe_path")
+                            .is_match(&url.path().to_ascii_lowercase())
                 })
             })
         });
@@ -337,160 +338,34 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
             "automatically generated message header" | "automatically replied message header"
         )
     });
-    for (kind, phrases) in [
-        (
-            DetectedType::Receipt,
-            &[
-                "payment receipt",
-                "your receipt",
-                "purchase receipt",
-                "payment received",
-                "payment was received",
-            ][..],
-        ),
-        (
-            DetectedType::Invoice,
-            &[
-                "your invoice",
-                "customer invoice",
-                "invoice attached",
-                "invoice number",
-                "invoice #",
-            ],
-        ),
-        (
-            DetectedType::Order,
-            &[
-                "order confirmation",
-                "your order #",
-                "your order number",
-                "thanks for your order",
-                "thank you for your order",
-            ],
-        ),
-        (
-            DetectedType::Shipping,
-            &[
-                "your shipment",
-                "your package",
-                "your parcel",
-                "has shipped",
-                "has been shipped",
-                "out for delivery",
-                "delivery confirmation",
-            ],
-        ),
-        (
-            DetectedType::EventInvitation,
-            &[
-                "you have been invited",
-                "invitation:",
-                "event invitation",
-                "canceled event:",
-                "cancelled event:",
-                "rescheduled event:",
-                "meeting invitation",
-            ],
-        ),
-        (
-            DetectedType::VerificationCode,
-            &[
-                "verification code",
-                "security code",
-                "one-time code",
-                "one time code",
-                "login code",
-                "sign-in code",
-                "authentication code",
-                "pin code",
-                "one-time password",
-                "your otp",
-            ],
-        ),
-        (
-            DetectedType::FlightBooking,
-            &[
-                "flight booking",
-                "flight confirmation",
-                "flight itinerary",
-                "your flight",
-                "flight cancelled",
-                "flight canceled",
-                "flight cancellation",
-                "flight delayed",
-                "flight rescheduled",
-            ],
-        ),
-        (
-            DetectedType::Newsletter,
-            &[
-                "your weekly newsletter",
-                "this week's newsletter",
-                "newsletter:",
-                "weekly digest",
-            ],
-        ),
-        (
-            DetectedType::Offer,
-            &[
-                "exclusive offer",
-                "shop now",
-                "discount code",
-                "sale ends",
-                "special offer",
-            ],
-        ),
-        (
-            DetectedType::SecurityAlert,
-            &[
-                "new login to",
-                "new login from",
-                "new sign-in",
-                "new sign in",
-                "suspicious activity",
-                "unrecognized login",
-                "password was changed",
-                "password has been changed",
-            ],
-        ),
-    ] {
-        if has(&text, phrases) {
-            add(&mut out, kind);
+    for rule in &RULES.type_phrases {
+        if rule.any.iter().any(|phrase| text.contains(phrase)) {
+            add(&mut out, rule.email_type.clone());
         }
     }
     let subject = input.subject.to_lowercase();
-    let reply_context =
-        signals.iter().any(|s| s == "reply thread header present") || subject.starts_with("re:");
-    let receipt_subject =
-        Regex::new(r"(?i)\byour(?: [\p{L}\p{N}'’-]+){0,4} receipt\b|\byour recent purchase\b")
-            .unwrap()
-            .is_match(&input.subject);
+    let reply_context = signals.iter().any(|s| s == "reply thread header present")
+        || RULES.pattern("reply_subject").is_match(&subject);
+    let receipt_subject = RULES.pattern("receipt_subject").is_match(&input.subject);
     if receipt_subject {
         add(&mut out, DetectedType::Receipt);
     }
-    let service_notice = has(
-        &subject,
-        &[
-            "your pre-payment has been used",
-            "restore nameservers for",
-            "data has been exported",
-            "submission approved",
-            "submission rejected",
-            "is now available to test",
-            "important security update (action required)",
-        ],
-    ) || (subject.contains("archive of")
-        && subject.contains("data requested"));
-    if has(
-        &subject,
-        &["new opportunities for you", "recommended jobs for you"],
-    ) {
+    let service_notice = RULES.has("service_notice", &subject)
+        || RULES.phrases["export_archive"]
+            .iter()
+            .all(|phrase| subject.contains(phrase));
+    if RULES.has("job_offer", &subject) {
         add(&mut out, DetectedType::Offer);
     }
     let delivery_service = signals
         .iter()
         .any(|s| s == "bulk delivery service header present");
-    let role_sender = Regex::new(r"(?i)^(?:no[-_.]?reply|do[-_.]?not[-_.]?reply|notifications?|billing|invoices?|receipts?)(?:[+._-].*)?$").unwrap().is_match(input.from_address.split('@').next().unwrap_or(""));
+    let automated_sender = RULES
+        .pattern("automated_sender")
+        .is_match(input.from_address.split('@').next().unwrap_or("").trim());
+    let role_sender = RULES
+        .pattern("delivery_role_sender")
+        .is_match(input.from_address.split('@').next().unwrap_or(""));
     let delivered_notice = role_sender && delivery_service;
     let generated_document = signals
         .iter()
@@ -515,16 +390,7 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
         }
     }
     calendar(&input.calendar, &mut out);
-    let payment_failure = has(
-        &text,
-        &[
-            "payment failed",
-            "payment failure",
-            "payment declined",
-            "couldn't process your payment",
-            "could not process your payment",
-        ],
-    );
+    let payment_failure = RULES.has("payment_failure", &text);
     let machine_transaction = out.types.iter().any(|t| {
         matches!(
             t,
@@ -536,8 +402,11 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
         )
     }) || payment_failure;
     // Ambiguous replies remain visible; sender history alone never protects a notice.
-    let direct_reply = reply_context && !generated && !list && !delivered_notice;
+    let direct_reply =
+        reply_context && !generated && !list && !delivered_notice && !automated_sender;
     let personal_invitation = input.known_correspondence
+        && !automated_sender
+        && !generated
         && out.types.contains(&DetectedType::EventInvitation)
         && !machine_transaction
         && !list
@@ -545,7 +414,8 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
         && !out.types.contains(&DetectedType::Offer);
     if !direct_reply
         && !personal_invitation
-        && (generated
+        && (automated_sender
+            || generated
             || list
             || unsubscribe
             || out
@@ -558,18 +428,12 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
             || delivered_notice
             || generated_document
             || (out.types.contains(&DetectedType::Invoice)
-                && has(
-                    &subject,
-                    &["customer invoice", "invoice number", "invoice #"],
-                )))
+                && RULES.has("invoice_subject", &subject)))
     {
         out.kind = InboxKind::Automated;
     }
     if out.types.contains(&DetectedType::FlightBooking) {
-        if let Some(number) = regex(
-            r"(?i)flight\s*(?:number|no\.?|#)?\s*([A-Z]{2}\s?\d{1,4})\b",
-            &own,
-        ) {
+        if let Some(number) = regex(RULES.pattern("flight_number"), &own) {
             detail(
                 &mut out,
                 DetectedType::FlightBooking,
@@ -578,7 +442,7 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
                 None,
             );
         }
-        if let Some(route) = regex(r"(?i)\bfrom\s+([A-Z]{3}\s+to\s+[A-Z]{3})\b", &own) {
+        if let Some(route) = regex(RULES.pattern("flight_route"), &own) {
             detail(
                 &mut out,
                 DetectedType::FlightBooking,
@@ -589,10 +453,8 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
         }
     }
     if out.types.contains(&DetectedType::EventInvitation) {
-        if let Some(title) = input
-            .subject
-            .strip_prefix("Invitation:")
-            .filter(|s| !s.trim().is_empty())
+        if let Some(title) =
+            regex(RULES.pattern("event_title"), &input.subject).filter(|s| !s.trim().is_empty())
         {
             detail(
                 &mut out,
@@ -605,8 +467,7 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
     }
     if out.types.contains(&DetectedType::VerificationCode) {
         // Require one contextual candidate; dates and unrelated bare numbers are not codes.
-        let pattern = r"(?i)(?:verification code|security code|one[- ]time code|login code|sign-in code|authentication code|pin code|one[- ]time password|otp)\s*(?:is|:|=)?\s*([A-Z0-9]{4,10})\b";
-        let re = Regex::new(pattern).unwrap();
+        let re = RULES.pattern("verification_code");
         let mut candidates: Vec<_> = re
             .captures_iter(&own)
             .filter_map(|c| c.get(1))
@@ -624,10 +485,7 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
                 Some(DetailAction::Copy),
             );
             if let Ok(received) = DateTime::parse_from_rfc3339(&input.received_at) {
-                let validity = Regex::new(
-                    r"(?i)(?:expires? in|valid for)\s+(\d{1,3})\s+(seconds?|minutes?|hours?)",
-                )
-                .unwrap();
+                let validity = RULES.pattern("code_validity");
                 let seconds = validity
                     .captures(&own)
                     .and_then(|c| {
@@ -659,32 +517,16 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
     if payment_failure {
         attention(&mut out, "Payment failed", None);
     }
-    if out.types.contains(&DetectedType::FlightBooking)
-        && has(
-            &text,
-            &[
-                "cancelled",
-                "canceled",
-                "delayed",
-                "rescheduled",
-                "schedule change",
-            ],
-        )
-    {
+    if out.types.contains(&DetectedType::FlightBooking) && RULES.has("flight_changed", &text) {
         attention(&mut out, "Flight changed", None);
     }
-    if out.types.contains(&DetectedType::EventInvitation)
-        && has(&text, &["cancelled", "canceled", "rescheduled"])
-    {
+    if out.types.contains(&DetectedType::EventInvitation) && RULES.has("event_changed", &text) {
         attention(&mut out, "Event changed", None);
     }
     if out.types.contains(&DetectedType::SecurityAlert) {
         attention(&mut out, "Account security", None);
     }
-    if let Some(reference) = regex(
-        r"(?i)(?:order (?:number|reference|#)|booking reference|tracking number)\s*[:#]?\s*([A-Z0-9][A-Z0-9-]{3,24})\b",
-        &own,
-    ) {
+    if let Some(reference) = regex(RULES.pattern("reference"), &own) {
         let t = if out.types.contains(&DetectedType::FlightBooking) {
             DetectedType::FlightBooking
         } else if out.types.contains(&DetectedType::Shipping) {
@@ -708,12 +550,10 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
             DetectedType::Receipt | DetectedType::Invoice | DetectedType::Order
         )
     }) {
-        if let Some(amount) = regex(
-            r"(?i)\b(?:total(?: paid| due)?|amount paid|amount due|payment of)\s*:?\s*((?:USD|EUR|GBP|\$|€|£)\s*\d[\d., \x{00a0}\x{202f}]*|\d[\d., \x{00a0}\x{202f}]*\s*(?:USD|EUR|GBP|€|£|\$))(?:\s|[;:!?)]|$)",
-            &own,
-        ).map(|value| value.trim_end_matches(['.', ',']).trim().to_owned()).filter(|value| {
-            Regex::new(r"(?i)^(?:(?:USD|EUR|GBP|\$|€|£)\s*\d+(?:[., \x{00a0}\x{202f}]\d{3})*(?:[.,]\d{2})?|\d+(?:[., \x{00a0}\x{202f}]\d{3})*(?:[.,]\d{2})?\s*(?:USD|EUR|GBP|€|£|\$))$").unwrap().is_match(value)
-        }) {
+        if let Some(amount) = regex(RULES.pattern("amount"), &own)
+            .map(|value| value.trim_end_matches(['.', ',']).trim().to_owned())
+            .filter(|value| RULES.pattern("valid_amount").is_match(value))
+        {
             let t = if out.types.contains(&DetectedType::Receipt) {
                 DetectedType::Receipt
             } else if out.types.contains(&DetectedType::Invoice) {
@@ -724,21 +564,16 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
             detail(&mut out, t, "Total", amount, None);
         }
     }
-    for (t, phrases, label) in [
-        (
-            DetectedType::Shipping,
-            &["out for delivery", "delivered", "in transit", "has shipped"][..],
-            "Status",
-        ),
-        (
-            DetectedType::FlightBooking,
-            &["cancelled", "canceled", "delayed", "rescheduled"][..],
-            "Status",
-        ),
+    for (t, key) in [
+        (DetectedType::Shipping, "shipping_status"),
+        (DetectedType::FlightBooking, "flight_status"),
     ] {
         if out.types.contains(&t) {
-            if let Some(p) = phrases.iter().find(|p| text.contains(**p)) {
-                detail(&mut out, t, label, (*p).into(), None);
+            if let Some(phrase) = RULES.phrases[key]
+                .iter()
+                .find(|phrase| text.contains(phrase.as_str()))
+            {
+                detail(&mut out, t, "Status", phrase.clone(), None);
             }
         }
     }
@@ -749,12 +584,7 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
         if !safe_link(link) {
             continue;
         }
-        if out.types.contains(&DetectedType::Shipping)
-            && has(
-                &label,
-                &["track shipment", "track package", "track your order"],
-            )
-        {
+        if out.types.contains(&DetectedType::Shipping) && RULES.has("track_shipment", &label) {
             detail(
                 &mut out,
                 DetectedType::Shipping,
@@ -763,9 +593,7 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
                 Some(DetailAction::Open),
             );
         }
-        if out.types.contains(&DetectedType::FlightBooking)
-            && has(&label, &["manage booking", "manage your booking"])
-        {
+        if out.types.contains(&DetectedType::FlightBooking) && RULES.has("manage_booking", &label) {
             detail(
                 &mut out,
                 DetectedType::FlightBooking,
@@ -799,7 +627,7 @@ mod tests {
         assert_eq!(
             detect(&EmailClassificationInput::new(
                 Some("Service"),
-                "no-reply@service.test",
+                "support@service.test",
                 "A note",
                 "Hello",
                 ""
@@ -927,6 +755,38 @@ mod tests {
         assert_eq!(c.kind, InboxKind::Personal);
     }
     #[test]
+    fn purchase_confirmations_are_receipts_but_replies_stay_personal() {
+        for subject in [
+            "Thank you for your Steam purchase!",
+            "THANK YOU FOR YOUR PURCHASE",
+            "Thanks for your Example Store purchase.",
+            "Thanks for your recent purchase at Example",
+        ] {
+            let m = mail(subject, "Thank you for your recent transaction.")
+                .with_known_correspondence(true);
+            let c = detect(&m);
+            assert_eq!(c.kind, InboxKind::Automated, "{subject}");
+            assert!(c.types.contains(&DetectedType::Receipt), "{subject}");
+        }
+        let mut reply = mail(
+            "Thank you for your Steam purchase!",
+            "Can you help with this?",
+        );
+        reply.classification_signals = "Reply thread header present".into();
+        assert_eq!(detect(&reply).kind, InboxKind::Personal);
+        for subject in [
+            "Re: Thank you for your Steam purchase!",
+            "Can you check my Steam purchase?",
+            "Thank you for your purchase advice",
+        ] {
+            assert_eq!(
+                detect(&mail(subject, "Thanks, Alex")).kind,
+                InboxKind::Personal,
+                "{subject}"
+            );
+        }
+    }
+    #[test]
     fn generated_notices_branded_receipts_and_real_replies() {
         for subject in [
             "[Action required] Restore nameservers for example.test",
@@ -981,10 +841,131 @@ mod tests {
         .is_empty());
     }
     #[test]
+    fn automated_senders_do_not_need_headers_and_stay_automated_in_threads() {
+        for sender in [
+            "info",
+            "INFO",
+            "info+customers",
+            "noreply",
+            "NO-REPLY",
+            "no_reply",
+            "no.reply",
+            "no-replies",
+            "noresponse",
+            "donotreply",
+            "do-not-reply",
+            "do_not_reply",
+            "do.not.respond",
+            "noreply+account",
+            "noreply123",
+            "no-reply.orders",
+            "noreply-alerts",
+            "accounts-noreply",
+            "service.no-reply",
+            "accounts-do-not-reply2",
+            "automated",
+            "automated-mail",
+            "automatic-reply",
+            "autoreply",
+            "autoresponder",
+            "unmonitored",
+            "notification",
+            "notifications",
+            "notifications+project",
+            "alerts",
+            "updates",
+            "newsletter",
+            "newsletters",
+            "news",
+            "announcements",
+            "bulletin",
+            "digest",
+            "digests-weekly",
+            "reminder",
+            "reminders",
+            "mailing-list",
+            "mailer-daemon",
+            "postmaster",
+            "bounce",
+            "bounces+token",
+            "robot",
+            "bot",
+        ] {
+            for subject in ["Teade", "Re: Hello", "Invitation: lunch"] {
+                let mut m = mail(subject, "You have been invited").with_known_correspondence(true);
+                m.from_address = format!("{sender}@example.test");
+                m.classification_signals = "Reply thread header present".into();
+                assert_eq!(detect(&m).kind, InboxKind::Automated, "{sender}: {subject}");
+            }
+            let mut m = mail("Teade", "Teie konto");
+            m.from_address = format!("{sender}@example.test");
+            let c = detect(&m);
+            assert_eq!(c.kind, InboxKind::Automated, "{sender}");
+            assert!(c.types.is_empty(), "{sender}");
+            assert!(c.attention.is_empty(), "{sender}");
+        }
+        for sender in [
+            "alex",
+            "support",
+            "billing",
+            "sales",
+            "information",
+            "hello",
+            "contact",
+            "admin",
+            "team",
+            "orders",
+            "robotics",
+            "bottcher",
+            "noreplyperson",
+            "alex+noreply",
+        ] {
+            let mut m = mail("Re: Hello", "Can we talk?").with_known_correspondence(true);
+            m.from_name = Some("No Reply Notifications".into());
+            m.from_address = format!("{sender}@noreply.example.test");
+            assert_eq!(detect(&m).kind, InboxKind::Personal, "{sender}");
+        }
+    }
+    #[test]
+    fn list_and_autoreply_headers_classify_without_sender_or_content_hints() {
+        for header in [
+            "List-Help: <mailto:help@example.test>",
+            "List-Subscribe: <mailto:join@example.test>",
+            "List-Post: NO",
+            "List-Owner: <mailto:owner@example.test>",
+            "List-Archive: <https://example.test/archive>",
+            "Precedence: auto_reply",
+            "Auto-Submitted: auto-generated; owner-email=private@example.test",
+            "Auto-Submitted: auto-replied",
+        ] {
+            let raw = format!("{header}\r\nIn-Reply-To: <opaque@example.test>\r\n\r\nTeade");
+            let parsed = mail_parser::MessageParser::default()
+                .parse(raw.as_bytes())
+                .unwrap();
+            let mut m =
+                mail("Invitation: lunch", "You have been invited").with_known_correspondence(true);
+            m.classification_signals = crate::signals::classification_signals(&parsed, &[]);
+            assert_eq!(detect(&m).kind, InboxKind::Automated, "{header}");
+        }
+        for header in [
+            "Auto-Submitted: no",
+            "Precedence: normal",
+            "X-Auto-Response-Suppress: All",
+        ] {
+            let raw = format!("{header}\r\n\r\nHello");
+            let parsed = mail_parser::MessageParser::default()
+                .parse(raw.as_bytes())
+                .unwrap();
+            let mut m = mail("Hello", "Can we talk?");
+            m.classification_signals = crate::signals::classification_signals(&parsed, &[]);
+            assert_eq!(detect(&m).kind, InboxKind::Personal, "{header}");
+        }
+    }
+    #[test]
     fn language_independent_delivery_and_footer_evidence_stay_message_specific() {
         let mut m = mail("Teade", "Teie konto");
         m.from_address = "no-reply@example.test".into();
-        assert_eq!(detect(&m).kind, InboxKind::Personal);
+        assert_eq!(detect(&m).kind, InboxKind::Automated);
         m.classification_signals = "Bulk delivery service header present".into();
         assert_eq!(detect(&m).kind, InboxKind::Automated);
         m.from_address = "alex@example.test".into();

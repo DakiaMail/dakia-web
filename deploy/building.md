@@ -1,26 +1,35 @@
 # Build and publish Dakia
 
-For running a published image, use [hosting](../docs/hosting.md) and [operations](README.md). This page is for maintainers building images and runtime bundles.
+For running a published image, use [hosting](../docs/hosting.md) and [operations](README.md). For a prebuilt native runtime, use [native setup](../docs/native-hosting.md). This page is for maintainers building images and runtime bundles.
 
 ## Published images
 
-GitHub Actions builds application source changes on `main` for Linux AMD64 and ARM64. Source images use `ghcr.io/dakiamail/dakia-web:sha-<source-commit>` and carry the source commit in the `org.opencontainers.image.revision` label. Semantic version tags publish versioned images, then a GitHub release with a digest manifest and the paired upgrade scripts after packaged-runtime checks pass. Stable releases take priority over previews for update discovery. Manual workflow runs can build a chosen source revision.
+GitHub Actions builds application source changes on `main` for Linux AMD64 and ARM64. Source images use `ghcr.io/dakiamail/dakia-web:sha-<source-commit>` and carry the source commit in the `org.opencontainers.image.revision` label. Semantic version tags publish versioned images, then a GitHub release with complete Linux AMD64 and ARM64 runtime archives, SHA-256 checksums, a digest manifest, and the paired Docker upgrade scripts after packaged-runtime checks pass. Stable releases take priority over previews for update discovery. Manual workflow runs can build a chosen source revision.
 
-Each native image must pass packaged classifier, translation-worker, health, Gmail OAuth, and restart checks before the multi-platform image is published. The classification check verifies the deterministic policy on synthetic messages as the normal app user. The OAuth checks use synthetic credentials with networking disabled. `edge` tracks a successful `main` build; the Compose default uses an explicitly verified digest. Pushes confined to the root README, `docs/`, or the Compose pin do not trigger image builds; other documentation paths can. See the [image workflow](../.github/workflows/images.yml) for the exact triggers and checks.
+Each native image must pass packaged classifier, CPU search-model, translation-worker, health, Gmail OAuth, and restart checks before the multi-platform image is published. The classification check verifies the deterministic policy on synthetic messages as the normal app user. The OAuth checks use synthetic credentials with networking disabled. `edge` tracks a successful `main` build; the Compose default uses an explicitly verified digest. Pushes confined to the root README, `docs/`, or the Compose pin do not trigger image builds; other documentation paths can. See the [image workflow](../.github/workflows/images.yml) for the exact triggers and checks.
 
 Use the source-revision label and immutable digest to identify an image. Keep operator credentials and mail data in runtime configuration and persistent volumes, outside the image.
+
+## Native release archives
+
+The image matrix exports each verified image with `scripts/package-runtime.sh`. Archives include the native binaries, Node 24 and its license, web assets, production worker dependencies, search models, ONNX libraries, a native launcher, and a systemd unit. `VERSION` and `REVISION` identify the build. Packaging reuses the image rather than compiling a second runtime.
+
+On each architecture, `scripts/check-native-runtime.sh` extracts the archive into fresh temporary storage in clean Ubuntu without a Node installation or network access, then checks classification, search-model loading, translation-worker startup, health, local owner setup, synthetic OAuth, CSRF rejection, and session/key persistence after restart. Both architectures must pass before either archive is published. No owner data is used. Published releases cannot be overwritten.
+
+Archives target Ubuntu 24.04 and require its runtime libraries. Node is bundled; users do not need npm, Rust, or Docker. `SHA256SUMS` covers both archives.
 
 ## Build
 
 Install the requirements and run the checks in the root README. To build the legacy runtime bundle:
 
 ```sh
+python3 scripts/fetch-search-model.py
 sh deploy/build-bundle.sh
 ```
 
-The builder installs locked npm dependencies, builds/tests the UI, tests the workers and Rust workspace, builds release binaries, and creates `deploy/bundle/runtime.tar.gz`. It packages copied binaries, web assets, workers and classification policy, excluding account data and operator secrets. Build on Linux x86_64 using Node 24 LTS and the pinned Rust toolchain. Classification requires no model files or runtime downloads.
+The builder installs locked npm dependencies, builds/tests the UI, tests the workers and Rust workspace, builds release binaries, and creates `deploy/bundle/runtime.tar.gz`. It packages copied binaries, web assets, workers, classification policy and search-model artifacts, excluding account data and operator secrets. Build on Linux x86_64 using Node 24 LTS and the pinned Rust toolchain. The search-model fetch is explicit so offline builds can use a previously verified local artifact.
 
-Extract the archive into a new build directory and build the included Dockerfile with an explicit local tag. It expects `bin/`, `web/`, `workers/` beside it. The image runs as UID/GID 1000. Mount persistent storage at `/data`, set the required environment and mount private configuration files at their configured paths. Configure `DAKIA_WEB_ROOT=/app/web`; the image already sets the worker and translation model-cache paths. A private VAPID file is needed for push, not embedded in the image.
+Extract the archive into a new build directory and build the included Dockerfile with an explicit local tag. It expects `bin/`, `web/`, `workers/` and `search-model/` beside it. The image runs as UID/GID 1000. Mount persistent storage at `/data`, set the required environment and mount private configuration files at their configured paths. Configure `DAKIA_WEB_ROOT=/app/web`; the image already sets the search-model, worker and model-cache paths. A private VAPID file is needed for push, not embedded in the image.
 
 Use a read-only root filesystem, no new privileges, dropped capabilities and suitable resource limits. Networking must permit OIDC discovery/backchannel, mail provider TLS, selected model downloads and supported push endpoints. Do not bypass TLS verification to resolve routing failures. Ensure `/sw.js` serves JavaScript rather than the SPA fallback.
 
@@ -42,7 +51,7 @@ docker run --rm -v "$PWD:/source" -w /source dakia-release-builder \
 
 Run this on a native Linux amd64 host. Mount a source checkout and optional
 isolated Cargo/target caches only. Never mount production data or credentials
-into the builder. Package all three binaries without classifier model or runtime assets,
+into the builder. Package the release binaries, search-model artifacts and licenses,
 and run the release gate before activation. Back up the stopped app before
 changing the production image, retain its previous tag, and verify database
 integrity, mounts, health and unchanged account/submission counts afterwards.
@@ -54,8 +63,10 @@ Worker updates must include locked production dependencies. A healthy Rust serve
 ```sh
 sudo docker run --rm --network none --read-only \
   --entrypoint /app/dakia-classifier-check YOUR_IMAGE
+sudo docker run --rm --network none --read-only \
+  --entrypoint /app/dakia-search-model-check YOUR_IMAGE
 sudo docker run --rm --network none \
   --entrypoint node YOUR_IMAGE /app/workers/translation/smoke.mjs
 ```
 
-The first verifies deterministic classification. The second loads the HTML parser, sanitizer, and WASM engine; the supplied Dockerfile also runs this worker smoke during its build. For real host-translation acceptance, run the worker smoke with `--models` and `DAKIA_MODEL_CACHE` pointing at an isolated cache of verified public Estonian models. Never mount owner mail or credentials into a build or smoke test.
+The first verifies deterministic classification. The second checks the local search model and vector accelerator. The third loads the HTML parser, sanitizer, and WASM engine; the supplied Dockerfile also runs this worker smoke during its build. For real host-translation acceptance, run the worker smoke with `--models` and `DAKIA_MODEL_CACHE` pointing at an isolated cache of verified public Estonian models. Never mount owner mail or credentials into a build or smoke test.

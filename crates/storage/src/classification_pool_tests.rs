@@ -70,7 +70,7 @@ async fn classification_history_uses_active_index_and_releases_single_connection
     // Cached indexed access still revalidates ownership.
     sqlx::query("DELETE FROM accounts WHERE id=?")
         .bind(a.id())
-        .execute(store.control())
+        .execute(store.sqlite_control_for_test())
         .await
         .unwrap();
     assert!(matches!(

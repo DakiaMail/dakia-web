@@ -29,11 +29,11 @@ pub(crate) struct Policy {
 }
 
 pub(crate) async fn mode(app: &App) -> Result<Mode> {
-    let value: Option<String> =
-        sqlx::query_scalar("SELECT value FROM settings WHERE key='translation_mode'")
-            .fetch_optional(app.store.control())
-            .await
-            .map_err(StorageError::from)?;
+    let value = app
+        .store
+        .control_repository()
+        .setting("translation_mode")
+        .await?;
     match value {
         None => Ok(Mode::Host),
         Some(value) => serde_json::from_str(&value).map_err(|_| {
@@ -44,7 +44,7 @@ pub(crate) async fn mode(app: &App) -> Result<Mode> {
         }),
     }
 }
-async fn can_manage(app: &App, user: &str) -> Result<bool> {
+pub(crate) async fn can_manage(app: &App, user: &str) -> Result<bool> {
     // OIDC installations explicitly nominate stable Dakia user IDs, never an
     // arbitrary first visitor, email domain, or sender-controlled claim.
     if std::env::var("DAKIA_ADMIN_USERS")
@@ -73,9 +73,13 @@ pub(crate) async fn set_policy(
     if !can_manage(&app, &id.user).await? {
         return Err(ApiFailure(StatusCode::FORBIDDEN, "administrator_required"));
     }
-    sqlx::query("INSERT INTO settings(key,value) VALUES('translation_mode',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value")
-        .bind(serde_json::to_string(&update.mode).unwrap())
-        .execute(app.store.control()).await.map_err(StorageError::from)?;
+    app.store
+        .control_repository()
+        .put_setting(
+            "translation_mode",
+            &serde_json::to_string(&update.mode).unwrap(),
+        )
+        .await?;
     Ok(Json(Policy {
         mode: update.mode,
         can_manage: true,
@@ -181,10 +185,10 @@ pub(crate) async fn download(Path(hash): Path<String>) -> Result<Response> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use tower::ServiceExt;
-    async fn fixture() -> (tempfile::TempDir, App) {
+    pub(crate) async fn fixture() -> (tempfile::TempDir, App) {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::open(dir.path(), [57; 32]).await.unwrap();
         let owner = store
@@ -201,12 +205,12 @@ mod tests {
                 .bind(user)
                 .bind("policy-csrf")
                 .bind(4102444800_i64)
-                .execute(store.control())
+                .execute(store.sqlite_control_for_test())
                 .await
                 .unwrap();
         }
         sqlx::query("INSERT INTO local_login(id,user_id,username,password_hash,is_owner) VALUES(1,?,'owner','unused',1)")
-            .bind(owner).execute(store.control()).await.unwrap();
+            .bind(owner).execute(store.sqlite_control_for_test()).await.unwrap();
         let app = App {
             store,
             mail: crate::mail::MailRuntime::default(),
@@ -298,7 +302,7 @@ mod tests {
             );
         }
         sqlx::query("INSERT INTO settings(key,value) VALUES('translation_mode','invalid')")
-            .execute(app.store.control())
+            .execute(app.store.sqlite_control_for_test())
             .await
             .unwrap();
         assert!(mode(&app).await.is_err());

@@ -55,14 +55,14 @@ Bring Gmail, Outlook.com, Microsoft 365, and other IMAP/SMTP mailboxes into one 
   </tr>
 </table>
 
-Archive, star, snooze, move, or clean up mail in bulk. Unsubscribe from supported mailing lists and block unwanted senders. Keyboard shortcuts and optional shortcut hints keep everyday actions close at hand.
+Archive, star, snooze, move, or clean up mail in bulk. Unsubscribe from supported mailing lists and block unwanted senders. Keyboard shortcuts and optional shortcut hints keep everyday actions close at hand. Enable “Show extra keyboard hints” in Workspace to show hints beside actions and in the bottom bar. Press `/` to focus mail search, use arrow keys to choose a quick match, or press Enter to search all mail in the selected accounts. Escape closes suggestions without clearing the query. The Filters control adds sender, recipient, subject, folder, date, and read or starred status filters.
 
 ## At your desk or on your phone
 
 Use the responsive web app or install it as a PWA. Sign in with the same Dakia login to use your mailboxes on another device. Recent mail is saved in your browser for faster reopening.
 
 <p align="center">
-  <img src="docs/images/inbox-mobile.webp" alt="Personal inbox on a mobile browser with attention items above the tabs" width="320">
+  <img src="docs/images/inbox-mobile.webp" alt="Personal inbox on a mobile browser with an expandable attention summary" width="320">
   &nbsp;&nbsp;
   <img src="docs/images/reader-mobile.webp" alt="Mobile conversation reader in dark theme with an attachment and reply controls" width="320">
 </p>
@@ -77,7 +77,9 @@ Dakia connects to your email provider. You don't need to run a mail server or ch
 
 Dakia is under active development. Back up your installation and try a disposable mailbox before relying on it for important mail.
 
-Follow the [hosting guide](docs/hosting.md) to install Docker through its official packages, review the Compose files, and start the pinned image. The recommended setup doesn't run a Dakia installer as root. Choose public HTTPS with Caddy, your existing proxy, or private Tailscale access.
+Use a [prebuilt Linux runtime](docs/native-hosting.md) on AMD64 or ARM64 to run Dakia without Docker or a Rust compiler. Node, workers, and search models are included.
+
+Or follow the [hosting guide](docs/hosting.md) to install Docker through its official packages, review the Compose files, and start the pinned image. The recommended setup doesn't run a Dakia installer as root. Choose public HTTPS with Caddy, your existing proxy, or private Tailscale access.
 
 Restrict access before the first start, then create the owner login before opening the installation to others.
 

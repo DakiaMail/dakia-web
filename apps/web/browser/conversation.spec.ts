@@ -69,11 +69,10 @@ for (const [name,width,height,dark] of [
     expect(state.calls.filter(c=>c.includes("continuation=")).length).toBe(1);
   });
 }
-test("pagination failure retains selected content and retry resumes without duplicating, with keyboard full expansion",async({page})=>{
+test("a transient pagination failure recovers silently without duplicating, with keyboard full expansion",async({page})=>{
   const state=await fixture(page,{failure:true,third:true});
-  await expect(page.getByText("Couldn’t check for more messages",{exact:false})).toBeVisible();
-  await expect(page.locator(".conversation-message")).toHaveCount(1);
-  await page.getByRole("button",{name:"Retry conversation"}).click();
+  await expect(page.getByText("Couldn’t check for more messages",{exact:false})).toHaveCount(0);
+  await expect(page.getByRole("button",{name:"Check for more messages",exact:true})).toHaveCount(0);
   await expect(page.locator(".conversation-message")).toHaveCount(3);
   const sentCard=page.getByRole("region",{name:"Message from You",exact:true});
   const summary=sentCard.getByRole("button").first();

@@ -88,7 +88,7 @@ test("unsupported device uses real host fallback only in automatic mode", async 
   await page.addInitScript(()=>Object.defineProperty(window,"Worker",{value:undefined,configurable:true}));
   await setup(page); await policy(page,"automatic");
   await keyboardActivate(page,'button[title="Translate to English"]');
-  await expect(page.getByText("Using host translation because this device could not finish.")).toBeVisible();
+  await expect(page.getByText("Using host translation because this device could not finish.")).toHaveCount(0);
   await expect(page.getByTitle("Translated message")).toBeVisible({timeout:150_000});
   await policy(page,"device");
   await keyboardActivate(page,'button[title="Translate to English"]');

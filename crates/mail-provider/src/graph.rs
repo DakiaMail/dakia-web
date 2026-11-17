@@ -493,22 +493,31 @@ impl GraphProvider {
                 }
             }
         }
-        if let Some(text) = &query.text {
+        let text_units = if query.text_units.is_empty() {
+            query.text.as_slice()
+        } else {
+            &query.text_units
+        };
+        if !text_units.is_empty() {
             let raw = self.fetch(&metadata.reference, 25 * 1024 * 1024).await?;
             let parsed = mail_parser::MessageParser::default()
                 .parse(&raw)
                 .ok_or_else(invalid)?;
-            let text = text.to_lowercase();
-            if !String::from_utf8_lossy(&metadata.headers)
-                .to_lowercase()
-                .contains(&text)
-                && !parsed
+            let fields = [
+                String::from_utf8_lossy(&metadata.headers).to_lowercase(),
+                parsed
                     .body_text(0)
-                    .is_some_and(|body| body.to_lowercase().contains(&text))
-                && !parsed
+                    .map(|body| body.to_lowercase())
+                    .unwrap_or_default(),
+                parsed
                     .body_html(0)
-                    .is_some_and(|body| body.to_lowercase().contains(&text))
-            {
+                    .map(|body| body.to_lowercase())
+                    .unwrap_or_default(),
+            ];
+            if !text_units.iter().all(|text| {
+                let text = text.to_lowercase();
+                fields.iter().any(|field| field.contains(&text))
+            }) {
                 return Ok(false);
             }
         }

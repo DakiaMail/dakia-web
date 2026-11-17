@@ -42,6 +42,10 @@ In Dakia, choose **Connect account**, enter the Gmail address, choose Gmail, and
 
 If a grant expires or is revoked, use **Reconnect** in Workspace. Check the registered callback, client credentials, test-user list, requested permissions, and Google's error message if sign-in fails. Provider or organization policies can restrict access.
 
+Finishing Google's screens does not guarantee that reconnection succeeded. Dakia must receive the callback, confirm the Google account, save the new authorization, and check the Gmail connection. A failed callback shows an error on return to Dakia. Operator logs record only a safe failure category, such as `google_token_exchange_failed`, `google_profile_failed`, or `google_offline_access_required`. A later Gmail connection failure is reported separately.
+
+Token-renewal logs distinguish `invalid_grant` (expired or revoked authorization) from client configuration failures. Google does not say which expiration or revocation cause applies. A fresh sign-in is required for `invalid_grant`; retrying the saved authorization cannot repair it.
+
 Choose **Use an app password** to connect without Google OAuth when that option is available for your account. A normal Google password may not work for IMAP/SMTP.
 
 ## Development

@@ -66,8 +66,8 @@ fn current_text(text: &str) -> String {
     text.lines()
         .take_while(|line| {
             let l = line.trim().to_lowercase();
-            !(l.starts_with("on ") && l.ends_with("wrote:"))
-                && !l.starts_with("-----original message")
+            !(l.starts_with("-----original message")
+                || l.starts_with("on ") && l.ends_with("wrote:"))
         })
         .filter(|line| !line.trim_start().starts_with('>'))
         .collect::<Vec<_>>()

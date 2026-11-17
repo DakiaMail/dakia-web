@@ -1,3 +1,4 @@
+import { selectAccount } from "./fixtures";
 import { test, expect, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { resolve } from "node:path";
@@ -92,7 +93,7 @@ for (const width of [390, 1480]) {
     await expect.poll(() => displayed(page)).toEqual(["New arrival", "Unread October 30", ...expected]);
     expect(state.operations.every(op => op.account_id === "work" && op.target_id === "Unread October 30" && op.change.kind === "read")).toBe(true);
     expect(new Set(await displayed(page)).size).toBe(9);
-    await page.getByRole("combobox", { name: "Account filter" }).selectOption("personal");
+    await selectAccount(page, "personal");
     await expect.poll(() => displayed(page)).toEqual(["New arrival", "October 29", "October 28"]);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });

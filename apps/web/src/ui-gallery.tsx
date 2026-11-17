@@ -1,8 +1,8 @@
 // Separate Vite development entry. This is not included in the production build.
 import { StrictMode, useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { Button, ConfirmationButton, DateTimeSelector, DakiaProvider, IconButton, DropdownMenu, DropdownMenuItem, DropdownSubmenu, DropdownMenuDivider, MailActionButton, useDakiaColorScheme } from "@dakia/ui";
-import { Archive, Plus, SunMoon } from "lucide-react";
+import { Button, ConfirmationButton, DateTimeSelector, DakiaProvider, IconButton, DropdownMenu, DropdownMenuItem, DropdownSubmenu, DropdownMenuDivider, MailActionButton, SearchField, FilterChip, FilterList, FilterPopover, useDakiaColorScheme } from "@dakia/ui";
+import { Archive, ChevronRight, Mail, Plus, Search, SlidersHorizontal, SunMoon, X } from "lucide-react";
 import "@fontsource/inter/400.css";
 import "@fontsource/inter/500.css";
 import "@fontsource/inter/600.css";
@@ -16,6 +16,9 @@ function Gallery() {
   const [chosenTime, setChosenTime] = useState("");
   const [menuResult, setMenuResult] = useState("");
   const [category, setCategory] = useState("People");
+  const [query, setQuery] = useState("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [unread, setUnread] = useState(false);
   const [loading, setLoading] = useState(false);
   const [fail, setFail] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -23,6 +26,15 @@ function Gallery() {
   return <main style={{ maxWidth: 720, padding: 24, margin: "0 auto" }}>
     <h1>Dakia UI components</h1>
     <IconButton label={colorScheme === "dark" ? "Light theme" : "Dark theme"} onClick={() => setColorScheme(colorScheme === "dark" ? "light" : "dark")}><SunMoon size={18} /></IconButton>
+    <h2 style={{ marginTop: 24 }}>Search and filters</h2>
+    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      <SearchField label="Search example mail" value={query} onChange={setQuery} onSearch={() => setMenuResult(`Searching for ${query}`)} icon={<Search size={17} />} clearIcon={<X size={15} />}
+        options={query ? [{ id: "launch", label: "A few thoughts on the launch", description: "Maya Chen · Work", group: "Messages", icon: <Archive size={16} />, onSelect: () => setMenuResult("Opened launch message") }] : []} />
+      <FilterPopover opened={filtersOpen} onChange={setFiltersOpen} label="Example filters" trigger={<Button variant="secondary" aria-expanded={filtersOpen} onClick={() => setFiltersOpen(!filtersOpen)} leftSection={<SlidersHorizontal size={16} />}>Filters</Button>}>
+        <FilterList label="Example filter" searchLabel="Find an example filter" searchIcon={<Search size={15} />} trailingIcon={<ChevronRight size={14} />} closeControl={<IconButton label="Close example filters" onClick={() => setFiltersOpen(false)}><X size={15} /></IconButton>} items={[{ value: "unread", label: "Unread", icon: <Mail size={15} /> }]} onSelect={() => { setUnread(true); setFiltersOpen(false); }} />
+      </FilterPopover>
+    </div>
+    {unread && <div style={{ marginTop: 12 }}><FilterChip label="Unread" removeIcon={<X size={12} />} onEdit={() => setFiltersOpen(true)} onRemove={() => setUnread(false)} /></div>}
     <h2 style={{ marginTop: 24 }}>Buttons</h2>
     <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
       <Button>Primary</Button><Button variant="secondary">Secondary</Button><Button variant="tertiary">Tertiary</Button><Button tone="danger">Delete</Button><Button disabled>Unavailable</Button><Button loading>Loading</Button>

@@ -1,3 +1,4 @@
+import { selectAccount } from "./fixtures";
 import { test, expect, type Page } from "@playwright/test";
 import { Buffer } from "node:buffer";
 import type { Submission, ScheduledMessage } from "@dakia/api-types";
@@ -179,7 +180,7 @@ test("scheduled view shows useful pending mail and hides history and inbox-only 
   await expect(page.getByRole("button", { name: "Edit scheduled" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Cancel send" })).toBeVisible();
   await page.getByRole("button", { name: "Dismiss send status" }).click();
-  await page.getByRole("combobox", { name: "Account filter" }).selectOption("personal");
+  await selectAccount(page, "personal");
   await expect(page.getByRole("heading", { name: "No scheduled messages" })).toBeVisible();
   await page.screenshot({ path: "artifacts/scheduled-mobile-dark-empty.png", fullPage: true });
   await page.setViewportSize({ width: 1480, height: 980 });
@@ -267,7 +268,7 @@ test("workspace management consolidates accounts, settings and notification cont
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.getByRole("button", { name: "Close", exact: true }).click();
   await workspace.getByRole("button", { name: "Back to mail" }).click();
-  await expect(page.getByRole("combobox", { name: "Account filter" })).toHaveValue("work");
+  await expect(page.locator('nav[aria-label="Accounts"] button.selected')).toContainText("Work");
   await expect(page.getByRole("tab", { name: "Personal" })).toBeVisible();
 });
 test("mobile compact toolbar, FAB and real touch pull refresh have bounded requests", async ({ page, context }) => {
@@ -444,8 +445,16 @@ test("account removal requires exact confirmation and preserves the other accoun
   await expect(dialog.getByRole("button", { name: "Remove from Dakia" })).toBeDisabled();
   await dialog.getByRole("button", { name: "Keep account" }).click();
   expect(deletes).toBe(0);
-  await page.getByRole("article", { name: "Work", exact: true }).getByRole("button", { name: "Remove account", exact: true }).click();
-  await dialog.getByLabel(`Type ${accounts[0].email} to confirm`).fill(accounts[0].email);
+  await page.getByRole("article", { name: "Work", exact: true }).getByRole("button", { name: "Remove account", exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await expect(dialog.getByRole("button", { name: "Close", exact: true })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(dialog.getByLabel(`Type ${accounts[0].email} to confirm`)).toBeFocused();
+  await page.keyboard.insertText(accounts[0].email);
+  await page.keyboard.press("Tab");
+  await expect(dialog.getByRole("button", { name: "Keep account" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(dialog.getByRole("button", { name: "Remove from Dakia" })).toBeFocused();
   await page.waitForTimeout(250);
   await page.screenshot({ path: "artifacts/account-removal-light.png", fullPage: true });
   await page.evaluate(() => document.documentElement.setAttribute("data-theme", "dark"));
@@ -453,7 +462,7 @@ test("account removal requires exact confirmation and preserves the other accoun
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: "artifacts/account-removal-mobile.png", fullPage: true });
   await expect(dialog.getByRole("button", { name: "Remove from Dakia" })).toBeInViewport();
-  await dialog.getByRole("button", { name: "Remove from Dakia" }).click();
+  await page.keyboard.press("Enter");
   await expect(dialog).toHaveCount(0);
   await page.setViewportSize({ width: 1480, height: 980 });
   await expect(page.getByRole("navigation", { name: "Accounts", exact: true }).getByRole("button", { name: /Work/ })).toHaveCount(0);
@@ -470,7 +479,18 @@ test("account removal keeps the dialog and account on unresolved delivery", asyn
   await page.getByRole("dialog").getByLabel(`Type ${accounts[0].email} to confirm`).fill(accounts[0].email);
   await page.getByRole("button", { name: "Remove from Dakia" }).click();
   await expect(page.getByRole("alert")).toContainText("unresolved delivery");
-  await page.getByRole("button", { name: "Keep account" }).click();
+  await expect(page.getByRole("alert")).not.toContainText("pending mail actions");
+  await page.screenshot({ animations: "disabled", path: "artifacts/account-removal-blocked-light.png", fullPage: true });
+  await page.evaluate(() => document.documentElement.setAttribute("data-theme", "dark"));
+  await page.screenshot({ animations: "disabled", path: "artifacts/account-removal-blocked-dark.png", fullPage: true });
+  await page.setViewportSize({ width: 390, height: 480 });
+  await page.getByRole("button", { name: "Keep account" }).focus();
+  await expect(page.getByRole("button", { name: "Keep account" })).toBeInViewport();
+  await page.screenshot({ animations: "disabled", path: "artifacts/account-removal-blocked-short.png", fullPage: true });
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.getByRole("article", { name: "Work", exact: true }).getByRole("button", { name: "Remove account", exact: true })).toBeFocused();
+  await page.setViewportSize({ width: 1480, height: 980 });
   await expect(page.getByRole("navigation", { name: "Accounts", exact: true }).getByRole("button", { name: /Work/ })).toBeVisible();
 });
 test("desktop light, dark and composer screenshots", async ({ page }) => {
@@ -779,8 +799,9 @@ test("search retains pagination without provider diagnostics", async ({
   );
   await page.goto("/");
   await page
-    .getByRole("textbox", { name: "Search all mail" })
+    .getByRole("combobox", { name: "Search all mail" })
     .fill("old uncached subject");
+  await page.getByRole("combobox", { name: "Search all mail" }).press("Enter");
   await expect(page.getByLabel("Search category")).toHaveCount(0);
   await expect(page.getByText("Provider search", { exact: true })).toHaveCount(0);
   await expect(page.getByText("Provider unavailable", { exact: false })).toHaveCount(0);
@@ -1006,8 +1027,8 @@ test("notification deep link selects the owned account and message", async ({
     page.getByRole("heading", { name: "A few thoughts on the launch" }),
   ).toBeVisible();
   await expect(
-    page.getByRole("combobox", { name: "Account filter" }),
-  ).toHaveValue("work");
+    page.locator('nav[aria-label="Accounts"] button.selected'),
+  ).toContainText("Work");
 });
 test("inbox tabs retain the reader and separate scroll positions", async ({
   page,

@@ -28,7 +28,7 @@ for (const width of [390, 1480]) {
     phase = "fresh";
     await button.click();
     await expect(button).not.toHaveClass(/is-updating/);
-    await expect(button).toHaveAccessibleDescription("Inbox refreshed. Provider coverage is limited; some mail may not be exposed.");
+    await expect(button).toHaveAccessibleDescription("Refresh mail");
     const afterFresh = searches;
     await page.clock.fastForward(12000);
     expect(searches).toBe(afterFresh);
@@ -44,6 +44,6 @@ for (const width of [390, 1480]) {
     phase = "fresh";
     await button.click();
     await expect(button).not.toHaveClass(/is-updating|has-error/);
-    await expect(button).toHaveAccessibleDescription("Inbox refreshed. Provider coverage is limited; some mail may not be exposed.");
+    await expect(button).toHaveAccessibleDescription("Refresh mail");
   });
 }

@@ -76,7 +76,10 @@ for (const width of [390, 1480]) {
     f.releasePost();
     f.state.projectPending = true;
     const reads = f.state.reads;
-    await page.locator(".header-refresh").click();
+    if (width === 390) {
+      await page.getByRole("button", { name: "Open navigation", exact: true }).click();
+      await page.locator(".sidebar").getByRole("button", { name: "Refresh mail", exact: true }).click();
+    } else await page.locator(".header-refresh").click();
     await expect.poll(() => f.state.reads).toBeGreaterThan(reads);
     f.settle("work", "failed");
     await expect(page.getByRole("checkbox", { name: "Select Quiet work" })).toBeChecked();
@@ -154,7 +157,8 @@ test("body timeout offers a working explicit retry and never hides available con
 for (const nav of ["Starred", "Search"]) test(`removal is immediate outside Inbox: ${nav}`, async ({ page }) => {
   const f = await fixture(page);
   if (nav === "Search") {
-    await page.getByRole("textbox", { name: "Search all mail" }).fill("Quiet");
+    await page.getByRole("combobox", { name: "Search all mail" }).fill("Quiet");
+    await page.getByRole("combobox", { name: "Search all mail" }).press("Enter");
     await expect.poll(() => f.state.reads).toBeGreaterThan(1);
   } else await page.getByRole("button", { name: "Starred", exact: true }).click();
   await page.getByRole("checkbox", { name: "Select Quiet work" }).check();

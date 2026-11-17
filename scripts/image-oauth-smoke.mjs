@@ -5,7 +5,8 @@ import { readFile, writeFile, readdir } from 'node:fs/promises';
 
 const origin = 'https://mail.test';
 const base = 'http://127.0.0.1:3025';
-const sessionPath = '/data/image-smoke-session.json';
+const sessionPath = `${process.env.DAKIA_DATA_DIR || '/data'}/image-smoke-session.json`;
+const webRoot = process.env.DAKIA_WEB_ROOT || '/app/web';
 let cookie;
 async function request(path, init = {}) {
   return fetch(`${base}${path}`, {
@@ -79,8 +80,8 @@ const microsoftCallback = `/api/accounts/microsoft/callback?${new URLSearchParam
 assert.equal((await request(microsoftCallback)).headers.get('location'), '/?microsoft_error=cancelled');
 assert.equal((await request(microsoftCallback)).headers.get('location'), '/?microsoft_error=expired');
 assert.deepEqual(await (await request('/api/accounts')).json(), []);
-const assets = (await readdir('/app/web/assets')).filter(name => name.endsWith('.js'));
-const sources = await Promise.all(assets.map(name => readFile(`/app/web/assets/${name}`, 'utf8')));
+const assets = (await readdir(`${webRoot}/assets`)).filter(name => name.endsWith('.js'));
+const sources = await Promise.all(assets.map(name => readFile(`${webRoot}/assets/${name}`, 'utf8')));
 assert.ok(sources.some(source => source.includes('Continue with Google')), 'Gmail sign-in UI must be packaged');
 assert.ok(sources.some(source => source.includes('Continue with Microsoft')), 'Microsoft sign-in UI must be packaged');
 console.log(`Packaged Gmail and Microsoft OAuth checks passed${process.argv.includes('--resume') ? ' after restart' : ''}.`);

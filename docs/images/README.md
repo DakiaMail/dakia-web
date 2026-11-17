@@ -1,61 +1,61 @@
 # Documentation screenshots
 
-Captured on 2026-11-14 from source revision `1c104a7`, using the running Dakia frontend in an isolated Google Chrome session. All mail, names, addresses, and attachments are fictional. No real mailbox, personal browser profile, provider connection, or email delivery was used.
+Refreshed on 2026-11-16 from frontend revision [`33a4607`](https://github.com/DakiaMail/dakia-web/commit/33a4607935cbfa98762473de5a1d2c6488db7783), after PR #39 merged. All nine images show the running app in an isolated Google Chrome session, with fictional mail, names, addresses, and attachments.
 
 ## Inbox, sending, and mobile
 
-The normal app runs with the existing demo mailbox from `apps/web/src/demo/seed.ts`. The demo uses the same frontend components as the server build; actions are handled by its browser-local transport. These captures demonstrate the interface, not provider sync or delivery.
+The inbox, composer, and mobile scenes use the existing demo mailbox in `apps/web/src/demo/seed.ts` and the same frontend components as the server build. No real mailbox connection or email delivery is involved.
 
 ```sh
-npm ci --ignore-scripts
-npm run dev --workspace @dakia/web -- --mode demo --port 5188
+DAKIA_BUILD_ID=33a4607935cbfa98762473de5a1d2c6488db7783 npm run build:demo
+npm exec --workspace @dakia/web -- vite preview --host 127.0.0.1 --outDir dist-demo --port 5188 --strictPort
 ```
 
-Open `http://127.0.0.1:5188/?reset=1` in an isolated Chrome profile. Desktop viewport: 1440 × 960. Mobile viewport: 390 × 844. Device scale: 1. Locale: English. Timezone: Europe/Tallinn. The demo dates are relative to its initial creation time; the clock wasn't frozen.
+Open `http://127.0.0.1:5188/?reset=1` in an isolated Chrome profile. Desktop viewport: 1440 × 960. Mobile viewport: 390 × 844. Device scale: 1. Locale: English (en-US). Timezone: Europe/Tallinn. The demo clock is fixed at 2026-11-16 12:00 EET before seeding the mailbox.
 
 | Image | Scene |
 | --- | --- |
-| `personal.webp` | Personal tab across both accounts, Maya's launch conversation and attachment open |
-| `automated.webp` | All automated mail, copyable details, type filters, and a receipt open |
-| `transactions.webp` | Transactions selected, with matching receipts and an attachment |
-| `attention.webp` | Needs attention sidebar view with a verification code and cancelled flight |
-| `compose.webp` | New message to Maya, with Send later → Pick date & time open; cropped to the composer and picker |
-| `inbox-mobile.webp` | Personal inbox in the narrow browser layout |
-| `reader-mobile.webp` | Maya's conversation in the narrow layout, with dark theme enabled |
+| `personal.webp` | Personal inbox across both accounts, with Maya’s launch conversation and attachment open |
+| `automated.webp` | Automated inbox, type filters, extracted details, and an open receipt |
+| `transactions.webp` | Transactions selected, with matching receipts and a receipt attachment |
+| `attention.webp` | Needs attention view with a verification code open and a cancelled flight in the list |
+| `compose.webp` | New message to Maya with Send later and Pick date & time open, cropped to the composer and picker |
+| `inbox-mobile.webp` | Personal inbox with the search toolbar at the top and attention summary collapsed |
+| `reader-mobile.webp` | Maya’s conversation in dark theme, with an attachment and reply controls |
 
-Mobile images are responsive browser captures, not native phone screenshots. Normal scroll boundaries, toolbar behavior, and the app's email-rendering colors are retained.
+Mobile images are responsive Chrome captures. The reader scene starts in a fresh demo session with dark theme selected before opening the message. Email-authored rendering colors and normal scrolling are retained. Extra keyboard hints are left off. The captures contain no unread-status notice, image-failure notice, or end-of-list message.
 
 ## Real on-device translation
 
-The translation pair uses the production frontend build and the existing disposable Rust translation fixture:
+The translation pair uses the production frontend build and the existing disposable Rust fixture `language::browser_tests::browser_device_translation_fixture`, listening on loopback port 4346. The fixture session values are defined in `apps/web/browser/device-translation-backend.spec.ts` and authorize only fictional fixture data.
 
 ```sh
-npm run build
+DAKIA_BUILD_ID=33a4607935cbfa98762473de5a1d2c6488db7783 npm run build
 DAKIA_WORKERS="$PWD/workers" \
 DAKIA_MODEL_CACHE=/private/tmp/dakia-production-translation-models \
   cargo test -p dakia-server --lib browser_device_translation_fixture -- --ignored --nocapture
 ```
 
-The fixture listens on loopback port 4346. Its test session and CSRF values are defined in `apps/web/browser/device-translation-backend.spec.ts`; they authorize only this disposable fixture. Set the translation policy to `device`, then open its `estonian-english-footer` message.
+A loopback proxy on port 5190 serves the freshly built frontend and forwards fixture API calls to port 4346, preserving its origin for CSRF checks. The existing compiled fixture was reused; the frontend and browser translation engine come from revision `33a4607`.
 
-For the screenshot scene, intercepted API responses give the fictional message the subject “Neljapäevane kohtumine”, sender Liis Tamm (`liis@atelier.example`), and recipient Alex Morgan (`alex@northline.example`). Search returns that message and its conversation snapshot contains that message. The original HTML body is unchanged. The capture is cropped to the conversation, excluding unrelated fixture transport errors. No application code, translated output, or rendered interface was repainted.
+The screenshot scene gives the fictional message the subject “Neljapäevane kohtumine”, sender Liis Tamm (`liis@atelier.example`), and recipient Alex Morgan (`alex@northline.example`). Only fictional display metadata, mailbox lists, and account counts are controlled for the scene. The original message body, including its English footer, is unchanged.
 
-The initial cold model request timed out. Public Estonian weights were then downloaded separately, checked against every pinned byte size and SHA-256 digest in `workers/translation/models.json`, and placed in the fixture's isolated model cache. The normal authenticated model endpoint delivered them to Chrome successfully. The real browser WASM engine translated the message, with no host translation POST. Browser Cache Storage contained the engine and three verified model artifacts after translation.
+The translation policy is set to `device`. The browser downloads the Estonian files from the fixture’s authenticated model endpoint and runs the real WASM engine. All three cached files were checked against the pinned byte sizes and SHA-256 hashes in `workers/translation/models.json`. Cold external model downloads were not repeated.
 
-`translation-original.webp` shows the original before translation. `translation.webp` shows the browser-generated English result with Show original available. Both are conversation-element captures cropped to 582 × 545. This is evidence of local inference and saved artifacts, not cold-download reliability, universal device support, or live-provider acceptance.
+`translation-original.webp` shows the original before translation. `translation.webp` shows the browser-generated English result with Show original available. The rendered interface and translated output were not repainted.
 
 ## Export
 
-Google Chrome reported version 157 via its user agent. Source captures were PNG. Exports use Pillow WebP quality 90, method 6, without source metadata. Images retain their aspect ratio; only the composer and translation pair are cropped. The superseded inbox tour and older Workspace/mobile captures have been removed.
+Google Chrome version: 157.0.8103.51. Source captures are PNG. Exports use Pillow WebP quality 90 and method 6, without source metadata. Aspect ratios are retained; only the composer image is cropped. All nine exported images were visually inspected.
 
 | File | Pixels | Bytes | SHA-256 |
 | --- | --- | ---: | --- |
-| `attention.webp` | 1440 × 960 | 39730 | `5a7d8bc988e8d22f7ccb719e2793a61e213a2d7661cad5f47c3386490ec115ac` |
-| `automated.webp` | 1440 × 960 | 78194 | `b3a8c23504341c7bb7531bc436172c6f350ae0d8d55677d7434df4150b9ef202` |
-| `compose.webp` | 800 × 580 | 17650 | `23037b9c80cb165a7b282ae9362c4b87b72630ca3c3029ea1291844b64ffc2d1` |
-| `inbox-mobile.webp` | 390 × 844 | 49524 | `13093cb011fb44b37feb299677203c662bf57d898f793ec5a74b977f5356ad8e` |
-| `personal.webp` | 1440 × 960 | 103146 | `0ad0b88ef0f74897966f1bed597ee5e794c7819949d48f2f9cb6ba41eec2e284` |
-| `reader-mobile.webp` | 390 × 844 | 22334 | `e158ac88dbba80b807fdfdc58456660a899bb7c724f12e8e18115d85f2435e18` |
-| `transactions.webp` | 1440 × 960 | 53558 | `f08ea173f928d3092404c31e53da7cdced49c2864b9e644f3345197fbce5f47d` |
-| `translation-original.webp` | 582 × 545 | 33526 | `f7746e8192378fff484644ed8fa32b371c39f759c0ba651b31fbb973e8d28656` |
-| `translation.webp` | 582 × 545 | 32840 | `d2529f837169669ec2491d33ea1f85df69628fe0123275133d35bc2accd3a072` |
+| `attention.webp` | 1440 × 960 | 36808 | `68302a86f3e5dc3d44d3ab5eb2a4ef59298aaa8e549cbfb47621f4df5b976e80` |
+| `automated.webp` | 1440 × 960 | 81174 | `ca86646f0b8872e73cb3d51c557b760fe1efd83e02c9360761c2155b985c49b0` |
+| `compose.webp` | 784 × 550 | 18100 | `34c636ee14ab9a1efe0dc2735dfcd8bf953ce1016d56742690952a6fcb25d389` |
+| `inbox-mobile.webp` | 390 × 844 | 45720 | `f30264abf48a10ba2cec34f0300b73e68e74a8ce8fe35a374a82fffffc9fa460` |
+| `personal.webp` | 1440 × 960 | 103140 | `42ad40756da326c1af074b7aadd39253b19e4f94ee0e79823e0c0df5014b7fe9` |
+| `reader-mobile.webp` | 390 × 844 | 22596 | `58bdd7f1fe1e5504bd10b62c03e9623c59f2414f088ca1f5dbab25ea582a391c` |
+| `transactions.webp` | 1440 × 960 | 52362 | `eb4d73fdfb8aa7e2581dde755b6d04433bff9add7becbde0967e38e77830130b` |
+| `translation-original.webp` | 1440 × 960 | 55882 | `87b7cb6b30a4e5a91ef975a37efb5639e761391f14ffe4d0635bc4dfa6a5e992` |
+| `translation.webp` | 1440 × 960 | 55658 | `08c1d5d57ebdabc9a42e9afadd8cc245b799edd2beadad1c1b8feb0e7ef5f179` |

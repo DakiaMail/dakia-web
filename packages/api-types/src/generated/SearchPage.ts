@@ -2,5 +2,7 @@
 import type { AccountCoverage } from "./AccountCoverage";
 import type { ClassificationCoverage } from "./ClassificationCoverage";
 import type { Message } from "./Message";
+import type { SearchMetadata } from "./SearchMetadata";
+import type { SearchSupplement } from "./SearchSupplement";
 
-export type SearchPage = { rows: Array<Message>, continuation: string | null, coverage: Array<AccountCoverage>, classification: ClassificationCoverage, pending: boolean, counts_exact: boolean, cache_preview?: boolean, index_page?: boolean, };
+export type SearchPage = { rows: Array<Message>, continuation: string | null, coverage: Array<AccountCoverage>, classification: ClassificationCoverage, pending: boolean, counts_exact: boolean, cache_preview?: boolean, index_page?: boolean, search?: SearchMetadata, supplement?: Array<SearchSupplement>, };

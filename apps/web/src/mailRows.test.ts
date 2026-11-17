@@ -63,3 +63,19 @@ describe("loaded mail ordering", () => {
     expect(unread.unread).toBe(true);
   });
 });
+
+describe("search relevance",()=>{
+  it("keeps ranked matches ahead of newer provider rows and retains attachment positives",()=>{
+    const old=message("attachment","2020-01-01T00:00:00Z");
+    const recent=message("recent","2026-01-01T00:00:00Z");
+    const provider=message("provider","2026-02-01T00:00:00Z");
+    const page={rows:[old,recent],cache_preview:true,coverage:[{state:"partial"}],search:{ranked:true,matches:[
+      {account_id:"work",message_id:old.id,score:0.03,excerpt:"attachment match",attachment:"report.pdf"},
+      {account_id:"work",message_id:recent.id,score:0.01,excerpt:null,attachment:null},
+    ],degradation:[]}};
+    expect(keys(mailRows([page,{rows:[provider,recent],coverage:[{state:"complete"}]}],{}))).toEqual(["work/attachment","work/recent","work/provider"]);
+    const updated={...old,unread:true,revision:2};
+    expect(mailRows([page],{"work/attachment":updated})[0]).toEqual(updated);
+    expect(keys(mailRows([{rows:[old,recent]}],{}))).toEqual(["work/recent","work/attachment"]);
+  });
+});

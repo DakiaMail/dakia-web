@@ -51,7 +51,6 @@ function TranslationBody({
   const translateButton = useRef<HTMLButtonElement>(null);
   const [deviceResult, setDeviceResult] = useState<{ html: string; text: string } | null>(null);
   const [download, setDownload] = useState<DownloadProgress | null>(null);
-  const [hostFallback, setHostFallback] = useState(false);
   useEffect(() => () => { controller.current?.abort(); controller.current = null; deviceTranslator.releaseOwner(owner); }, [owner]);
   useEffect(() => { controller.current?.abort(); controller.current = null; deviceTranslator.releaseOwner(owner); setDeviceResult(null); setJob(null); setShow(false); setBusy(false); setDownload(null); }, [policy.data?.mode, owner]);
   const [language, setLanguage] = useState(source || "");
@@ -113,8 +112,7 @@ function TranslationBody({
     if (!allowImages) void client.cancelQueries({ queryKey: ["remote-images", message.account_id, message.id] });
   }, [allowImages, client, message.account_id, message.id]);
   const images = allowImages ? imageQuery.data?.loaded : undefined;
-  const failures = allowImages ? Object.entries(imageQuery.data?.failed || {}) : [];
-  const failedImages = failures.length;
+  const failedImages = allowImages ? Object.keys(imageQuery.data?.failed || {}).length : 0;
   function cancel() {
     controller.current?.abort(); controller.current = null;
     setBusy(false); setDownload(null); setError(undefined);
@@ -124,7 +122,7 @@ function TranslationBody({
     if (!source || !language || busy || !policy.data || current?.status === "pending" || current?.status === "running") return;
     if (result) { setShow(!show); return; }
     const abort = new AbortController(); controller.current = abort;
-    setBusy(true); setError(undefined); setHostFallback(false);
+    setBusy(true); setError(undefined);
     try {
       if (policy.data.mode !== "host") {
         try {
@@ -138,7 +136,7 @@ function TranslationBody({
           abort.signal.throwIfAborted();
           if (error instanceof DOMException && error.name === "AbortError") throw error;
           if (policy.data.mode !== "automatic" || error instanceof DeviceTranslationError && !error.fallback) throw error;
-          setDownload(null); setHostFallback(true);
+          setDownload(null);
         }
       }
       abort.signal.throwIfAborted();
@@ -193,17 +191,16 @@ function TranslationBody({
         <div className={`translation-progress-ring ${download.stage !== "downloading" ? "is-indeterminate" : ""}`} role="progressbar" aria-label={download.stage === "downloading" ? `Downloading ${languages.find(m => m.source === language)?.sourceName}` : "Preparing translation"} aria-valuemin={0} aria-valuemax={100} aria-valuenow={download.stage === "downloading" && download.total > 0 ? Math.min(100, Math.round(download.downloaded / download.total * 100)) : undefined}>
           <svg viewBox="0 0 40 40" aria-hidden="true"><circle cx="20" cy="20" r="16" pathLength="100" /><circle className="translation-progress-value" cx="20" cy="20" r="16" pathLength="100" strokeDasharray="100" strokeDashoffset={download.stage === "downloading" && download.total ? 100 - download.downloaded / download.total * 100 : 70} /></svg>
         </div>
-        <div className="translation-download-copy"><span role="status">{download.stage === "downloading" ? `Downloading ${languages.find(m => m.source === language)?.sourceName}` : download.stage === "preparing" ? "Preparing translation…" : "Translating on this device…"}</span>{download.stage === "downloading" && <small>{formatBytes(download.downloaded)} of {formatBytes(download.total)}</small>}</div>
+        <div className="translation-download-copy"><span role="status">{download.stage === "downloading" ? `Downloading ${languages.find(m => m.source === language)?.sourceName}` : download.stage === "preparing" ? "Preparing translation…" : "Translating…"}</span>{download.stage === "downloading" && <small>{formatBytes(download.downloaded)} of {formatBytes(download.total)}</small>}</div>
         <button aria-label="Cancel translation" onClick={cancel}>Cancel</button>
       </div>}
-      {hostFallback && <p className="translation-location" role="status">Using host translation because this device could not finish.</p>}
       {policy.isError && source && <p role="alert">Could not load translation preferences. <button onClick={() => void policy.refetch()}>Retry</button></p>}
-      <ErrorNotice error={error || progress.error || translated.error || (allowImages && imageQuery.error ? new Error("Images could not be loaded. You can try again.") : undefined)} />
+      <ErrorNotice error={error || progress.error || translated.error} />
 
       {current && ["pending", "running"].includes(current.status) && (
         <p role="status">
           {current.status === "pending"
-            ? "Preparing translation model…"
+            ? "Preparing translation…"
             : "Translating…"}
         </p>
       )}
@@ -221,7 +218,6 @@ function TranslationBody({
       ) : (
         <MailReader html={html} text={text} dark={dark} images={images} />
       )}
-      {failedImages > 0 && Object.keys(images || {}).length === 0 && <details className="image-status"><summary>{failedImages} {failedImages === 1 ? "image" : "images"} could not be loaded.</summary><ul>{failures.map(([url, reason]) => <li key={url}>Image {imageSources.indexOf(url) + 1}: {reason}</li>)}</ul></details>}
     </div>
   );
 }

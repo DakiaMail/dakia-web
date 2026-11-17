@@ -17,7 +17,7 @@ export function AccountRemoval({ account, onClose, onRemoved }: {
       try { await api.removeAccount(account.id, confirmation); onRemoved(); }
       catch (error) {
         setError(error instanceof ApiFailure && error.code === "account_has_pending_actions"
-          ? new Error("This account has pending mail actions or an unresolved delivery. Cancel scheduled sends and resolve pending actions before removing it.") : error);
+          ? new Error("This account has an action in progress or an unresolved delivery. Wait for the action to finish, cancel scheduled sends, and resolve deliveries before removing it.") : error);
       } finally { setBusy(false); }
     }}>
       <p><strong>{account.display_name}</strong><br />{account.email}</p>

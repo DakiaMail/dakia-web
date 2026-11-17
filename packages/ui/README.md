@@ -90,3 +90,13 @@ The Linear-style foundation uses 32px desktop controls, 44px touch targets, 500-
 Enter/Space and Up/Down open menus. Up/Down, Home/End and typeahead navigate enabled items; Right opens a submenu, Left/Escape returns to its parent, and Escape closes the root. Tab/Shift+Tab leave normally. Modified chords and IME input are left to the browser. Keep form selects as form fields rather than embedding arbitrary native widgets inside action menus.
 
 `CopyButton` wraps Dakia’s Mantine-backed `Button`. Pass `value` and optional text children. It keeps the value visible and the control width stable, animates the copy icon into a check after clipboard success, announces success or failure, and respects reduced motion. Pending writes retain keyboard focus; errors remain retryable.
+
+## Search and filters
+
+`SearchField` is a controlled, editable combobox with an input ref, an explicit search action, asynchronous suggestion states, grouped options and an optional shortcut hint. The caller supplies icons and suggestion actions; mail fetching stays outside the library. Enter searches until the user explicitly navigates to an option with Up/Down. Escape closes the popup without clearing text; a second Escape calls `onDismiss`. Tab leaves normally. Modified keys and IME input retain native behavior. The clear control only clears the text, so filters can remain applied.
+
+`FilterPopover` positions a filter editor, contains its Tab navigation and restores focus on close. Its child form owns field validation and application. Use `data-autofocus` on the initial field and include a named close button. `FilterChip` provides separate, named edit and remove actions. After removing a chip, the caller restores focus to a stable control.
+
+Search surfaces, focus, motion and both themes use the shared tokens, including `--ui-search-height`. The UI gallery includes all three components with working sample interactions.
+
+`FilterList` is the reusable searchable property picker inside a `FilterPopover`. It shows quiet icon/label rows with optional current-value details. Up/Down move between properties, Enter chooses a filtered match, and Home/End move to the first/last focused row. Native Tab and modified/IME keys keep their behavior. A supplied close control stays reachable in the search row. Pick a property before showing its value editor; do not crowd both stages into one form.

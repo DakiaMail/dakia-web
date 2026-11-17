@@ -4,9 +4,12 @@
 @import "@mantine/core/styles/ActionIcon.css";
 @import "@mantine/core/styles/Loader.css";
 @import "@mantine/core/styles/Notification.css";
+@import "@mantine/core/styles/Tooltip.css";
 @import "./tokens.css";
 @import "./date-time.css";
 @import "./menu.css";
+@import "@mantine/core/styles/Popover.css";
+@import "./search.css";
 
 .dakia-button.dakia-button,
 .dakia-icon-button.dakia-icon-button {
@@ -142,3 +145,17 @@
 .dakia-copy-button[data-copy-state="copied"] .dakia-copy-icons { color: var(--color-accent); }
 .dakia-copy-button[data-copy-state="error"] .dakia-copy-icons { color: var(--color-danger); }
 @media (prefers-reduced-motion: reduce) { .dakia-copy-icons svg { transition: none; transform: none; } }
+
+.dakia-tooltip.dakia-tooltip {
+  max-width: min(280px, calc(100vw - 16px));
+  padding: 8px 10px;
+  border: 1px solid var(--ui-surface-border);
+  border-radius: var(--ui-control-radius);
+  background: var(--ui-surface-raised);
+  color: var(--color-text);
+  box-shadow: var(--ui-panel-shadow);
+  font-family: var(--ui-font-family);
+  font-size: var(--ui-font-size);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}

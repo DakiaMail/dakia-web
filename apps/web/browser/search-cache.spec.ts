@@ -27,7 +27,7 @@ for (const offline of [false, true]) {
       return route.fulfill({ json: [] });
     });
     await page.goto("/");
-    const input = page.getByRole("textbox", { name: "Search all mail" });
+    const input = page.getByRole("combobox", { name: "Search all mail" });
     await input.fill("subject:match");
     await input.press("Enter");
     await expect(page.getByText("Saved match", { exact: true })).toBeVisible();

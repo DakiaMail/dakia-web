@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import type { Message, Change } from "@dakia/api-types";
+import { ChevronDown } from "lucide-react";
 import { api } from "./api";
 import { classification, needsAttention } from "./classification";
 import { mailRows } from "./mailRows";
@@ -9,6 +10,8 @@ export function AttentionStrip({ account, ids, overrides, removed, snoozed, open
   showAll: () => void;
   open: (message: Message) => void; act: (messages: Message[], change: Change) => void;
 }) {
+  const detailsId = useId();
+  const [expanded, setExpanded] = useState(false);
   const [now, setNow] = useState(Date.now);
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 15000); return () => clearInterval(timer); }, []);
   const attention = useInfiniteQuery({ queryKey: ["mail", account, "INBOX", "", "attention:personal-first-4-30d", ids], initialPageParam: null as string | null,
@@ -18,17 +21,22 @@ export function AttentionStrip({ account, ids, overrides, removed, snoozed, open
   });
   const rows = mailRows([...(attention.data?.pages || []), { rows: Object.values(overrides).filter(m => ids.includes(m.account_id)) }], overrides).filter(m => needsAttention(m, now) && !removed[`${m.account_id}/${m.id}`] && !snoozed[`${m.account_id}/${m.thread_id}`] && m.folder_ids.some(f => f.toUpperCase() === "INBOX"));
   if (!rows.length && !attention.isError) return null;
-  return <section className="attention-strip" aria-label="Needs attention">
+  return <section className={`attention-strip${expanded ? " is-expanded" : ""}`} aria-label="Needs attention">
     <div className="attention-heading"><h2>Needs attention</h2>{(rows.length > 3 || attention.hasNextPage) && <button onClick={showAll}>Show more</button>}</div>
-    {attention.isError && <p role="status">Couldn’t update attention items. <button onClick={() => void attention.refetch()}>Try again</button></p>}
-    {rows.slice(0, 3).map(m => <div className="attention-item" key={`${m.account_id}/${m.id}`}>
-      <button className="attention-open" onClick={() => open(m)}><span>{m.sender.name || m.sender.email}</span><strong>{m.subject || "(No subject)"}</strong><span>{classification(m).attention.filter(a => !a.expires_at || Date.parse(a.expires_at) > now).map(a => a.label).join(" · ") || "Marked for attention"}</span></button>
-      <button aria-label={`Dismiss attention for ${m.subject || "message"}`} onClick={event => {
-        const next = event.currentTarget.closest(".attention-item")?.nextElementSibling?.querySelector<HTMLButtonElement>(".attention-open");
-        act([m], { kind: "attention", value: false });
-        requestAnimationFrame(() => { if (document.activeElement === document.body) (next?.isConnected ? next : document.querySelector<HTMLButtonElement>('[role="tab"][aria-selected="true"]'))?.focus(); });
-      }}>Dismiss</button>
-    </div>)}
-
+    <button className="attention-toggle" aria-expanded={expanded} aria-controls={detailsId} onClick={() => setExpanded(!expanded)}>
+      <span>Needs attention</span><span className="attention-count">{attention.isError ? "!" : <>{rows.length}{attention.hasNextPage ? "+" : ""}</>}</span><ChevronDown size={16} aria-hidden="true" />
+    </button>
+    <div id={detailsId} className="attention-details">
+      {attention.isError && <p role="status">Couldn’t update attention items. <button onClick={() => void attention.refetch()}>Try again</button></p>}
+      {rows.slice(0, 3).map(m => <div className="attention-item" key={`${m.account_id}/${m.id}`}>
+        <button className="attention-open" onClick={() => open(m)}><span>{m.sender.name || m.sender.email}</span><strong>{m.subject || "(No subject)"}</strong><span>{classification(m).attention.filter(a => !a.expires_at || Date.parse(a.expires_at) > now).map(a => a.label).join(" · ") || "Marked for attention"}</span></button>
+        <button aria-label={`Dismiss attention for ${m.subject || "message"}`} onClick={event => {
+          const next = event.currentTarget.closest(".attention-item")?.nextElementSibling?.querySelector<HTMLButtonElement>(".attention-open");
+          act([m], { kind: "attention", value: false });
+          requestAnimationFrame(() => { if (document.activeElement === document.body) (next?.isConnected ? next : document.querySelector<HTMLButtonElement>('[role="tab"][aria-selected="true"]'))?.focus(); });
+        }}>Dismiss</button>
+      </div>)}
+      {(rows.length > 3 || attention.hasNextPage) && <button className="attention-more" onClick={showAll}>View all attention items</button>}
+    </div>
   </section>;
 }

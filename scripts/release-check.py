@@ -52,6 +52,8 @@ def stages(profile: str, channel: str, dovecot_ssh: str | None = None) -> list[S
     result = [
         Stage("runner", (sys.executable, "-m", "unittest", "discover", "-s", "scripts/tests", "-v")),
         Stage("format", (*cargo, "fmt", "--all", "--", "--check")),
+        Stage("search-model", (*cargo,"test","-p","dakia-inference","--lib","embedding::tests","--locked","--","--include-ignored"),120),
+        Stage("search-model-worker",(*cargo,"test","-p","dakia-server","--lib","real_worker_persists_later_passages_without_mime_retention","--locked","--","--ignored"),120),
         Stage("rust", (*cargo, "test", "--workspace", "--locked", "--no-fail-fast"), 1200),
         Stage("clippy", (*cargo, "clippy", "--workspace", "--all-targets", "--locked", "--", "-D", "warnings"), 1200),
         Stage("web-unit", ("npm", "test")),
@@ -156,6 +158,19 @@ def preflight(profile: str, env: dict[str, str], dovecot_ssh: str | None = None)
     for path in ("node_modules/.bin/vitest", "node_modules/.bin/playwright", "workers/push/node_modules/web-push", "workers/translation/node_modules/parse5"):
         if not (ROOT / path).exists():
             problems.append(f"Install locked dependencies: missing {path}")
+    search_assets=ROOT / "crates/inference/assets/multilingual-e5-small"
+    manifest_path=search_assets / "MANIFEST.json"
+    if not manifest_path.is_file():
+        problems.append("Pinned search model manifest is missing")
+    else:
+        for name,expected in json.loads(manifest_path.read_text())["files"].items():
+            path=search_assets/name
+            if not path.is_file():
+                problems.append(f"Run python3 scripts/fetch-search-model.py: missing {name}")
+                continue
+            with path.open("rb") as stream:
+                if hashlib.file_digest(stream,"sha256").hexdigest()!=expected:
+                    problems.append(f"Search model checksum differs from pinned manifest: {name}")
     if profile == "full":
         if not env.get("CHROME_PATH") or not Path(env["CHROME_PATH"]).is_file():
             problems.append("Set CHROME_PATH to Google Chrome's executable")

@@ -1,3 +1,4 @@
+import { selectAccount } from "./fixtures";
 import { test, expect, type Page } from "@playwright/test";
 import type { Message, Operation } from "@dakia/api-types";
 import { accounts, page as mail } from "./fixtures";
@@ -82,7 +83,7 @@ test("provider failure rolls back only that archive while a concurrent cross-acc
   await expect(checkbox(page, 3)).toHaveCount(0);
   state.settle(3, "applied");
   await page.waitForTimeout(1200);
-  await page.getByRole("combobox", { name: "Account filter" }).selectOption(accounts[0].id);
+  await selectAccount(page, accounts[0].id);
   await expect(checkbox(page, 0)).toBeVisible();
   await expect(checkbox(page, 3)).toHaveCount(0);
 });

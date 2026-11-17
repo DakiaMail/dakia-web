@@ -74,7 +74,7 @@ impl CommandLease<'_> {
     }
 }
 
-/// One command lane and one dedicated IDLE lane per account instance. The server
+/// Background, foreground body, and IDLE lanes per account instance. The server
 /// retains one instance per authorized account. Successful operations reuse one
 /// authenticated session, never a cancelled or desynchronized stream.
 pub struct ImapProvider {
@@ -82,6 +82,7 @@ pub struct ImapProvider {
     credentials: Credentials,
     pub(crate) oauth: Option<std::sync::Arc<dyn AccessToken>>,
     lane: Mutex<Option<(std::time::Instant, Connection)>>,
+    read_lane: Mutex<Option<(std::time::Instant, Connection)>>,
     idle_lane: Mutex<()>,
     connection_backoff: ConnectionBackoff,
     reconcile_batch: std::sync::atomic::AtomicUsize,
@@ -102,6 +103,7 @@ impl ImapProvider {
             credentials,
             oauth: None,
             lane: Mutex::new(None),
+            read_lane: Mutex::new(None),
             idle_lane: Mutex::new(()),
             connection_backoff: ConnectionBackoff::default(),
             reconcile_batch: std::sync::atomic::AtomicUsize::new(50),
@@ -124,9 +126,19 @@ impl ImapProvider {
             .map_err(|_| error(ErrorKind::Retryable, "IMAP operation deadline exceeded"))?
     }
     async fn connect(&self) -> Result<Connection> {
+        self.connect_on(false).await
+    }
+    async fn connect_on(&self, foreground: bool) -> Result<Connection> {
         // Shared by command and IDLE lanes. The permit also backs off cancelled
         // handshakes; a task deadline must not reopen the connection floodgate.
-        let mut attempt = self.connection_backoff.begin(&self.config.account_id)?;
+        let mut attempt = if foreground {
+            self.connection_backoff.begin_waiting(&self.config.account_id).await?
+        } else {
+            self.connection_backoff.begin(&self.config.account_id)?
+        };
+        if self.retired.load(std::sync::atomic::Ordering::Acquire) {
+            return Err(error(ErrorKind::Authentication, "account provider replaced"));
+        }
         let result = self.connect_inner(&mut attempt).await;
         attempt.finished(&result);
         result
@@ -245,7 +257,14 @@ impl ImapProvider {
             })
     }
     async fn command(&self) -> Result<CommandLease<'_>> {
-        let mut slot = self.lane.lock().await;
+        self.command_on(false).await
+    }
+    async fn command_on(&self, foreground: bool) -> Result<CommandLease<'_>> {
+        let started = std::time::Instant::now();
+        let lane = if foreground { &self.read_lane } else { &self.lane };
+        let mut slot = lane.lock().await;
+        tracing::info!(target: "dakia_server::provider_io", operation = "command_checkout", foreground,
+            wait_ms = started.elapsed().as_millis() as u64, "mail command lane");
         if self.retired.load(std::sync::atomic::Ordering::Acquire) {
             slot.take();
             return Err(error(
@@ -258,7 +277,7 @@ impl ImapProvider {
                 tracing::info!(target: "dakia_server::provider_io", account_key = %crate::telemetry::key(&self.config.account_id), reused = true, "imap_connection");
                 connection
             }
-            _ => self.connect().await?,
+            _ => self.connect_on(foreground).await?,
         };
         Ok(CommandLease {
             retired: &self.retired,
@@ -271,8 +290,10 @@ impl ImapProvider {
         self.retirement.send_replace(true);
         self.retired
             .store(true, std::sync::atomic::Ordering::Release);
-        if let Ok(mut slot) = self.lane.try_lock() {
-            slot.take();
+        for lane in [&self.lane, &self.read_lane] {
+            if let Ok(mut slot) = lane.try_lock() {
+                slot.take();
+            }
         }
     }
     fn coverage(&self) -> bool {
@@ -463,7 +484,13 @@ impl ImapProvider {
         }
         Ok(())
     }
+    pub async fn fetch_foreground(&self, r: &MessageRef, max_bytes: u32) -> Result<Vec<u8>> {
+        self.fetch_on(r, max_bytes, true).await
+    }
     pub async fn fetch(&self, r: &MessageRef, max_bytes: u32) -> Result<Vec<u8>> {
+        self.fetch_on(r, max_bytes, false).await
+    }
+    async fn fetch_on(&self, r: &MessageRef, max_bytes: u32, foreground: bool) -> Result<Vec<u8>> {
         self.check_account(r)?;
         if max_bytes == 0 || max_bytes > 64 * 1024 * 1024 {
             return Err(error(
@@ -472,7 +499,7 @@ impl ImapProvider {
             ));
         }
         self.bounded(async {
-            let mut s = self.command().await?;
+            let mut s = self.command_on(foreground).await?;
             self.select_ref(&mut s, r).await?;
             let uid = r.uid.to_string();
             let sizes = fetches(&mut s, &uid, "UID RFC822.SIZE").await?;

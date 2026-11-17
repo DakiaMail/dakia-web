@@ -48,3 +48,10 @@ export type { DetailAction } from './generated/DetailAction';
 export type { MailDetail } from './generated/MailDetail';
 export type { AttentionReason } from './generated/AttentionReason';
 export type { Classification } from './generated/Classification';
+export type { IndexingStatus } from './generated/IndexingStatus';
+export type { IndexingState } from './generated/IndexingState';
+
+export type { SearchMatch } from './generated/SearchMatch';
+export type { SearchMetadata } from './generated/SearchMetadata';
+export type { SearchDegradation } from './generated/SearchDegradation';
+export type { SearchSupplement } from './generated/SearchSupplement';

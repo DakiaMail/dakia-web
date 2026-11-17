@@ -2,8 +2,149 @@ use super::*;
 use dakia_mail_provider::Search;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
+mod hybrid;
 mod indexed;
 mod preview;
+// Version 8 treats attachment presence as a strict filter on every retrieval path.
+const SEARCH_CURSOR_VERSION: u32 = 8;
+
+async fn indexed_or_provider(
+    app: &App,
+    user: &Identity,
+    request: &SearchRequest,
+    scopes: &[dakia_storage::AuthorizedAccount],
+    query: &Search,
+    has_attachment: bool,
+    wanted: Option<&str>,
+    cursor: &mut Cursor,
+) -> Option<SearchPage> {
+    let checkpoint = cursor.clone();
+    let mut page = match indexed::page(
+        app,
+        user,
+        request,
+        scopes,
+        query,
+        has_attachment,
+        wanted,
+        cursor,
+    )
+    .await
+    {
+        Ok(page) => page,
+        Err(_) => {
+            *cursor = checkpoint;
+            tracing::warn!(target:"dakia_server::diagnostics",operation="search_index",outcome="unavailable","using provider search");
+            None
+        }
+    };
+    if query.text.is_some()
+        && !request.suggest
+        && page.as_ref().is_none_or(|p| p.rows.is_empty() && p.pending)
+    {
+        if let Some(mut cached) = preview::cached(
+            app,
+            user,
+            request,
+            scopes,
+            query,
+            has_attachment,
+            wanted,
+            cursor,
+        )
+        .await
+        .ok()
+        .flatten()
+        {
+            if let Some(indexed) = &page {
+                cached.coverage = indexed.coverage.clone();
+                cached.search = indexed.search.clone();
+            }
+            page = Some(cached);
+        }
+    }
+    if page.is_none() && query.text.is_some() && !request.suggest {
+        cursor.local_index = false;
+        let continuation = app
+            .store
+            .save_search_cursor(&user.user, &serde_json::to_string(cursor).ok()?)
+            .await
+            .ok()?;
+        page = Some(SearchPage {
+            rows: vec![],
+            continuation: Some(continuation),
+            coverage: scopes
+                .iter()
+                .map(|a| AccountCoverage {
+                    account_id: a.id().into(),
+                    folder_ids: vec![],
+                    inbox: None,
+                    state: CoverageState::Pending,
+                    error: None,
+                })
+                .collect(),
+            classification: ClassificationCoverage {
+                classified: 0,
+                total: 0,
+            },
+            pending: true,
+            counts_exact: false,
+            cache_preview: None,
+            index_page: None,
+            search: Some(SearchMetadata {
+                ranked: true,
+                matches: vec![],
+                degradation: scopes
+                    .iter()
+                    .map(|a| SearchDegradation {
+                        account_id: a.id().into(),
+                        code: "provider_search_pending".into(),
+                    })
+                    .collect(),
+            }),
+            supplement: None,
+        });
+    }
+    let mut page = page?;
+    if query.text.is_some() && page.pending && !request.suggest {
+        let mut supplements = vec![];
+        for status in &page.coverage {
+            if status.state == CoverageState::Complete
+                || cursor.provider_started.contains(&status.account_id)
+            {
+                continue;
+            }
+            let mut provider = cursor.clone();
+            provider.provider_only = true;
+            provider.provider_accounts = BTreeSet::from([status.account_id.clone()]);
+            provider.local_index = false;
+            provider.fused = None;
+            let token = app
+                .store
+                .save_search_cursor(&user.user, &serde_json::to_string(&provider).ok()?)
+                .await
+                .ok()?;
+            cursor.provider_started.insert(status.account_id.clone());
+            supplements.push(SearchSupplement {
+                account_id: status.account_id.clone(),
+                continuation: token,
+            });
+        }
+        if !supplements.is_empty() {
+            page.supplement = Some(supplements);
+
+            if page.continuation.is_some() {
+                page.continuation = Some(
+                    app.store
+                        .save_search_cursor(&user.user, &serde_json::to_string(cursor).ok()?)
+                        .await
+                        .ok()?,
+                );
+            }
+        }
+    }
+    Some(page)
+}
 
 #[derive(Default, Deserialize)]
 pub(super) struct SearchRequest {
@@ -37,12 +178,30 @@ impl SearchRequest {
         }
     }
 }
-#[derive(Default, Serialize, Deserialize)]
+#[derive(Clone, Default, Serialize, Deserialize)]
 struct Cursor {
+    #[serde(default)]
+    spelling: BTreeMap<String, Vec<Vec<String>>>,
+    #[serde(default)]
+    provider_only: bool,
+    #[serde(default)]
+    provider_rank: usize,
+    #[serde(default)]
+    provider_accounts: BTreeSet<String>,
+    #[serde(default)]
+    provider_started: BTreeSet<String>,
+    #[serde(default)]
+    fused: Option<hybrid::FrozenPage>,
+    #[serde(default)]
+    fused_lexical_more: bool,
+    #[serde(default)]
+    version: u32,
     #[serde(default)]
     local_index: bool,
     #[serde(default)]
     index_after: BTreeMap<String, (String, String)>,
+    #[serde(default)]
+    index_rank_after: BTreeMap<String, (f64, String, String)>,
     #[serde(default)]
     index_done: BTreeSet<String>,
     #[serde(default)]
@@ -69,68 +228,33 @@ struct Cursor {
 fn invalid() -> ApiFailure {
     ApiFailure(StatusCode::BAD_REQUEST, "invalid_search")
 }
-fn parse(q: &str) -> Result<(Search, Option<String>)> {
-    if q.len() > 4096 || q.contains('\0') {
-        return Err(invalid());
-    }
-    let mut search = Search::default();
-    let mut folder = None;
-    let mut text = vec![];
-    let mut terms = Vec::new();
-    let mut token = String::new();
-    let mut quoted = false;
-    let mut escaped = false;
-    for c in q.chars() {
-        if escaped {
-            token.push(c);
-            escaped = false;
-        } else if c == '\\' && quoted {
-            escaped = true;
-        } else if c == '"' {
-            quoted = !quoted;
-        } else if c.is_whitespace() && !quoted {
-            if !token.is_empty() {
-                terms.push(std::mem::take(&mut token));
-            }
-        } else {
-            token.push(c);
-        }
-    }
-    if quoted || escaped {
-        return Err(invalid());
-    }
-    if !token.is_empty() {
-        terms.push(token);
-    }
-    for term in &terms {
-        match term.split_once(':') {
-            Some(("folder", value)) => folder = Some(value.to_owned()),
-            Some(("from", value)) => search.from = Some(value.into()),
-            Some(("to", value)) => search.to = Some(value.into()),
-            Some(("subject", value)) => search.subject = Some(value.into()),
-            Some(("is", "starred")) => search.starred = Some(true),
-            Some(("is", "read")) => search.seen = Some(true),
-            Some(("is", "unread")) => search.seen = Some(false),
-            Some(("is", "snoozed")) => {}
-            Some(("since" | "after", value)) => search.since = Some(date(value)?),
-            Some(("before", value)) => search.before = Some(date(value)?),
-            _ => text.push(term.as_str()),
-        }
-    }
-    if !text.is_empty() {
-        search.text = Some(text.join(" "));
-    }
-    search.imap_query().map_err(|_| invalid())?;
-    Ok((search, folder))
+#[cfg(test)]
+pub(super) fn index_units(q: &str) -> Vec<String> {
+    dakia_domain::mailbox_query::MailboxQuery::parse(q)
+        .map(|q| q.text_units())
+        .unwrap_or_default()
 }
-fn date(value: &str) -> Result<String> {
-    if let Ok(date) = chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d") {
-        Ok(date.format("%d-%b-%Y").to_string())
-    } else if chrono::NaiveDate::parse_from_str(value, "%d-%b-%Y").is_ok() {
-        Ok(value.into())
-    } else {
-        Err(invalid())
-    }
+fn wants_snoozed(q: &str) -> bool {
+    dakia_domain::mailbox_query::MailboxQuery::parse(q).is_ok_and(|q| q.snoozed)
+}
+fn parse(q: &str) -> Result<(Search, Option<String>, bool)> {
+    let plan = dakia_domain::mailbox_query::MailboxQuery::parse(q).map_err(|_| invalid())?;
+    let text = plan.semantic_text();
+    let text_units = plan.text_units();
+    let query = Search {
+        text_units,
+        text: (!text.is_empty()).then_some(text),
+        from: plan.from,
+        to: plan.to,
+        subject: plan.subject,
+        since: plan.since,
+        before: plan.before,
+        seen: plan.seen,
+        starred: plan.starred,
+        ..Default::default()
+    };
+    query.imap_query().map_err(|_| invalid())?;
+    Ok((query, plan.folder, plan.has_attachment))
 }
 fn select_folders(
     folders: Vec<dakia_mail_provider::Folder>,
@@ -175,21 +299,22 @@ pub(super) async fn search(
     for id in &accounts {
         scopes.push(app.store.authorize(&user.user, id).await?);
     }
-    let (query, wanted) = parse(&r.q)?;
+    let (query, wanted, has_attachment) = parse(&r.q)?;
     if r.suggest {
         if r.continuation.is_some() {
             return Err(invalid());
         }
-        let page = indexed::page(
+        let page = indexed_or_provider(
             &app,
             &user,
             &r,
             &scopes,
             &query,
+            has_attachment,
             wanted.as_deref(),
             &mut Cursor::default(),
         )
-        .await?;
+        .await;
         return Ok(Json(page.unwrap_or(SearchPage {
             rows: vec![],
             continuation: None,
@@ -202,6 +327,8 @@ pub(super) async fn search(
             counts_exact: false,
             cache_preview: Some(true),
             index_page: None,
+            search: None,
+            supplement: None,
         })));
     }
     let mut cursor: Cursor = match &r.continuation {
@@ -211,6 +338,7 @@ pub(super) async fn search(
         }
         Some(_) => return Err(invalid()),
         None => Cursor {
+            version: SEARCH_CURSOR_VERSION,
             exclude_trash: r.exclude_trash,
             q: r.q.clone(),
             category: r.category.clone(),
@@ -219,6 +347,9 @@ pub(super) async fn search(
             ..Default::default()
         },
     };
+    if cursor.version != SEARCH_CURSOR_VERSION {
+        return Err(ApiFailure(StatusCode::CONFLICT, "refetch_required"));
+    }
     if cursor.q != r.q
         || cursor.classification != r.classification()
         || cursor.category != r.category
@@ -248,22 +379,33 @@ pub(super) async fn search(
         cursor.local_snoozed = true;
         return inbox(app, user, r, scopes, cursor).await;
     }
-    if r.cache_first && r.continuation.is_none() {
-        if let Some(page) = indexed::page(
+    if (r.cache_first || query.text.is_some()) && !r.refresh && r.continuation.is_none() {
+        if let Some(page) = indexed_or_provider(
             &app,
             &user,
             &r,
             &scopes,
             &query,
+            has_attachment,
             wanted.as_deref(),
             &mut cursor,
         )
-        .await?
+        .await
         {
             return Ok(Json(page));
         }
-        if let Some(page) =
-            preview::cached(&app, &user, &r, &scopes, &query, wanted.as_deref(), &cursor).await?
+        if let Some(page) = preview::cached(
+            &app,
+            &user,
+            &r,
+            &scopes,
+            &query,
+            has_attachment,
+            wanted.as_deref(),
+            &cursor,
+        )
+        .await
+        .unwrap_or(None)
         {
             return Ok(Json(page));
         }
@@ -271,38 +413,53 @@ pub(super) async fn search(
     let mut rows = vec![];
     let mut coverage = vec![];
     let mut pending = false;
-    if cursor.local_index {
-        if let Some(page) = indexed::page(
+    if cursor.local_index && !cursor.provider_only {
+        if let Some(page) = indexed_or_provider(
             &app,
             &user,
             &r,
             &scopes,
             &query,
+            has_attachment,
             wanted.as_deref(),
             &mut cursor,
         )
-        .await?
+        .await
         {
             return Ok(Json(page));
         }
         cursor.local_index = false;
     }
     for a in scopes {
+        if cursor.provider_only && !cursor.provider_accounts.contains(a.id()) {
+            continue;
+        }
         let result = async {
             if !cursor.folders.contains_key(a.id()) {
                 let mut discovered = app.mail.folders(&app.store, &a).await?;
-                if r.exclude_trash {
+                if r.exclude_trash || wanted.is_none() || query.text.is_some() {
                     let settings = app.mail.settings(&app.store, &a).await?;
                     let excluded: Vec<String> = discovered
                         .iter()
                         .filter(|folder| {
                             folder.attributes.iter().any(|attr| {
-                                attr.trim_start_matches('\\').eq_ignore_ascii_case("Trash")
+                                matches!(
+                                    attr.trim_start_matches('\\').to_ascii_lowercase().as_str(),
+                                    "trash" | "junk" | "spam"
+                                )
                             }) || settings.trash_folder.as_ref() == Some(&folder.name)
                         })
                         .map(|folder| folder.name.clone())
                         .collect();
-                    discovered.retain(|folder| !excluded.contains(&folder.name));
+                    let mut excluded = excluded;
+                    excluded.extend(app.store.search_excluded_folders(&a).await?);
+                    excluded.sort();
+                    excluded.dedup();
+                    discovered.retain(|folder| {
+                        !excluded
+                            .iter()
+                            .any(|name| name.eq_ignore_ascii_case(&folder.name))
+                    });
                     cursor.excluded_folders.insert(a.id().into(), excluded);
                 }
                 let folders = select_folders(discovered, wanted.as_deref())?;
@@ -333,21 +490,28 @@ pub(super) async fn search(
                     )
                     .await?;
                 for row in page.rows {
-                    if r.exclude_trash
+                    if (r.exclude_trash || wanted.is_none() || query.text.is_some())
                         && row.folder_ids.iter().any(|folder| {
                             folder
                                 .trim_start_matches('\\')
                                 .eq_ignore_ascii_case("Trash")
-                                || cursor
-                                    .excluded_folders
-                                    .get(a.id())
-                                    .is_some_and(|excluded| excluded.contains(folder))
+                                || cursor.excluded_folders.get(a.id()).is_some_and(|excluded| {
+                                    excluded
+                                        .iter()
+                                        .any(|name| name.eq_ignore_ascii_case(folder))
+                                })
                         })
                     {
                         continue;
                     }
+                    if has_attachment {
+                        let content = app.mail.content_background(&app.store, &a, &row.id).await?;
+                        if content.attachments.is_empty() {
+                            continue;
+                        }
+                    }
                     let snoozed = app.store.is_snoozed(&a, &row.thread_id).await?;
-                    if (r.q.split_whitespace().any(|t| t == "is:snoozed") && !snoozed)
+                    if (wants_snoozed(&r.q) && !snoozed)
                         || (wanted
                             .as_deref()
                             .is_some_and(|f| f.eq_ignore_ascii_case("INBOX"))
@@ -415,6 +579,18 @@ pub(super) async fn search(
             .then_with(|| a.account_id.cmp(&b.account_id))
             .then_with(|| a.id.cmp(&b.id))
     });
+    let provider_matches = rows
+        .iter()
+        .enumerate()
+        .map(|(rank, row)| SearchMatch {
+            account_id: row.account_id.clone(),
+            message_id: row.id.clone(),
+            score: 0.5 / (61. + (cursor.provider_rank + rank) as f64),
+            excerpt: None,
+            attachment: None,
+        })
+        .collect();
+    cursor.provider_rank += rows.len();
     let classified = rows
         .iter()
         .filter(|m| {
@@ -436,6 +612,17 @@ pub(super) async fn search(
     } else {
         None
     };
+    let search = query.text.as_ref().map(|_| SearchMetadata {
+        ranked: false,
+        matches: provider_matches,
+        degradation: coverage
+            .iter()
+            .map(|c| SearchDegradation {
+                account_id: c.account_id.clone(),
+                code: "provider_literal_only".into(),
+            })
+            .collect(),
+    });
     Ok(Json(SearchPage {
         rows,
         continuation,
@@ -445,6 +632,8 @@ pub(super) async fn search(
         counts_exact: false,
         cache_preview: None,
         index_page: None,
+        search,
+        supplement: None,
     }))
 }
 
@@ -550,6 +739,8 @@ async fn inbox(
         counts_exact: false,
         cache_preview: None,
         index_page: None,
+        search: None,
+        supplement: None,
     }))
 }
 
@@ -558,9 +749,11 @@ mod tests {
     use super::*;
     #[test]
     fn navigation_and_fields_are_not_literal_body_terms() {
-        let (q, f) = parse("folder:Sent is:starred from:owner@example.com hello").unwrap();
+        let (q, f, has_attachment) =
+            parse("folder:Sent is:starred has:attachment from:owner@example.com hello").unwrap();
         assert_eq!(f.as_deref(), Some("Sent"));
         assert_eq!(q.starred, Some(true));
+        assert!(has_attachment);
         assert_eq!(q.text.as_deref(), Some("hello"));
     }
     #[test]

@@ -97,16 +97,22 @@ pub(super) async fn start(
     let state = random();
     let (challenge, verifier) = PkceCodeChallenge::new_random_sha256();
     let now = Utc::now().timestamp();
-    sqlx::query("DELETE FROM microsoft_oauth_flows WHERE expires_at<=? OR session_hash=?")
-        .bind(now)
-        .bind(&id.token_hash)
-        .execute(app.store.control())
-        .await
-        .map_err(StorageError::from)?;
-    sqlx::query("INSERT INTO microsoft_oauth_flows(state_hash,session_hash,user_id,verifier,email,display_name,account_id,expires_at) VALUES(?,?,?,?,?,?,?,?)")
-        .bind(hash(&state)).bind(&id.token_hash).bind(&id.user).bind(verifier.secret())
-        .bind(&input.email).bind(&input.display_name).bind(&input.account_id).bind(now+600)
-        .execute(app.store.control()).await.map_err(StorageError::from)?;
+    app.store
+        .control_repository()
+        .start_microsoft_flow(
+            &dakia_storage::control_repository::MailOAuthFlow {
+                state_hash: hash(&state),
+                session_hash: id.token_hash.clone(),
+                user_id: id.user.clone(),
+                verifier: verifier.secret().clone(),
+                email: input.email.clone(),
+                display_name: input.display_name.clone(),
+                account_id: input.account_id.clone(),
+                expires_at: now + 600,
+            },
+            now,
+        )
+        .await?;
     let mut url = url::Url::parse(&config.endpoint("authorize")).map_err(unavailable)?;
     url.query_pairs_mut().extend_pairs([
         ("client_id", config.client_id.as_str()),
@@ -184,10 +190,20 @@ async fn authorize(
     profile_url: &str,
 ) -> Result<dakia_storage::AuthorizedAccount> {
     let config = configured(app)?;
-    let row = sqlx::query("DELETE FROM microsoft_oauth_flows WHERE state_hash=? AND session_hash=? AND user_id=? AND expires_at>? RETURNING *")
-        .bind(hash(&input.state)).bind(&id.token_hash).bind(&id.user).bind(Utc::now().timestamp())
-        .fetch_optional(app.store.control()).await.map_err(StorageError::from)?
-        .ok_or(ApiFailure(StatusCode::BAD_REQUEST, "microsoft_sign_in_expired"))?;
+    let row = app
+        .store
+        .control_repository()
+        .consume_microsoft_flow(
+            &hash(&input.state),
+            &id.token_hash,
+            &id.user,
+            Utc::now().timestamp(),
+        )
+        .await?
+        .ok_or(ApiFailure(
+            StatusCode::BAD_REQUEST,
+            "microsoft_sign_in_expired",
+        ))?;
     if let Some(error) = input.error {
         return Err(ApiFailure(
             StatusCode::BAD_REQUEST,
@@ -214,7 +230,7 @@ async fn authorize(
                 "redirect_uri",
                 &format!("{}/api/accounts/microsoft/callback", app.config.origin),
             ),
-            ("code_verifier", &row.get::<String, _>("verifier")),
+            ("code_verifier", &row.verifier),
         ])
         .send()
         .await
@@ -248,8 +264,8 @@ async fn authorize(
         .json()
         .await
         .map_err(unavailable)?;
-    let email: String = row.get("email");
-    let account: Option<String> = row.get("account_id");
+    let email: String = row.email;
+    let account: Option<String> = row.account_id;
     if profile.id.is_empty()
         || (account.is_none()
             && ![
@@ -295,7 +311,7 @@ async fn authorize(
         ))?;
     let connection = ConnectAccount {
         email: mailbox.clone(),
-        display_name: row.get("display_name"),
+        display_name: row.display_name,
         provider: ProviderKind::Microsoft,
         // Kept for the shared connection schema; Graph never opens these endpoints.
         imap_host: "graph.microsoft.com".into(),

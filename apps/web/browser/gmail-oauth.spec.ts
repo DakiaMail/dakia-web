@@ -84,9 +84,9 @@ for (const [theme, width, height] of [
     await expect.poll(() => submitted).toEqual({ email: "fixture@example.test", display_name: "Disposable", account_id: null });
     await expect(dialog).toHaveCount(0);
     await expect.poll(() => connected).toBe(true);
-    await expect(page.getByRole("combobox", { name: "Account filter" })).toContainText("Disposable");
+    await expect(page.locator('nav[aria-label="Accounts"]')).toContainText("Disposable");
     await page.reload();
-    await expect(page.getByRole("combobox", { name: "Account filter" })).toContainText("Disposable");
+    await expect(page.locator('nav[aria-label="Accounts"]')).toContainText("Disposable");
     needsReconnect = true;
     await page.reload();
     if (width < 601) {
@@ -119,3 +119,16 @@ test("Gmail cancellation returns a readable error", async ({ page }) => {
   await page.goto("/?gmail_error=cancelled");
   await expect(page.getByRole("alert")).toContainText("Google sign-in was cancelled");
 });
+
+for (const [reason, message] of [
+  ["exchange", "couldn’t finish Google sign-in"],
+  ["profile", "couldn’t confirm your Google account"],
+  ["authentication", "Gmail rejected the connection"],
+  ["connection", "couldn’t reach Gmail"],
+]) {
+  test(`Gmail callback explains ${reason} failure`, async ({ page }) => {
+    await page.route("**/api/**", route => route.fulfill({ contentType: "application/json", body: JSON.stringify(new URL(route.request().url()).pathname === "/api/session" ? { user_id: "fixture", csrf_token: "synthetic" } : []) }));
+    await page.goto(`/?gmail_error=${reason}`);
+    await expect(page.getByRole("alert")).toContainText(message);
+  });
+}

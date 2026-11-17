@@ -4,7 +4,7 @@ use dakia_storage::{lock_data_directory, Store};
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
     if args.len() != 5 {
-        return Err("usage: dakia-admin backup DATA_DIR NEW_BACKUP_DIR KEY_FILE | restore BACKUP_DIR NEW_DATA_DIR KEY_FILE | enable-jobs DATA_DIR KEY_FILE --reconciled".into());
+        return Err("usage: dakia-admin backup|export DATA_DIR NEW_ARCHIVE_DIR KEY_FILE | restore|import ARCHIVE_DIR NEW_DATA_DIR KEY_FILE | enable-jobs DATA_DIR KEY_FILE --reconciled".into());
     }
     let key_path = if args[1] == "enable-jobs" {
         &args[3]
@@ -16,11 +16,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .try_into()
         .map_err(|_| "credential key must contain exactly 32 bytes")?;
     match args[1].as_str() {
-        "backup" => {
+        "backup" | "export" => {
             let _lock = lock_data_directory(&args[2])?;
-            let s = Store::open(&args[2], key).await?;
+            let s = Store::open_offline_database(
+                &args[2],
+                key,
+                std::env::var("DAKIA_DATABASE_URL")
+                    .ok()
+                    .filter(|url| !url.is_empty())
+                    .as_deref(),
+            )
+            .await?;
             s.backup(&args[3]).await?;
             println!("Backup completed: {}", args[3]);
+        }
+        "import" => {
+            Store::import_backend(
+                &args[2],
+                &args[3],
+                key,
+                std::env::var("DAKIA_DATABASE_URL")
+                    .ok()
+                    .filter(|url| !url.is_empty())
+                    .as_deref(),
+            )
+            .await?;
+            println!("Import completed with jobs disabled: {}", args[3]);
         }
         "restore" => {
             Store::restore(&args[2], &args[3], key).await?;
@@ -41,16 +62,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 async fn enable_jobs(data: &str, key: [u8; 32]) -> Result<(), Box<dyn std::error::Error>> {
     let _lock = lock_data_directory(data)?;
-    let store = Store::open(data, key).await?;
-    let accounts: Vec<(String, String)> = sqlx::query_as("SELECT id,user_id FROM accounts")
-        .fetch_all(store.control())
-        .await?;
-    for (id, user) in accounts {
-        let scope = store.authorize(&user, &id).await?;
+    let url = std::env::var("DAKIA_DATABASE_URL")
+        .ok()
+        .filter(|s| !s.is_empty());
+    let store = Store::open_offline_database(data, key, url.as_deref()).await?;
+    for scope in store.indexing_accounts().await? {
         store.credential(&scope).await?;
     }
-    sqlx::query("INSERT OR REPLACE INTO settings(key,value) VALUES('jobs_enabled','true')")
-        .execute(store.control())
+    store
+        .control_repository()
+        .put_setting("jobs_enabled", "true")
         .await?;
     Ok(())
 }
@@ -80,11 +101,11 @@ mod tests {
             username: "fixture".into(),
             password: "synthetic".into(),
             gmail_oauth: None,
-        microsoft_oauth: None,
+            microsoft_oauth: None,
         };
         store.connect(&user, &input).await.unwrap();
         sqlx::query("INSERT OR REPLACE INTO settings(key,value) VALUES('jobs_enabled','false')")
-            .execute(store.control())
+            .execute(store.sqlite_control_for_test())
             .await
             .unwrap();
         assert!(enable_jobs(data, [8; 32]).await.is_err());

@@ -723,7 +723,7 @@ async fn graph_webhook_validates_synchronously_checks_secrets_and_subscriptions_
     sqlx::query("UPDATE microsoft_subscriptions SET expires_at=? WHERE account_id=?")
         .bind((chrono::Utc::now() + chrono::Duration::hours(1)).to_rfc3339())
         .bind(a.id())
-        .execute(app.store.control())
+        .execute(app.store.sqlite_control_for_test())
         .await
         .unwrap();
     crate::graph_push::maintain(&app, &a, &graph).await.unwrap();
@@ -804,7 +804,7 @@ async fn graph_webhook_validates_synchronously_checks_secrets_and_subscriptions_
         before_delete + 1
     );
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM microsoft_subscriptions")
-        .fetch_one(app.store.control())
+        .fetch_one(app.store.sqlite_control_for_test())
         .await
         .unwrap();
     assert_eq!(count, 0);

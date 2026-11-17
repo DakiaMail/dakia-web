@@ -26,7 +26,7 @@ for (const dark of [false, true]) test(`global search from Snoozed includes unsn
     await expect(page.getByText("Snoozed example", { exact: true })).toBeVisible();
     await expect(snoozedView.locator(".count")).toHaveText("1");
     await page.keyboard.press("/");
-    await expect(page.getByRole("textbox", { name: "Search all mail", exact: true })).toBeFocused();
+    await expect(page.getByRole("combobox", { name: "Search all mail", exact: true })).toBeFocused();
     await page.keyboard.type("target");
     await page.keyboard.press("Enter");
     await expect(page.getByRole("heading", { name: "Search", exact: true })).toBeVisible();

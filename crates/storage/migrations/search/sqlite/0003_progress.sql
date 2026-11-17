@@ -1,0 +1,11 @@
+CREATE TABLE account_progress (account_id TEXT PRIMARY KEY,headers INTEGER NOT NULL DEFAULT 0,bodies INTEGER NOT NULL DEFAULT 0,pending INTEGER NOT NULL DEFAULT 0,gaps INTEGER NOT NULL DEFAULT 0,body_bytes INTEGER NOT NULL DEFAULT 0,retrying INTEGER NOT NULL DEFAULT 0);
+INSERT INTO account_progress(account_id,headers,bodies,pending,gaps,body_bytes,retrying) SELECT account_id,SUM((state<>'deleted')),SUM((state='ready')),SUM((state='pending')),SUM((state NOT IN ('pending','ready','deleted'))),SUM((length(CAST(body AS BLOB))+length(CAST(attachment_text AS BLOB)))),SUM((state='fetch_error')) FROM documents GROUP BY account_id;
+CREATE TRIGGER progress_insert AFTER INSERT ON documents BEGIN
+ INSERT INTO account_progress(account_id,headers,bodies,pending,gaps,body_bytes,retrying) VALUES(new.account_id,(new.state<>'deleted'),(new.state='ready'),(new.state='pending'),(new.state NOT IN ('pending','ready','deleted')),(length(CAST(new.body AS BLOB))+length(CAST(new.attachment_text AS BLOB))),(new.state='fetch_error')) ON CONFLICT(account_id) DO UPDATE SET headers=headers+excluded.headers,bodies=bodies+excluded.bodies,pending=pending+excluded.pending,gaps=gaps+excluded.gaps,body_bytes=body_bytes+excluded.body_bytes,retrying=retrying+excluded.retrying;
+END;
+CREATE TRIGGER progress_delete AFTER DELETE ON documents BEGIN
+ UPDATE account_progress SET headers=headers-(old.state<>'deleted'),bodies=bodies-(old.state='ready'),pending=pending-(old.state='pending'),gaps=gaps-(old.state NOT IN ('pending','ready','deleted')),body_bytes=body_bytes-(length(CAST(old.body AS BLOB))+length(CAST(old.attachment_text AS BLOB))),retrying=retrying-(old.state='fetch_error') WHERE account_id=old.account_id;
+END;
+CREATE TRIGGER progress_update AFTER UPDATE ON documents BEGIN
+ UPDATE account_progress SET headers=headers+(new.state<>'deleted')-(old.state<>'deleted'),bodies=bodies+(new.state='ready')-(old.state='ready'),pending=pending+(new.state='pending')-(old.state='pending'),gaps=gaps+(new.state NOT IN ('pending','ready','deleted'))-(old.state NOT IN ('pending','ready','deleted')),body_bytes=body_bytes+(length(CAST(new.body AS BLOB))+length(CAST(new.attachment_text AS BLOB)))-(length(CAST(old.body AS BLOB))+length(CAST(old.attachment_text AS BLOB))),retrying=retrying+(new.state='fetch_error')-(old.state='fetch_error') WHERE account_id=old.account_id;
+END;

@@ -40,15 +40,15 @@ for (const width of [390, 1480]) {
     await page.setViewportSize({ width, height: 900 });
     const state = await fixture(page, 522);
     await page.goto("/");
-    await expect(page.getByRole("heading", { name: "Can’t reach Dakia" })).toBeVisible();
-    await expect(page.getByText(/Check your internet connection or VPN/)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Dakia is unavailable" })).toBeVisible();
+    await expect(page.getByText("Dakia is temporarily unavailable. Please try again.")).toBeVisible();
     await expect(page.getByRole("link", { name: "Sign in", exact: true })).toHaveCount(0);
     await expect(page.getByText("Request failed (522)")).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath("connection-recovery.png"), fullPage: true });
     state.fail(0);
     await page.getByRole("button", { name: "Retry connection" }).click();
     await expect(page.getByRole("button", { name: "Compose", exact: true })).toBeVisible();
-    expect(state.requests()).toBe(2);
+    expect(state.requests()).toBe(3);
   });
   test(`background 522 preserves an open reader and recovers at ${width}`, async ({ page }, testInfo) => {
     await page.setViewportSize({ width, height: 900 });
@@ -60,7 +60,7 @@ for (const width of [390, 1480]) {
     await expect(body).toContainText("Your open message stays here.");
     state.fail(522);
     await recheckSession(page);
-    await expect.poll(state.requests).toBe(2);
+    await expect.poll(state.requests).toBe(3);
     await expect(page.getByRole("button", { name: "Retry connection" })).toBeVisible();
     await expect(body).toContainText("Your open message stays here.");
     await expect(page.getByRole("link", { name: "Sign in", exact: true })).toHaveCount(0);
@@ -116,7 +116,7 @@ test("a background connection failure preserves an unfinished draft", async ({ p
   const subject = page.getByRole("textbox", { name: "Subject", exact: true });
   await subject.fill("Unfinished draft remains editable");
   state.fail(522); await recheckSession(page);
-  await expect.poll(state.requests).toBe(2);
+  await expect.poll(state.requests).toBe(3);
   await expect(subject).toHaveValue("Unfinished draft remains editable");
   await subject.fill("Still editing after connection loss");
   await expect(subject).toHaveValue("Still editing after connection loss");

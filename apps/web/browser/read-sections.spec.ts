@@ -53,7 +53,7 @@ for (const width of [390, 1480]) test(`reading keeps mail in place without Seen 
 test("failed reads remain unread and visible", async ({ page }) => {
   await fixture(page, true);
   await notice(page, 0).locator(".message-open").click();
-  await expect(page.getByRole("status").filter({ hasText: "Still marked unread" })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "Still marked unread" })).toHaveCount(0);
   await notice(page, 1).locator(".message-open").click();
   await expect(notice(page, 0)).toHaveClass(/unread/);
   await expect(page.locator(".message-row")).toHaveCount(3);

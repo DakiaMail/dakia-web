@@ -49,7 +49,7 @@ test("notification controls and email registration work by keyboard", async ({ p
   await expect(disable).toBeVisible(); expect(state.enabled()).toBe(true);
   await expect(disable).toBeFocused(); await page.keyboard.press("Tab");
   await expect(page.getByRole("button", { name: "Test notification" })).toBeFocused(); await page.keyboard.press("Enter");
-  await expect(page.getByRole("status").filter({ hasText: "This checks this device" })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "Test notification shown on this device" })).toBeVisible();
   await disable.focus(); await page.keyboard.press("Enter"); await expect(enable).toBeVisible(); expect(state.enabled()).toBe(false);
   const register = page.getByRole("button", { name: "Use Dakia for email links" }); await register.focus(); await page.keyboard.press("Enter");
   expect(await page.evaluate(() => (window as any).protocolRegistration)).toEqual(["mailto", "http://127.0.0.1:4187/?mailto=%s"]);

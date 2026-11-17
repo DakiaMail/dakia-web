@@ -28,10 +28,10 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::Mutex;
 // MIME transfer encoding expands attachments: a valid 25 MiB file can exceed
 // 30 MiB on the wire. Keep a finite ceiling below the provider response budget.
-const RECEIVED_MESSAGE_LIMIT: u32 = 40 * 1024 * 1024;
+pub(crate) const RECEIVED_MESSAGE_LIMIT: u32 = 40 * 1024 * 1024;
 type InboxRefreshSlot = Arc<Mutex<Option<std::time::Instant>>>;
 type ConversationSlot = (String, Arc<Mutex<conversation::Discovery>>);
-type ContentLanes = HashMap<(String, String), std::sync::Weak<Mutex<()>>>;
+type ContentLanes = HashMap<(String, String, bool), std::sync::Weak<Mutex<()>>>;
 pub(crate) struct SyncActivity(Arc<std::sync::atomic::AtomicUsize>);
 impl Drop for SyncActivity {
     fn drop(&mut self) {
@@ -40,6 +40,8 @@ impl Drop for SyncActivity {
 }
 #[derive(Clone, Default)]
 pub struct MailRuntime {
+    pub(crate) search_policy_lock: Arc<Mutex<()>>,
+    pub(crate) search_queries: crate::search_query_model::QueryModel,
     pub(crate) gmail: Option<crate::gmail_oauth::GmailConfig>,
     pub(crate) microsoft: Option<crate::microsoft_oauth::MicrosoftConfig>,
     languages: Arc<crate::language::Detector>,
@@ -216,7 +218,24 @@ fn retain_implicit_all_mail(folders: &mut Vec<String>, previous: &[String], prob
     folders.sort();
     folders.dedup();
 }
-fn attachment_bytes(raw: &[u8], part: &mail_parser::MessagePart<'_>) -> Result<Vec<u8>> {
+fn search_exclusions(folders: &[p::Folder], settings: &MailboxSettings) -> Vec<String> {
+    let mut excluded: Vec<_> = folders
+        .iter()
+        .filter(|folder| {
+            folder.attributes.iter().any(|role| {
+                matches!(
+                    role.trim_start_matches('\\').to_ascii_lowercase().as_str(),
+                    "trash" | "junk" | "spam"
+                )
+            })
+        })
+        .map(|folder| folder.name.clone())
+        .collect();
+    excluded.extend(settings.trash_folder.iter().cloned());
+    excluded
+}
+
+pub(crate) fn attachment_bytes(raw: &[u8], part: &mail_parser::MessagePart<'_>) -> Result<Vec<u8>> {
     // contents() is charset-decoded UTF-8 for text/* and can corrupt files.
     // Decode transfer encoding only, keeping original file bytes intact.
     let body = raw
@@ -279,6 +298,11 @@ fn arrival_time(value: &str) -> Result<String> {
         })
         .map_err(|_| ApiFailure(StatusCode::BAD_GATEWAY, "invalid_provider_arrival_time"))
 }
+fn arrival_date(value: &str) -> Result<String> {
+    chrono::DateTime::parse_from_str(value.trim(), "%d-%b-%Y %H:%M:%S %z")
+        .map(|date| date.date_naive().format("%Y-%m-%d").to_string())
+        .map_err(|_| ApiFailure(StatusCode::BAD_GATEWAY, "invalid_provider_arrival_time"))
+}
 impl MailRuntime {
     pub(crate) async fn wake_graph(&self, account: &str) {
         if let Some(graph) = self
@@ -298,14 +322,29 @@ impl MailRuntime {
         self.microsoft = config;
         self
     }
+    pub fn with_search_model(mut self, path: std::path::PathBuf) -> Self {
+        self.search_queries = crate::search_query_model::QueryModel::configured(path);
+        self
+    }
+    pub fn with_search_model_enabled(mut self, path: std::path::PathBuf, enabled: bool) -> Self {
+        self.search_queries =
+            crate::search_query_model::QueryModel::configured_enabled(path, enabled);
+        self
+    }
+
     pub fn with_gmail(mut self, config: Option<crate::gmail_oauth::GmailConfig>) -> Self {
         self.gmail = config;
         self
     }
-    async fn content_lane(&self, a: &AuthorizedAccount, id: &str) -> Arc<Mutex<()>> {
+    async fn content_lane(
+        &self,
+        a: &AuthorizedAccount,
+        id: &str,
+        foreground: bool,
+    ) -> Arc<Mutex<()>> {
         let mut lanes = self.content_lanes.lock().await;
         lanes.retain(|_, lane| lane.strong_count() > 0);
-        let lane = lanes.entry((a.id().into(), id.into())).or_default();
+        let lane = lanes.entry((a.id().into(), id.into(), foreground)).or_default();
         if let Some(existing) = lane.upgrade() {
             return existing;
         }
@@ -407,6 +446,9 @@ impl MailRuntime {
                 &serde_json::to_string(&settings).map_err(Error::from)?,
             )
             .await?;
+        store
+            .set_search_excluded_folders(a, &search_exclusions(&folders, &settings))
+            .await?;
         if let Some(provider) = providers.remove(a.id()) {
             provider.retire();
         }
@@ -455,6 +497,12 @@ impl MailRuntime {
             }
         }
         let folders: Vec<p::Folder> = folders.into_iter().filter(|f| f.selectable).collect();
+        store
+            .set_search_excluded_folders(
+                a,
+                &search_exclusions(&folders, &self.settings(store, a).await?),
+            )
+            .await?;
         store
             .put_provider_document(
                 a,
@@ -670,6 +718,8 @@ impl MailRuntime {
             counts_exact: false,
             cache_preview: None,
             index_page: None,
+            search: None,
+            supplement: None,
         })
     }
 
@@ -863,6 +913,7 @@ impl MailRuntime {
                 subject: parsed.subject().unwrap_or("").into(),
                 preview: String::new(),
                 received_at: arrival_time(&metadata.internal_date)?,
+                received_date: Some(arrival_date(&metadata.internal_date)?),
                 unread: !metadata.seen,
                 starred: metadata.starred,
                 category: None,
@@ -932,13 +983,31 @@ impl MailRuntime {
         self.raw_with_limit(store, a, id, RECEIVED_MESSAGE_LIMIT)
             .await
     }
-    #[tracing::instrument(target = "dakia_server::diagnostics", skip_all, fields(account_key = crate::diagnostics::correlation(a.id()), message_key = crate::diagnostics::correlation(id)))]
     pub(crate) async fn raw_with_limit(
         &self,
         store: &Store,
         a: &AuthorizedAccount,
         id: &str,
         limit: u32,
+    ) -> Result<Vec<u8>> {
+        self.raw_with_priority(store, a, id, limit, false).await
+    }
+    pub(crate) async fn raw_foreground(
+        &self,
+        store: &Store,
+        a: &AuthorizedAccount,
+        id: &str,
+    ) -> Result<Vec<u8>> {
+        self.raw_with_priority(store, a, id, RECEIVED_MESSAGE_LIMIT, true).await
+    }
+    #[tracing::instrument(target = "dakia_server::diagnostics", skip_all, fields(account_key = crate::diagnostics::correlation(a.id()), message_key = crate::diagnostics::correlation(id), foreground))]
+    async fn raw_with_priority(
+        &self,
+        store: &Store,
+        a: &AuthorizedAccount,
+        id: &str,
+        limit: u32,
+        foreground: bool,
     ) -> Result<Vec<u8>> {
         if let Some(raw) = store.cached_raw(a, id).await? {
             tracing::info!(target: "dakia_server::diagnostics", operation = "content_cache", outcome = "hit", "mail_work");
@@ -957,10 +1026,17 @@ impl MailRuntime {
         let reference: p::MessageRef = serde_json::from_str(&reference).map_err(Error::from)?;
         let message = store.message(a, id).await?;
         if message.provider_id.starts_with("gmail:") {
-            return self.gmail_raw(store, a, &message, reference, limit).await;
+            return self
+                .gmail_raw(store, a, &message, reference, limit, foreground)
+                .await;
         }
         let provider = self.provider(store, a).await?;
-        let first_error = match provider.fetch(&reference, limit).await {
+        let fetched = if foreground {
+            provider.fetch_foreground(&reference, limit).await
+        } else {
+            provider.fetch(&reference, limit).await
+        };
+        let first_error = match fetched {
             Ok(raw) => return Ok(raw),
             Err(error) => error,
         };
@@ -986,15 +1062,45 @@ impl MailRuntime {
         a: &AuthorizedAccount,
         id: &str,
     ) -> Result<MessageContent> {
+        self.content_with_priority(store, a, id, true).await
+    }
+    pub(crate) async fn content_background(
+        &self,
+        store: &Store,
+        a: &AuthorizedAccount,
+        id: &str,
+    ) -> Result<MessageContent> {
+        self.content_with_priority(store, a, id, false).await
+    }
+    async fn content_with_priority(
+        &self,
+        store: &Store,
+        a: &AuthorizedAccount,
+        id: &str,
+        foreground: bool,
+    ) -> Result<MessageContent> {
         store.request_classification(a, &[id.to_owned()]).await?;
-        let lane = self.content_lane(a, id).await;
+        let lane = self.content_lane(a, id, foreground).await;
         let _guard = lane.lock().await;
         if let Some(mut c) = store.cached_content(a, id).await? {
             // Re-evaluate legacy cached documents too, without fetching or mutating mail.
             c.detected_language = self.languages.detect(a.id(), id, &c.text, &c.html);
             return Ok(c);
         }
-        let raw = self.raw(store, a, id).await?;
+        let raw = self
+            .raw_with_priority(store, a, id, RECEIVED_MESSAGE_LIMIT, foreground)
+            .await?;
+        // Publish under the reader's lock only after background network work ends.
+        // This keeps attachment identities single-flight without delaying an open.
+        let _publish = if foreground {
+            None
+        } else {
+            Some(self.content_lane(a, id, true).await.lock_owned().await)
+        };
+        if let Some(mut c) = store.cached_content(a, id).await? {
+            c.detected_language = self.languages.detect(a.id(), id, &c.text, &c.html);
+            return Ok(c);
+        }
         self.cache_parsed_content(store, a, id, &raw).await
     }
     async fn cache_parsed_content(
@@ -1133,12 +1239,12 @@ impl MailRuntime {
             .await?
             .ok_or(Error::NotFound)?;
         let part: PartRef = serde_json::from_str(&part).map_err(Error::from)?;
-        let lane = self.content_lane(a, &part.message_id).await;
+        let lane = self.content_lane(a, &part.message_id, true).await;
         let _guard = lane.lock().await;
         let raw = match store.cached_raw(a, &part.message_id).await? {
             Some(raw) => raw,
             None => {
-                let raw = self.raw(store, a, &part.message_id).await?;
+                let raw = self.raw_foreground(store, a, &part.message_id).await?;
                 self.cache_parsed_content(store, a, &part.message_id, &raw)
                     .await?;
                 raw

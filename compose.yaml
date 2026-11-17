@@ -1,12 +1,15 @@
 name: dakia
 services:
   dakia:
-    image: ${DAKIA_IMAGE:-ghcr.io/dakiamail/dakia-web@sha256:359c8bfa84ad67278e0715afd9565d06560c2fd4262af090c5d1d8d863f2a5e8}
+    # Dakia v0.1.0, pinned to the published release manifest.
+    image: ${DAKIA_IMAGE:-ghcr.io/dakiamail/dakia-web@sha256:8c5d80656cd1cdd4a48c5129ec55e9e56f5ed96a41cf2881ce41f382f9df30f4}
     restart: unless-stopped
     environment:
       DAKIA_ADMIN_USERS: ${DAKIA_ADMIN_USERS:-}
       DAKIA_ORIGIN: ${DAKIA_ORIGIN:?Set the external HTTPS address in .env}
       DAKIA_RELEASE_CHECKS: ${DAKIA_RELEASE_CHECKS:-true}
+      DAKIA_DATABASE_URL: ${DAKIA_DATABASE_URL:-}
+      DAKIA_SEARCH_DATABASE_URL: ${DAKIA_SEARCH_DATABASE_URL:-}
       DAKIA_GMAIL_CLIENT_ID: ${DAKIA_GMAIL_CLIENT_ID:-}
       DAKIA_GMAIL_CLIENT_SECRET: ${DAKIA_GMAIL_CLIENT_SECRET:-}
       DAKIA_MICROSOFT_CLIENT_ID: ${DAKIA_MICROSOFT_CLIENT_ID:-}

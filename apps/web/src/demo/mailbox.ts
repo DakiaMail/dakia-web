@@ -216,6 +216,16 @@ export class DemoMailbox {
     const parts = (match[2] || "").split("/").map(decodeURIComponent);
     const [resource, id, action] = parts;
     const key = identity(account, id);
+    if (resource === "thread-counts" && get) {
+      const ids = (url.searchParams.get("messages") || "").split(",");
+      if (ids.length > 50 || ids.some(id => !id || id.length > 256)) return fail(400, "Invalid message list.");
+      const counts: Record<string, number> = {};
+      for (const id of ids) {
+        const selected = s.contents[identity(account, id)]?.message;
+        if (selected) counts[id] = Object.values(s.contents).filter(c => c.message.account_id === account && c.message.thread_id === selected.thread_id && c.message.folder_ids.length > 0).length;
+      }
+      return json(counts);
+    }
     if (resource === "mailbox-counts" && get) {
       const rows = Object.values(s.contents).map(c => c.message).filter(m => m.account_id === account && m.folder_ids.length > 0);
       return json({ starred: rows.filter(m => m.starred).length, attention: rows.filter(m => m.folder_ids.some(f => f.toUpperCase() === "INBOX") && needsAttention(m, this.now()) && !Object.entries(s.snoozed).some(([key, v]) => s.contents[key]?.message.account_id === account && s.contents[key]?.message.thread_id === m.thread_id && Date.parse(v.until) > this.now())).length });

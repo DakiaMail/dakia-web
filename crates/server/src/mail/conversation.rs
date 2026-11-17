@@ -291,6 +291,42 @@ impl Discovery {
     }
 }
 impl MailRuntime {
+    pub(crate) async fn conversation_counts(
+        &self,
+        store: &Store,
+        account: &AuthorizedAccount,
+        ids: &[String],
+    ) -> Result<HashMap<String, usize>> {
+        if ids.len() > 50 || ids.iter().any(|id| id.is_empty() || id.len() > 256) {
+            return Err(ApiFailure(
+                StatusCode::BAD_REQUEST,
+                "invalid_thread_count_query",
+            ));
+        }
+        let mut counts = HashMap::new();
+        for id in ids {
+            if counts.contains_key(id) {
+                continue;
+            }
+            // shortcut: Count saved graph members; add provider totals if unsynced mail must be included.
+            let page = match self
+                .conversation_read(store, account, id, None, true, false)
+                .await
+            {
+                Ok(page) => page,
+                Err(error) if error.0 == StatusCode::NOT_FOUND => continue,
+                Err(error) => return Err(error),
+            };
+            let count = page.rows.len();
+            counts.insert(id.clone(), count);
+            for row in page.rows {
+                if ids.contains(&row.id) {
+                    counts.insert(row.id, count);
+                }
+            }
+        }
+        Ok(counts)
+    }
     #[cfg(test)]
     pub(crate) async fn conversation(
         &self,

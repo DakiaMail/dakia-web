@@ -1764,3 +1764,5 @@ body {
 @media (prefers-reduced-motion: reduce) { .mobile-install-invitation { animation: none; } }
 
 body:has([role="dialog"], dialog[open]) .mobile-install-invitation { display: none; }
+
+.thread-message-count { flex-shrink: 0; padding: 0 4px; border-radius: 3px; color: var(--color-secondary); background: var(--color-subtle); font-size: 10px; font-weight: 500; line-height: 15px; font-variant-numeric: tabular-nums; }

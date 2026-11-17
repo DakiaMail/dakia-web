@@ -38,21 +38,21 @@ for (const manual of [false, true]) test(`cache-first loading and body disciplin
   await expect(page.locator(".conversation-message").first().frameLocator("iframe").locator("body")).toContainText(`Body ${root.id}`);
   const selectedBodyMs=Date.now()-start;
   if (manual) {
-    await page.locator(".conversation-summary").first().click();
+    await page.locator(".conversation-toggle").first().click();
     await expect(page.locator(".conversation-message")).toHaveCount(2);
-    await page.locator(".conversation-summary").nth(1).click();
+    await page.locator(".conversation-toggle").nth(1).click();
   }
   await expect(page.locator(".conversation-message")).toHaveCount(3);
   const discoveryMs=Date.now()-start;
   await expect(page.locator(".conversation-message iframe")).toHaveCount(2);
-  expect(calls.some(c=>c.path.endsWith(`/messages/${second.id}`))).toBe(manual);
-  await expect(page.locator(".conversation-summary").first()).toHaveAttribute("aria-expanded", manual ? "false" : "true");
-  await expect(page.locator(".conversation-summary").nth(1)).toHaveAttribute("aria-expanded", manual ? "true" : "false");
-  await expect(page.locator('.conversation-summary[aria-expanded="true"]')).toHaveCount(2);
+  expect(calls.some(c=>c.path.split("?")[0].endsWith(`/messages/${second.id}`))).toBe(manual);
+  await expect(page.locator(".conversation-toggle").first()).toHaveAttribute("aria-expanded", manual ? "false" : "true");
+  await expect(page.locator(".conversation-toggle").nth(1)).toHaveAttribute("aria-expanded", manual ? "true" : "false");
+  await expect(page.locator('.conversation-toggle[aria-expanded="true"]')).toHaveCount(2);
   const conversationCalls=calls.filter(c=>c.path.includes("/conversation"));
   expect(conversationCalls.filter(c=>c.path.includes("continuation="))).toHaveLength(2);
   expect(selectedBodyMs).toBeLessThan(discoveryMs);
-  const output={selectedBodyMs,discoveryMs,expandedCards:await page.locator('.conversation-summary[aria-expanded="true"]').count(),calls};
+  const output={selectedBodyMs,discoveryMs,expandedCards:await page.locator('.conversation-toggle[aria-expanded="true"]').count(),calls};
   writeFileSync(testInfo.outputPath("perf-browser.json"),JSON.stringify(output,null,2));
   await page.screenshot({path:testInfo.outputPath("thread-loading.png"),fullPage:true});
   console.log(JSON.stringify(output));

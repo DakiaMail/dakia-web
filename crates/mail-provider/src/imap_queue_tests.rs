@@ -108,6 +108,29 @@ async fn foreground_queue_is_bounded_and_checks_account_before_checkout() {
     .unwrap()
     .unwrap_err();
     assert_eq!(error.message, "IMAP operation deadline exceeded");
+    drop(_reader);
+    let mut authentication = provider
+        .connection_backoff
+        .begin("fixture-account")
+        .unwrap();
+    assert_eq!(
+        provider
+            .fetch_foreground(&reference, 1024)
+            .await
+            .unwrap_err()
+            .message,
+        "IMAP operation deadline exceeded"
+    );
+    let reader = provider.fetch_foreground(&reference, 1024);
+    tokio::pin!(reader);
+    tokio::select! {
+        _ = &mut reader => panic!("reader must wait for the active handshake"),
+        _ = tokio::time::sleep(Duration::from_millis(10)) => {},
+    }
+    provider.retire();
+    authentication.finished(&Ok::<_, crate::ProviderError>(()));
+    drop(authentication);
+    assert_eq!(reader.await.unwrap_err().kind, ErrorKind::Authentication);
     assert!(
         tokio::time::timeout(Duration::from_millis(20), f.listener.accept())
             .await

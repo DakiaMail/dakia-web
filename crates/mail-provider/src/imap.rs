@@ -126,9 +126,19 @@ impl ImapProvider {
             .map_err(|_| error(ErrorKind::Retryable, "IMAP operation deadline exceeded"))?
     }
     async fn connect(&self) -> Result<Connection> {
+        self.connect_on(false).await
+    }
+    async fn connect_on(&self, foreground: bool) -> Result<Connection> {
         // Shared by command and IDLE lanes. The permit also backs off cancelled
         // handshakes; a task deadline must not reopen the connection floodgate.
-        let mut attempt = self.connection_backoff.begin(&self.config.account_id)?;
+        let mut attempt = if foreground {
+            self.connection_backoff.begin_waiting(&self.config.account_id).await?
+        } else {
+            self.connection_backoff.begin(&self.config.account_id)?
+        };
+        if self.retired.load(std::sync::atomic::Ordering::Acquire) {
+            return Err(error(ErrorKind::Authentication, "account provider replaced"));
+        }
         let result = self.connect_inner(&mut attempt).await;
         attempt.finished(&result);
         result
@@ -267,7 +277,7 @@ impl ImapProvider {
                 tracing::info!(target: "dakia_server::provider_io", account_key = %crate::telemetry::key(&self.config.account_id), reused = true, "imap_connection");
                 connection
             }
-            _ => self.connect().await?,
+            _ => self.connect_on(foreground).await?,
         };
         Ok(CommandLease {
             retired: &self.retired,

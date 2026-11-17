@@ -4,6 +4,8 @@ Download a complete Linux runtime from [Releases](https://github.com/DakiaMail/d
 
 These steps target Ubuntu 24.04 on AMD64 or ARM64, including an unprivileged LXC with systemd and persistent local storage. Other distributions haven't been checked. Keep your email provider and existing MX records.
 
+For Proxmox, the [community-scripts launcher](../ct/dakia.sh) automates installation and upgrades with an offline backup first. See [Proxmox setup](proxmox-lxc.md).
+
 ## Before you start
 
 You need administrator access, outbound HTTPS and mail-provider connections, and an HTTPS address routed through a reverse proxy. Dakia listens only on loopback.
@@ -94,6 +96,8 @@ Provider configuration belongs in `/etc/dakia/dakia.env`. Secret files must be r
 ## Updates and recovery
 
 Keep `/var/lib/dakia` and `/var/lib/dakia-secrets` across upgrades. Never replace or regenerate the key for existing data. Backups contain private mail and credentials.
+
+For a standard Proxmox LXC installation, re-run `bash ct/dakia.sh` as root **inside the guest** from a current checkout. It downloads and checksum-verifies the latest stable native release, backs up the stopped application, then activates and checks it. See [LXC upgrades](proxmox-lxc.md#upgrade-an-existing-lxc) for supported layouts and failure handling. The following manual procedure also covers customized native installations; external databases need their own consistent backup procedure.
 
 Before upgrading, stop the service and create an offline snapshot with the **installed** runtime. Run the following in one shell, stopping if any command fails:
 

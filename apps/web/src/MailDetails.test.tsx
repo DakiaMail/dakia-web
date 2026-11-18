@@ -8,14 +8,27 @@ import { page as mail } from "../browser/fixtures";
 beforeEach(()=>vi.stubGlobal("matchMedia", vi.fn(()=>({matches:false,addEventListener:vi.fn(),removeEventListener:vi.fn()}))));
 afterEach(()=>{cleanup();vi.unstubAllGlobals();});
 const message=():Message=>({...mail.rows[0],classification:{...classification(mail.rows[0]),status:"ready",types:["verification_code"],attention:[{label:"Verification code",expires_at:new Date(Date.now()+60000).toISOString()}],details:[{email_type:"verification_code",label:"Code",value:"123456",action:"copy"}]}});
+it("uses a compact descriptive copy label without revealing the reference", async()=>{
+ const m=message();m.classification!.types=["order"];m.classification!.details=[{email_type:"order",label:"Order reference",value:"fixture-order-with-a-very-long-reference",action:"copy"}];
+ const writeText=vi.fn().mockResolvedValue(undefined);vi.stubGlobal("navigator",{clipboard:{writeText}});
+ render(<MailDetails message={m}/>,{wrapper:DakiaProvider});
+ fireEvent.click(screen.getByRole("button",{name:"Copy order number"}));
+ expect(writeText).toHaveBeenCalledWith("fixture-order-with-a-very-long-reference");
+ expect(screen.queryByText(/fixture-order-with/)).toBeNull();
+ await screen.findByText("Copied");
+});
+it.each([["flight_booking", "Copy booking reference"], ["shipping", "Copy shipping reference"]] as const)("gives %s references a descriptive action", (type,label)=>{
+ const m=message();m.classification!.types=[type];m.classification!.details=[{email_type:type,label:"Reference",value:"SYNTHETIC-REF",action:"copy"}];
+ render(<MailDetails message={m}/>,{wrapper:DakiaProvider});expect(screen.getByRole("button",{name:label})).toBeTruthy();
+});
 it("copies the exact detected code without opening the message",async()=>{
  const writeText=vi.fn().mockResolvedValue(undefined);vi.stubGlobal("navigator",{clipboard:{writeText}});
- render(<MailDetails message={message()}/>,{wrapper:DakiaProvider});fireEvent.click(screen.getByRole("button",{name:"Code: 123456"}));
+ render(<MailDetails message={message()}/>,{wrapper:DakiaProvider});fireEvent.click(screen.getByRole("button",{name:"Copy code"}));
  expect(writeText).toHaveBeenCalledWith("123456");await screen.findByText("Copied");
 });
 it("keeps expired codes copyable and never invents facts for a manually added type",()=>{
  const m=message();m.classification!.attention[0].expires_at="2000-01-01T00:00:00.000Z";m.classification!.types.push("flight_booking");render(<MailDetails message={m}/>,{wrapper:DakiaProvider});
- expect(screen.getByRole("button", {name:"Code: 123456"})).toBeTruthy();expect(screen.queryByText("Codes · Flights")).toBeNull();
+ expect(screen.getByRole("button", {name:"Copy code"})).toBeTruthy();expect(screen.queryByText("Codes · Flights")).toBeNull();
 });
 it("shows the destination domain and rejects unsafe detected links",()=>{
  const m=message();m.classification!.types=["shipping"];m.classification!.details=[{email_type:"shipping",label:"Track shipment",value:"https://carrier.example/track/123",action:"open"},{email_type:"shipping",label:"Unsafe",value:"javascript:alert(1)",action:"open"}];

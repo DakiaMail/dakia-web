@@ -3,6 +3,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { Account, ConnectAccount, DiscoveredSettings } from "@dakia/api-types";
 import { request, api } from "./api";
 import { Modal, ErrorNotice } from "./ui";
+import gmailLogo from "./gmail-logo.png";
+function GmailLogo() {
+  return <img src={gmailLogo} width="24" height="24" alt="" aria-hidden="true" />;
+}
 export function AccountSetup({
   onClose,
   account,
@@ -11,32 +15,40 @@ export function AccountSetup({
   account?: Account | null;
 }) {
   const client = useQueryClient();
-  const [provider, setProvider] = useState<Account["provider"]>(
+  const [selectedProvider, setProvider] = useState<Account["provider"]>(
     account?.provider || "imap",
   );
   const [gmailEnabled, setGmailEnabled] = useState<boolean | null>(null);
+  const [gmailFailed, setGmailFailed] = useState(false);
+  const [statusAttempt, setStatusAttempt] = useState(0);
   const [microsoftEnabled, setMicrosoftEnabled] = useState<boolean | null>(null);
   const [appPassword, setAppPassword] = useState(false);
   useEffect(() => {
     let active = true;
+    setGmailEnabled(null);
+    setGmailFailed(false);
     void request<{ enabled: boolean }>("/accounts/gmail").then((result) => {
+      if (typeof result.enabled !== "boolean") throw new Error("Invalid sign-in status");
       if (active) setGmailEnabled(result.enabled);
-    }).catch(() => { if (active) setGmailEnabled(false); });
+    }).catch(() => { if (active) setGmailFailed(true); });
     void request<{ enabled: boolean }>("/accounts/microsoft").then((result) => {
       if (active) setMicrosoftEnabled(result.enabled);
     }).catch(() => { if (active) setMicrosoftEnabled(false); });
     return () => { active = false; };
-  }, []);
-  const googleSignIn = provider === "gmail" && gmailEnabled === true && !appPassword;
-  const microsoftSignIn = provider === "microsoft" && microsoftEnabled === true;
-  const signIn = googleSignIn || microsoftSignIn;
-  const checkingSignIn = (provider === "gmail" && gmailEnabled === null) || (provider === "microsoft" && microsoftEnabled === null);
+  }, [statusAttempt]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>();
   const [saved, setSaved] = useState<string>();
   const [existingId, setExistingId] = useState(account?.id);
   const [email, setEmail] = useState(account?.email || "");
   const [settings, setSettings] = useState<DiscoveredSettings | null>(null);
+  const gmailAddress = /^[^\s@]+@(gmail\.com|googlemail\.com)$/i.test(email.trim());
+  const provider = selectedProvider === "imap" && (gmailAddress || settings?.provider === "gmail") ? "gmail" : selectedProvider;
+  const googleSignIn = provider === "gmail" && gmailEnabled === true && !appPassword;
+  const microsoftSignIn = provider === "microsoft" && microsoftEnabled === true;
+  const signIn = googleSignIn || microsoftSignIn;
+  const checkingSignIn = (provider === "gmail" && gmailEnabled === null && !gmailFailed && !appPassword) || (provider === "microsoft" && microsoftEnabled === null);
+  const gmailUnavailable = provider === "gmail" && !appPassword && gmailEnabled !== true;
   const [manual, setManual] = useState(false);
   const [discovering, setDiscovering] = useState(false);
   const [fields, setFields] = useState({ imap_host: "", imap_port: 993, imap_tls: "implicit", smtp_host: "", smtp_port: 465, smtp_tls: "implicit", username: "" });
@@ -70,6 +82,7 @@ export function AccountSetup({
     setManual(true);
   }
   async function connect(form: HTMLFormElement) {
+    if (gmailUnavailable || checkingSignIn || busy) return;
     setBusy(true);
     setError(undefined);
     const data = new FormData(form);
@@ -139,12 +152,13 @@ export function AccountSetup({
         }}
       >
         <ErrorNotice error={error} />
+        {provider === "imap" && <button type="button" className="gmail-connect" disabled={busy || !!saved} onClick={() => { setProvider("gmail"); setAppPassword(false); }}><GmailLogo /> Connect Gmail</button>}
         <label>
           Provider
           <select title="Email provider"
             value={provider}
             disabled={busy || !!saved}
-            onChange={(e) => setProvider(e.target.value as typeof provider)}
+            onChange={(e) => { setProvider(e.target.value as typeof provider); setAppPassword(false); }}
           >
             <option value="gmail">Gmail</option>
             <option value="microsoft">Microsoft (Outlook / Microsoft 365)</option>
@@ -169,6 +183,7 @@ export function AccountSetup({
             onChange={(e) => {
               ++generation.current;
               setEmail(e.target.value);
+              setAppPassword(false);
               setSettings(null);
               setManual(false);
               setFields({ imap_host: "", imap_port: 993, imap_tls: "implicit", smtp_host: "", smtp_port: 465, smtp_tls: "implicit", username: "" });
@@ -179,14 +194,13 @@ export function AccountSetup({
             disabled={busy || !!saved}
           />
         </label>
-        {provider === "gmail" && gmailEnabled && <label className="checkbox-label">
-          <input type="checkbox" checked={appPassword} disabled={busy || !!saved} onChange={(e) => setAppPassword(e.target.checked)} />
-          Use an app password
-        </label>}
+        {provider === "gmail" && <button type="button" className="gmail-alternative" disabled={busy || !!saved} onClick={() => setAppPassword(!appPassword)}>{appPassword ? "Use Google sign-in instead" : "Use app password instead"}</button>}
         {checkingSignIn && <p role="status">Checking sign-in options…</p>}
+        {provider === "gmail" && !appPassword && gmailFailed && <p role="alert">Couldn’t check Google sign-in. <button type="button" onClick={() => setStatusAttempt(value => value + 1)}>Try again</button></p>}
+        {provider === "gmail" && !appPassword && gmailEnabled === false && <p role="alert">Google sign-in isn’t set up on this Dakia instance.</p>}
         {provider === "microsoft" && microsoftEnabled === false && <p role="status">Microsoft sign-in is not configured. Ask your Dakia operator to follow the Microsoft setup guide.</p>}
         {provider === "microsoft" && microsoftEnabled && <p>Connect Outlook.com, Hotmail, or Microsoft 365 securely with Microsoft. No mail password is stored.</p>}
-        {provider !== "microsoft" && !googleSignIn && !checkingSignIn && <label>
+        {provider !== "microsoft" && (provider !== "gmail" || appPassword) && !checkingSignIn && <label>
           {provider === "gmail" ? "App password" : "Password"}
           <input
             name="password"
@@ -250,13 +264,13 @@ export function AccountSetup({
               Edit connection
             </button>
           )}
-          <button title="Connect account" className="primary" disabled={busy || checkingSignIn || (provider === "microsoft" && !microsoftEnabled) || discovering || (provider === "imap" && !settings && !manual)}>
+          <button title="Connect account" className="primary" disabled={busy || gmailUnavailable || checkingSignIn || (provider === "microsoft" && !microsoftEnabled) || discovering || (provider === "imap" && !settings && !manual)}>
             {busy
               ? signIn ? `Opening ${microsoftSignIn ? "Microsoft" : "Google"}…` : "Checking connection…"
               : microsoftSignIn
                 ? "Continue with Microsoft"
-              : googleSignIn
-                ? "Continue with Google"
+              : provider === "gmail" && !appPassword
+                ? <><GmailLogo /> Connect Gmail</>
               : saved
                 ? "Retry connection"
                 : "Connect account"}

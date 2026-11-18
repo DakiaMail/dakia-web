@@ -40,6 +40,8 @@ for (const [theme, width, height] of [
     const dialog = page.getByRole("dialog", { name: "Connect an account" });
     await expect(dialog.getByRole("button", { name: "Close", exact: true })).toBeFocused();
     await page.keyboard.press("Tab");
+    await expect(dialog.getByRole("button", { name: "Connect Gmail", exact: true })).toBeFocused();
+    await page.keyboard.press("Tab");
     await expect(dialog.getByRole("combobox")).toBeFocused();
     await page.keyboard.press("m");
     await expect(dialog.getByRole("combobox")).toHaveValue("microsoft");
@@ -64,6 +66,8 @@ for (const [theme, width, height] of [
     await expect(trigger).toBeFocused();
     await page.keyboard.press("Enter");
     await expect(dialog.getByRole("button", { name: "Close", exact: true })).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(dialog.getByRole("button", { name: "Connect Gmail", exact: true })).toBeFocused();
     await page.keyboard.press("Tab");
     await page.keyboard.press("m");
     await expect(dialog.getByRole("button", { name: "Continue with Microsoft" })).toBeEnabled();
@@ -113,6 +117,8 @@ test("Microsoft unavailable setup never asks for a password", async ({ page }) =
   await page.goto("/");
   await page.getByRole("button", { name: "Connect account", exact: true }).last().focus();
   await page.keyboard.press("Enter");
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("dialog").getByRole("button", { name: "Connect Gmail", exact: true })).toBeFocused();
   await page.keyboard.press("Tab");
   await page.keyboard.press("m");
   const dialog = page.getByRole("dialog");

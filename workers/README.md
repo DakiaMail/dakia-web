@@ -23,7 +23,13 @@ DAKIA_MODEL_CACHE=/operator-owned/model-cache node workers/translation/main.mjs
 DAKIA_VAPID_FILE=/operator-owned/vapid.json node workers/push/main.mjs
 ```
 
-The private VAPID file contains `subject`, `publicKey` and `privateKey`. The provisioning helper requires `DAKIA_VAPID_FILE` and `DAKIA_VAPID_SUBJECT` (an operator contact HTTPS URL or mailto URI) and uses create-only writes, preserving existing keys. Never commit keys or pass their contents in shell arguments. The Rust server owns persistent subscriptions, deduplication, retry leases and account/user authorization.
+The private VAPID file contains `subject`, `publicKey` and `privateKey`. Native runtime and container entrypoints enable server-side Web Push automatically before starting the server. They use `vapid.json` beside `DAKIA_CREDENTIAL_KEY_FILE` (normally `/var/lib/dakia-secrets/vapid.json` natively or `/secrets/vapid.json` in Compose), with `DAKIA_ORIGIN` as the HTTPS contact subject. Override `DAKIA_VAPID_FILE` or `DAKIA_VAPID_SUBJECT` for an existing operator-owned key file or another HTTPS/mailto contact. Fresh provisioning needs a writable persistent secrets directory owned by the server user. No shared key is shipped.
+
+The helper validates existing private regular files without modifying them. New keys are mode 0600, created as the service user and atomically published with a create-only hard link, so concurrent provisioning never replaces a key or reads a partial write. Keep the file on a local filesystem supporting hard links. Existing valid keys need no subject override and can be mounted read-only. Invalid, unreadable, symlinked or group/other-readable key files, invalid/missing first-start subject, missing dependencies and write failures stop startup rather than silently disabling notifications. Repair permissions or configuration without deleting existing keys. Preserve keys and their configured paths across upgrades and backups to retain subscriptions.
+
+For direct helper use, set `DAKIA_VAPID_FILE` and, for a new file, `DAKIA_VAPID_SUBJECT`. Direct invocation of `dakia-server` bypasses the supported launchers and still requires explicit Web Push configuration. Never commit keys or pass their contents in shell arguments. The Rust server owns persistent subscriptions, deduplication, retry leases and account/user authorization.
+
+Server readiness does not grant browser permission or subscribe devices. Users must choose Enable notifications on each device over HTTPS; iOS/iPadOS requires a supported installed Home Screen web app. No test notification is sent by provisioning.
 
 ## Translation
 

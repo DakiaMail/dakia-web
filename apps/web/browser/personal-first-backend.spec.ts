@@ -29,7 +29,15 @@ test("personal-first inbox, independent attention, and durable keyboard correcti
   await expect(row(page,2)).toBeVisible(); await expect(page.locator(".message-row")).toHaveCount(1);
   await page.getByRole("button",{name:"Orders",exact:true}).click(); await expect(row(page,2)).toBeVisible();
   await page.getByRole("button",{name:"Flights",exact:true}).click(); await expect(row(page,3)).toBeVisible();
-  await expect(row(page,3).getByText("Reference: ABC123",{exact:true})).toBeVisible();
+  await expect(row(page,3).getByRole("button",{name:"Copy booking reference",exact:true})).toBeVisible();
+  await page.evaluate(() => Object.defineProperty(navigator, "clipboard", { configurable: true,
+    value: { writeText: async (value: string) => { (window as typeof window & { copiedReference?: string }).copiedReference = value; } } }));
+  await row(page,3).getByRole("button",{name:"Copy booking reference",exact:true}).click();
+  expect(await page.evaluate(() => (window as typeof window & { copiedReference?: string }).copiedReference)).toBe("ABC123");
+  await expect(page.locator('.conversation')).toHaveCount(0);
+  await open(page,3);
+  await expect(page.locator('.reader-mail-details .detail-value')).toHaveText("ABC123");
+  await page.keyboard.press("Escape");
   await page.getByRole("button",{name:"All automated",exact:true}).click(); await expect(row(page,7)).toBeVisible();
   await expect(page.locator('.detected-types')).toHaveCount(0);
   await row(page,2).locator('.message-open').click();

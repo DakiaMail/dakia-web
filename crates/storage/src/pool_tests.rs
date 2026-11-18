@@ -60,10 +60,23 @@ async fn cancelled_writer_begin_does_not_poison_the_account_pool() {
         task::{Context, Poll},
     };
 
-    struct Ready(tokio::sync::Notify);
+    struct Ready {
+        notified: tokio::sync::Notify,
+        released: std::sync::Mutex<bool>,
+        release: std::sync::Condvar,
+    }
     impl futures_util::task::ArcWake for Ready {
         fn wake_by_ref(ready: &Arc<Self>) {
-            ready.0.notify_one();
+            // The BEGIN response wakes us on SQLx's worker thread. Keep that
+            // worker parked until cancellation, so it cannot service UnlockDb
+            // and finish custom-statement validation inside our second poll.
+            let released = ready.released.lock().unwrap();
+            ready.notified.notify_one();
+            let (_released, timeout) = ready
+                .release
+                .wait_timeout_while(released, std::time::Duration::from_secs(5), |done| !*done)
+                .unwrap();
+            assert!(!timeout.timed_out(), "BEGIN cancellation gate timed out");
         }
     }
 
@@ -76,16 +89,22 @@ async fn cancelled_writer_begin_does_not_poison_the_account_pool() {
         .unwrap();
     let mut connection = db.acquire().await.unwrap();
     let mut begin = Box::pin(connection.begin_with("BEGIN IMMEDIATE"));
-    let ready = Arc::new(Ready(tokio::sync::Notify::new()));
+    let ready = Arc::new(Ready {
+        notified: tokio::sync::Notify::new(),
+        released: std::sync::Mutex::new(false),
+        release: std::sync::Condvar::new(),
+    });
     let waker = futures_util::task::waker(ready.clone());
     let mut context = Context::from_waker(&waker);
     assert!(matches!(begin.as_mut().poll(&mut context), Poll::Pending));
     // Let BEGIN execute, then acknowledge it and cancel during handle validation.
-    tokio::time::timeout(std::time::Duration::from_secs(5), ready.0.notified())
+    tokio::time::timeout(std::time::Duration::from_secs(5), ready.notified.notified())
         .await
         .unwrap();
     assert!(matches!(begin.as_mut().poll(&mut context), Poll::Pending));
     drop(begin);
+    *ready.released.lock().unwrap() = true;
+    ready.release.notify_all();
     connection.ping().await.unwrap();
     assert!(connection.is_in_transaction());
     sqlx::query("INSERT INTO writes VALUES(99)")

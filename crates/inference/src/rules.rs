@@ -51,6 +51,7 @@ impl Rules {
         ensure!(!rules.revision.trim().is_empty(), "missing rules revision");
         for key in [
             "automated_sender",
+            "automated_sender_address",
             "receipt_subject",
             "delivery_role_sender",
             "flight_number",

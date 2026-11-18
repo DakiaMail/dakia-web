@@ -362,7 +362,10 @@ pub fn detect(input: &EmailClassificationInput) -> Classification {
         .any(|s| s == "bulk delivery service header present");
     let automated_sender = RULES
         .pattern("automated_sender")
-        .is_match(input.from_address.split('@').next().unwrap_or("").trim());
+        .is_match(input.from_address.split('@').next().unwrap_or("").trim())
+        || RULES
+            .pattern("automated_sender_address")
+            .is_match(input.from_address.trim());
     let role_sender = RULES
         .pattern("delivery_role_sender")
         .is_match(input.from_address.split('@').next().unwrap_or(""));
@@ -839,6 +842,28 @@ mod tests {
         ))
         .attention
         .is_empty());
+    }
+    #[test]
+    fn notion_notifications_match_only_the_exact_sender_address() {
+        for (address, expected) in [
+            ("notify@updates.notion.com", InboxKind::Automated),
+            (" NOTIFY@UPDATES.NOTION.COM ", InboxKind::Automated),
+            ("notify@example.test", InboxKind::Personal),
+            ("alex@updates.notion.com", InboxKind::Personal),
+            (
+                "notify@updates.notion.com.example.test",
+                InboxKind::Personal,
+            ),
+            ("other-notify@updates.notion.com", InboxKind::Personal),
+        ] {
+            for subject in ["Workspace activity", "Re: Hello", "Invitation: lunch"] {
+                let mut m = mail(subject, "You have been invited").with_known_correspondence(true);
+                m.from_address = address.into();
+                assert_eq!(detect(&m).kind, expected, "{address}: {subject}");
+                m.classification_signals = "Reply thread header present".into();
+                assert_eq!(detect(&m).kind, expected, "{address}: {subject}");
+            }
+        }
     }
     #[test]
     fn automated_senders_do_not_need_headers_and_stay_automated_in_threads() {

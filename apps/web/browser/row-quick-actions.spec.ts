@@ -55,7 +55,7 @@ for (const [kind, label] of [["archive", "Archive message"], ["trash", "Move mes
     if (failed) {
       await expect(target).toBeVisible();
       await expect(target.getByRole("button", { name: label, exact: true })).toBeEnabled();
-      await expect(page.getByRole("alert")).toBeVisible();
+      await expect(page.locator('.error[role="alert"]')).toBeVisible();
     } else {
       await expect.poll(() => page.evaluate(() => JSON.parse(sessionStorage.getItem("dakia-pending-operations:quick-actions-fixture") || "[]").length)).toBe(0);
       await expect(target).toHaveCount(0);

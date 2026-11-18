@@ -1,6 +1,6 @@
 {
   "format_version": 1,
-  "revision": "personal-first-6",
+  "revision": "personal-first-7",
   "type_phrases": [
     {
       "type": "receipt",
@@ -183,6 +183,7 @@
     ]
   },
   "patterns": {
+    "automated_sender_address": "(?i)^notify@updates[.]notion[.]com$",
     "automated_sender": "(?i)^(?:(?:no[-_.]?(?:reply|replies|response)|do[-_.]?not[-_.]?(?:reply|respond)|auto(?:mated|matic)?[-_.]?(?:repl(?:y|ies)|response|mail(?:er)?|notifications?)|info|automated|autoresponder|unmonitored|notifications?|alerts?|updates?|newsletters?|news|announcements?|bulletins?|digests?|reminders?|mailing[-_.]?list|mailer[-_.]?daemon|postmaster|bounces?|robot|bot)[0-9]*(?:[+._-].*)?|.+[._-](?:no[-_.]?reply|do[-_.]?not[-_.]?reply)[0-9]*)$",
     "valid_amount": "(?i)^(?:(?:USD|EUR|GBP|\\$|€|£)\\s*\\d+(?:[., \\x{00a0}\\x{202f}]\\d{3})*(?:[.,]\\d{2})?|\\d+(?:[., \\x{00a0}\\x{202f}]\\d{3})*(?:[.,]\\d{2})?\\s*(?:USD|EUR|GBP|€|£|\\$))$",
     "amount": "(?i)\\b(?:total(?: paid| due)?|amount paid|amount due|payment of)\\s*:?\\s*((?:USD|EUR|GBP|\\$|€|£)\\s*\\d[\\d., \\x{00a0}\\x{202f}]*|\\d[\\d., \\x{00a0}\\x{202f}]*\\s*(?:USD|EUR|GBP|€|£|\\$))(?:\\s|[;:!?)]|$)",

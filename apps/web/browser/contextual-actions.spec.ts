@@ -15,14 +15,15 @@ const fixtures: Message[] = [
   ["Temu", "Your weekly picks are ready", "newsletter"],
   ["A very long sender name for a narrow inbox layout", "A long subject with international text: 東京 · مرحباً · delivery update", "order"],
   ["Unknown reference", "No detected reference available", "order"],
+  ["Cloud Harbour", "A receipt with a plain total", "receipt"],
   ["Final fixture", "End of the synthetic inbox", "newsletter"],
 ].map(([sender, subject, kind], i) => ({
   ...mail.rows[0], id: `context-${i}`, provider_id: `fixture-${i}`, thread_id: `context-${i}`,
   account_id: i === 6 ? "missing-account" : "personal", sender: { name: sender, email: `fixture-${i}@example.invalid` },
   subject, preview: "Synthetic fixture message. No live mail or private data.", unread: i === 1 || i === 2,
   received_at: `2026-11-${String(18-i).padStart(2,"0")}T08:42:00Z`,
-  classification: { ...classification(mail.rows[0]), status: "ready", kind: "automated", types: kind === "order" ? ["order", "newsletter"] : ["newsletter"], attention: [],
-    details: kind === "order" ? [{ email_type: "order", label: "Reference", value: i === 6 ? "" : reference, action: "copy" }, { email_type: "order", label: "Invoice reference", value: i === 6 ? "" : "SYNTHETIC-INVOICE", action: "copy" }] : [] },
+  classification: { ...classification(mail.rows[0]), status: "ready", kind: "automated", types: kind === "order" ? ["order", "newsletter"] : kind === "receipt" ? ["receipt"] : ["newsletter"], attention: [],
+    details: kind === "order" ? [{ email_type: "order", label: "Reference", value: i === 6 ? "" : reference, action: "copy" }, { email_type: "order", label: "Invoice reference", value: i === 6 ? "" : "SYNTHETIC-INVOICE", action: "copy" }] : kind === "receipt" ? [{ email_type: "receipt", label: "Total", value: "EUR 22.00", action: null }] : [] },
 }));
 async function fixture(page: Page, stubClipboard = true) {
   const writes: string[] = [];
@@ -85,6 +86,10 @@ for(const width of [320,390,1480,2560]) test(`compact contextual actions at ${wi
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   const account=await row.locator(".account-label").boundingBox();
   expect(account!.y+account!.height <= before!.y+1 || account!.x >= before!.x+before!.width).toBe(true);
+  const receipt=page.locator(".message-row").filter({hasText:"A receipt with a plain total"});
+  const total=(await receipt.getByText("Total: EUR 22.00",{exact:true}).boundingBox())!;
+  const receiptAccount=(await receipt.locator(".account-label").boundingBox())!;
+  expect(total.x+total.width<=receiptAccount.x || total.y+total.height<=receiptAccount.y || receiptAccount.y+receiptAccount.height<=total.y).toBe(true);
   await expect(page.locator(".message-row").filter({hasText:"No detected reference available"}).getByRole("button",{name:"Copy order number"})).toHaveCount(0);
   if(width<601) {
     const listBox=(await page.locator(".message-list").boundingBox())!;

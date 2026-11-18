@@ -958,6 +958,7 @@ test("setup sends credentials only in CSRF-protected request body", async ({
   await page.getByLabel("Account name", { exact: true }).fill("Fixture");
   await page.getByLabel("Email", { exact: true }).fill("owner@example.com");
   await page.getByRole("combobox", { name: "Provider", exact: true }).selectOption("gmail");
+  await page.getByRole("button", { name: "Use app password instead" }).click();
   await page
     .getByLabel("App password", { exact: true })
     .fill("test-only-value");
@@ -1003,6 +1004,7 @@ test("Gmail reconnect retries and edits the same account after a rejected probe"
   await page.getByRole("button", { name: "Reconnect", exact: true }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByLabel("Email", { exact: true })).toHaveValue(gmail.email);
+  await dialog.getByRole("button", { name: "Use app password instead" }).click();
   await dialog.getByLabel("App password", { exact: true }).fill("first-fixture-only");
   await dialog.getByRole("button", { name: "Connect account", exact: true }).click();
   await expect(dialog.getByText("imap authentication rejected", { exact: true })).toBeVisible();

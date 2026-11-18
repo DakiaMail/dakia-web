@@ -12,7 +12,7 @@ function fixture() {
   const app = path.join(dir, 'app');
   const tools = path.join(dir, 'tools');
   fs.mkdirSync(tools);
-  for (const file of ['dakia-server', 'dakia-admin', 'dakia-healthcheck', 'dakia-classifier-check', 'dakia-search-model-check', 'libonnxruntime.so.1', 'web/index.html', 'workers/translation/smoke.mjs', 'search-model/model.onnx', 'search-model/tokenizer.json', 'licenses/Node-LICENSE']) {
+  for (const file of ['dakia-server', 'dakia-admin', 'dakia-healthcheck', 'dakia-classifier-check', 'dakia-search-model-check', 'libonnxruntime.so.1', 'web/index.html', 'workers/push/start.sh', 'workers/push/provision.mjs', 'workers/push/main.mjs', 'workers/push/service.mjs', 'workers/push/node_modules/web-push/package.json', 'workers/translation/smoke.mjs', 'search-model/model.onnx', 'search-model/tokenizer.json', 'licenses/Node-LICENSE']) {
     const target = path.join(app, file);
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, 'fixture\n', { mode: 0o755 });
@@ -39,7 +39,7 @@ for (const arch of ['amd64', 'arm64']) test(`packages the complete ${arch} runti
     const archive = `dakia-v0.1.0-linux-${arch}.tar.gz`;
     const unpack = path.join(dir, 'unpack'); fs.mkdirSync(unpack);
     assert.equal(spawnSync('tar', ['-xzf', path.join(out, archive), '-C', unpack]).status, 0);
-    for (const name of ['node', 'dakia', 'dakia.service', 'dakia-server', 'search-model/model.onnx', 'workers/translation/smoke.mjs', 'licenses/Node-LICENSE', 'libonnxruntime.so.1']) assert(fs.existsSync(path.join(unpack, name)), name);
+    for (const name of ['node', 'dakia', 'dakia.service', 'dakia-server', 'search-model/model.onnx', 'workers/push/start.sh', 'workers/push/provision.mjs', 'workers/push/main.mjs', 'workers/push/service.mjs', 'workers/push/node_modules/web-push/package.json', 'workers/translation/smoke.mjs', 'licenses/Node-LICENSE', 'libonnxruntime.so.1']) assert(fs.existsSync(path.join(unpack, name)), name);
     assert.equal(fs.readFileSync(path.join(unpack, 'VERSION'), 'utf8'), 'v0.1.0\n');
     assert.equal(spawnSync('shasum', ['-a', '256', '-c', `${archive}.sha256`], { cwd: out }).status, 0);
     assert.match(fs.readFileSync(path.join(dir, 'commands'), 'utf8'), /"rm","fixture-container"/);
@@ -52,6 +52,13 @@ test('also packages runtimes with statically linked ONNX', () => {
     fs.unlinkSync(path.join(app, 'libonnxruntime.so.1'));
     const result = run();
     assert.equal(result.status, 0, result.stderr);
+  } finally { cleanup(); }
+});
+test('missing push bootstrap assets fail packaging', () => {
+  const { app, run, cleanup } = fixture();
+  try {
+    fs.rmSync(path.join(app, 'workers/push'), { recursive: true, force: true });
+    assert.notEqual(run().status, 0);
   } finally { cleanup(); }
 });
 test('missing runtime assets fail packaging and clean up the temporary container', () => {
@@ -74,10 +81,13 @@ test('launcher uses bundled assets and Node, preserving persistent operator path
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dakia launcher '));
   try {
     fs.copyFileSync(path.join(root, 'deploy/native/dakia'), path.join(dir, 'dakia'));
+    fs.symlinkSync(process.execPath, path.join(dir, 'node'));
+    fs.symlinkSync(path.join(root, 'workers'), path.join(dir, 'workers'));
+    fs.mkdirSync(path.join(dir, 'secrets'), { mode: 0o700 });
     fs.writeFileSync(path.join(dir, 'dakia-server'), '#!/bin/sh\nprintf "%s\\n" "$DAKIA_NODE" "$DAKIA_WEB_ROOT" "$DAKIA_DATA_DIR" "$SQLITE_TMPDIR" "$DAKIA_LISTEN" "$LD_LIBRARY_PATH"\n', { mode: 0o755 });
-    const result = spawnSync('sh', [path.join(dir, 'dakia')], { encoding: 'utf8', env: { ...process.env, DAKIA_DATA_DIR: '/private-data', DAKIA_CREDENTIAL_KEY_FILE: '/private-key', SQLITE_TMPDIR: '/private-temp', DAKIA_LISTEN: '127.0.0.1:3025' } });
+    const result = spawnSync('sh', [path.join(dir, 'dakia')], { encoding: 'utf8', env: { ...process.env, DAKIA_DATA_DIR: '/private-data', DAKIA_CREDENTIAL_KEY_FILE: path.join(dir, 'secrets/credential-key'), DAKIA_ORIGIN: 'https://mail.example.com', SQLITE_TMPDIR: '/private-temp', DAKIA_LISTEN: '127.0.0.1:3025' } });
     assert.equal(result.status, 0, result.stderr);
-    assert.deepEqual(result.stdout.split('\n').slice(0, 5), [path.join(dir, 'node'), path.join(dir, 'web'), '/private-data', '/private-temp', '127.0.0.1:3025']);
+    assert.deepEqual(result.stdout.trim().split('\n').slice(-6, -1), [path.join(dir, 'node'), path.join(dir, 'web'), '/private-data', '/private-temp', '127.0.0.1:3025']);
     const missing = spawnSync('sh', [path.join(dir, 'dakia')], { env: { ...process.env, DAKIA_DATA_DIR: '', DAKIA_CREDENTIAL_KEY_FILE: '' } });
     assert.notEqual(missing.status, 0);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }

@@ -24,6 +24,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - run: npm ci --prefix workers/push --ignore-scripts
       - name: Check upgrade orchestration and release format
         run: |
           sh -n scripts/upgrade.sh
@@ -32,7 +33,7 @@ jobs:
           node --test scripts/tests/proxmox-lxc.test.mjs
           python3 -m unittest discover -s scripts/tests -p test_upgrade_native.py
           for script in scripts/package-runtime.sh scripts/check-native-runtime.sh deploy/native/dakia; do sh -n "$script"; done
-          node --test scripts/tests/native-runtime.test.mjs
+          node --test scripts/tests/native-runtime.test.mjs scripts/tests/push-bootstrap.test.mjs
           node --test scripts/tests/upgrade*.test.mjs scripts/tests/install.test.mjs
           if [ "$GITHUB_REF_TYPE" = tag ]; then
             node --input-type=module -e 'import {version} from "./scripts/upgrade.mjs"; if(!version(process.env.VERSION)) throw Error("Expected a semantic vX.Y.Z release tag")'

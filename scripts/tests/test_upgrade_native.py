@@ -211,6 +211,34 @@ class NativeUpgrade(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'External databases'):
                 preflight(self.old)
 
+    def test_notification_defaults_and_overrides_remain_upgradeable(self):
+        configured = dict(self.live)
+        self.live.update({'DAKIA_NODE': str(self.old / 'node'), 'DAKIA_WEB_ROOT': str(self.old / 'web'), 'DAKIA_WORKERS': str(self.old / 'workers'), 'DAKIA_SEARCH_MODEL_DIR': str(self.old / 'search-model'), 'DAKIA_MODEL_CACHE': str(updater.DATA / 'models'), 'DAKIA_LISTEN': '127.0.0.1:3025'})
+        def output(args):
+            if 'User' in args:
+                return b'dakia\n'
+            if 'DropInPaths' in args:
+                return b''
+            return b'\0'.join(f'{k}={v}'.encode() for k, v in configured.items()) + b'\0'
+        with patch.object(updater, 'output', output), patch.object(updater.platform, 'freedesktop_os_release', return_value={'ID': 'ubuntu', 'VERSION_ID': '24.04'}):
+            preflight = self.original_preflight
+            preflight(self.old)
+            file = updater.SECRETS / 'vapid.json'
+            file.write_text('{}')
+            self.live.update(DAKIA_VAPID_FILE=str(file), DAKIA_VAPID_SUBJECT=configured['DAKIA_ORIGIN'])
+            preflight(self.old)
+            configured.update(DAKIA_VAPID_FILE='', DAKIA_VAPID_SUBJECT='')
+            preflight(self.old)
+            for key, value in [('DAKIA_VAPID_FILE', str(updater.SECRETS / 'custom.json')), ('DAKIA_VAPID_SUBJECT', 'mailto:owner@example.test')]:
+                configured[key] = value
+                with self.assertRaisesRegex(RuntimeError, 'pending'):
+                    preflight(self.old)
+                self.live[key] = value
+                if key == 'DAKIA_VAPID_FILE':
+                    Path(value).write_text('{}')
+                _, files = preflight(self.old)
+                self.assertEqual(files['DAKIA_VAPID_FILE'], Path(self.live['DAKIA_VAPID_FILE']))
+
     original_preflight = staticmethod(updater.preflight)
 
 

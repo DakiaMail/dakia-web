@@ -88,6 +88,22 @@ async fn cancelled_writer_begin_does_not_poison_the_account_pool() {
         .await
         .unwrap();
     let mut connection = db.acquire().await.unwrap();
+    // The first poll must stop at the BEGIN response, not at handle validation:
+    // a fast worker can otherwise execute BEGIN before that poll even returns.
+    let (execute, wait_for_poll) = std::sync::mpsc::channel();
+    let mut wait_for_poll = Some(wait_for_poll);
+    connection
+        .lock_handle()
+        .await
+        .unwrap()
+        .set_progress_handler(1, move || {
+            if let Some(wait_for_poll) = wait_for_poll.take() {
+                return wait_for_poll
+                    .recv_timeout(std::time::Duration::from_secs(5))
+                    .is_ok();
+            }
+            true
+        });
     let mut begin = Box::pin(connection.begin_with("BEGIN IMMEDIATE"));
     let ready = Arc::new(Ready {
         notified: tokio::sync::Notify::new(),
@@ -97,6 +113,7 @@ async fn cancelled_writer_begin_does_not_poison_the_account_pool() {
     let waker = futures_util::task::waker(ready.clone());
     let mut context = Context::from_waker(&waker);
     assert!(matches!(begin.as_mut().poll(&mut context), Poll::Pending));
+    execute.send(()).unwrap();
     // Let BEGIN execute, then acknowledge it and cancel during handle validation.
     tokio::time::timeout(std::time::Duration::from_secs(5), ready.notified.notified())
         .await

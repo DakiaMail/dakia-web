@@ -8,6 +8,7 @@ import { api } from "./api";
 import { KeyHint } from "./KeyboardHints";
 import { ErrorNotice } from "./ui";
 import { Translation } from "./Translation";
+import { MailDetails } from "./MailDetails";
 import { Unsubscribe } from "./Unsubscribe";
 
 import type { ReplyMode } from "./reply";
@@ -156,6 +157,7 @@ function ConversationMessage({ message, initiallyOpen, ...props }: Props & { mes
         ? <p role="status">This message is taking longer to load.</p>
         : <div className="message-body-placeholder" role="status" aria-label="Loading message body"><span /><span /><span /></div>)}
       {expanded && content.data && <>
+        <MailDetails message={message} reader />
         <Unsubscribe message={message} account={account} onDraft={props.onDraft} onCleanup={props.onCleanup} />
         <Translation message={message} html={content.data.html} text={content.data.text} detectedLanguage={content.data.detected_language} dark={props.dark} alwaysLoadImages={props.alwaysLoadImages} blockHiddenImages={props.blockHiddenImages} />
         <div className="attachments">{content.data.attachments.map(a => <a title={`Download ${a.filename}`} className="attachment" href={api.download(message.account_id, a.id)} key={a.id} download={a.filename}><FileText size={18} />{a.filename}<small>{Math.ceil(a.size_bytes / 1024)} KB</small></a>)}</div>

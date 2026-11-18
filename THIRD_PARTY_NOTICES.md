@@ -27,6 +27,10 @@ source verification, supported features and the reason for the local Cargo patch
 
 Inter is supplied by `@fontsource/inter` under SIL Open Font License 1.1. React, TanStack, Radix, Mantine (MIT), Lucide, DOMPurify, Squire, Node workers and Rust dependencies retain their package licenses. Their exact versions are recorded in the Cargo and npm lockfiles. Preserve applicable notices when distributing dependency code. This file summarizes known provenance and is not a replacement for the upstream license texts.
 
+## Gmail brand asset
+
+`apps/web/src/gmail-logo.png` is Google's unmodified Gmail product mark, downloaded from https://www.gstatic.com/images/branding/product/2x/gmail_2020q4_48dp.png. Gmail and its logo are Google trademarks and are used to identify the mailbox connection, not relicensed as Dakia artwork. The bundled local asset avoids contacting Google just to render the setup dialog.
+
 ## Browser translation
 
 Dakia includes the Mozilla Bergamot v0.6.0 WASM runtime under MPL-2.0. Its JavaScript loader has an ES module export and an explicit `globalThis` reference for module compatibility. Pinned upstream source, artifact hashes and the complete license are in `workers/translation/browser/provenance.json` and `workers/translation/browser/LICENSE`. Source: https://github.com/mozilla-firefox/firefox/tree/d4a9923322691e221ec1afac57715016071aa506/toolkit/components/translations.

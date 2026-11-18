@@ -828,6 +828,21 @@ kbd {
   flex-direction: column;
   gap: 16px;
 }
+.account-setup .setup footer button { min-height: 44px; }
+.setup .gmail-connect {
+  border: 1px solid var(--color-border);
+  justify-content: center;
+  min-height: 44px;
+}
+.setup .gmail-alternative {
+  align-self: flex-start;
+  background: transparent;
+  border-color: transparent;
+  min-height: 44px;
+  padding-inline: 0;
+  color: var(--color-secondary);
+}
+.setup .gmail-alternative:hover { color: var(--color-text); }
 .setup label {
   display: flex;
   flex-direction: column;

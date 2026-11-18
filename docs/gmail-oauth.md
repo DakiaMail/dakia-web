@@ -1,6 +1,6 @@
 # Gmail sign-in
 
-Connect Gmail with **Continue with Google**, or use an app password when your Google account permits it. Google sign-in needs an OAuth client registered by your installation's operator. It authorizes a mailbox; your Dakia login stays separate.
+Connect Gmail with **Connect Gmail**, or explicitly choose **Use app password instead** when your Google account permits it. Google sign-in needs an OAuth client registered by your installation's operator. It authorizes a mailbox; your Dakia login stays separate.
 
 ## Register a Google client
 
@@ -38,7 +38,7 @@ The file must contain only the client secret and be readable by container UID 10
 
 ## Connect or reconnect
 
-In Dakia, choose **Connect account**, enter the Gmail address, choose Gmail, and select **Continue with Google**. Authorize the same Google account and allow mail access. Dakia stores the refresh token encrypted on your server and renews access automatically while the grant remains valid.
+In Dakia, choose **Connect account**, then **Connect Gmail**. Enter an account name and address and select **Connect Gmail** to open Google. With Automatic selected, `gmail.com` and `googlemail.com` addresses select Gmail sign-in by default. Custom Workspace domains use Gmail only when server discovery identifies that provider, or when you explicitly choose Gmail. Authorize the same Google account and allow mail access. Dakia stores the refresh token encrypted on your server and renews access automatically while the grant remains valid.
 
 If a grant expires or is revoked, use **Reconnect** in Workspace. Check the registered callback, client credentials, test-user list, requested permissions, and Google's error message if sign-in fails. Provider or organization policies can restrict access.
 
@@ -46,7 +46,7 @@ Finishing Google's screens does not guarantee that reconnection succeeded. Dakia
 
 Token-renewal logs distinguish `invalid_grant` (expired or revoked authorization) from client configuration failures. Google does not say which expiration or revocation cause applies. A fresh sign-in is required for `invalid_grant`; retrying the saved authorization cannot repair it.
 
-Choose **Use an app password** to connect without Google OAuth when that option is available for your account. A normal Google password may not work for IMAP/SMTP.
+Choose **Use app password instead** to connect without Google OAuth when that option is available for your account. A normal Google password may not work for IMAP/SMTP.
 
 ## Development
 

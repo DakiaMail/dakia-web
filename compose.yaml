@@ -5,6 +5,8 @@ services:
     image: ${DAKIA_IMAGE:-ghcr.io/dakiamail/dakia-web@sha256:8c5d80656cd1cdd4a48c5129ec55e9e56f5ed96a41cf2881ce41f382f9df30f4}
     restart: unless-stopped
     environment:
+      DAKIA_VAPID_FILE: ${DAKIA_VAPID_FILE:-}
+      DAKIA_VAPID_SUBJECT: ${DAKIA_VAPID_SUBJECT:-}
       DAKIA_ADMIN_USERS: ${DAKIA_ADMIN_USERS:-}
       DAKIA_ORIGIN: ${DAKIA_ORIGIN:?Set the external HTTPS address in .env}
       DAKIA_RELEASE_CHECKS: ${DAKIA_RELEASE_CHECKS:-true}

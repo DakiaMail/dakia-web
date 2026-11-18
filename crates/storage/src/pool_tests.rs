@@ -101,7 +101,9 @@ async fn cancelled_writer_begin_does_not_poison_the_account_pool() {
     tokio::time::timeout(std::time::Duration::from_secs(5), ready.notified.notified())
         .await
         .unwrap();
-    assert!(matches!(begin.as_mut().poll(&mut context), Poll::Pending));
+    let validation = begin.as_mut().poll(&mut context);
+    assert!(matches!(validation, Poll::Pending), "{validation:?}");
+    drop(validation);
     drop(begin);
     *ready.released.lock().unwrap() = true;
     ready.release.notify_all();

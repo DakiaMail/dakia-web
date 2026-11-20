@@ -11,6 +11,7 @@ export function Modal({
   wide = false,
   className = "",
   initialFocus,
+  restoreFocus,
 }: {
   title: string;
   children: ReactNode;
@@ -18,6 +19,7 @@ export function Modal({
   wide?: boolean;
   className?: string;
   initialFocus?: string;
+  restoreFocus?: () => HTMLElement | null;
 }) {
   const content = useRef<HTMLDivElement>(null);
   const returnFocus = useRef(document.activeElement as HTMLElement | null);
@@ -42,7 +44,8 @@ export function Modal({
           onCloseAutoFocus={event => {
             event.preventDefault();
             requestAnimationFrame(() => {
-              const original = returnFocus.current;
+              const original = restoreFocus?.() ?? returnFocus.current;
+              if (restoreFocus && original?.isConnected) original.scrollIntoView({ block: "nearest" });
               const bounds = original?.getBoundingClientRect();
               if (original && original !== document.body && original.isConnected && bounds && bounds.width > 0 && bounds.height > 0 && bounds.right > 0 && bounds.left < innerWidth && bounds.bottom > 0 && bounds.top < innerHeight && !original.matches(":disabled,[inert]")) original.focus();
               else document.querySelector<HTMLElement>('.workspace-view .workspace-content > h1, .app.reading .reader, .mailbox .message-list[tabindex], .mailbox')?.focus();

@@ -559,6 +559,12 @@ impl Store {
     pub async fn draft(&self, a: &AuthorizedAccount, id: &str) -> Result<Draft> {
         self.account_repository(a).await?.draft(id).await
     }
+    pub async fn delete_draft(&self, a: &AuthorizedAccount, id: &str, revision: u32) -> Result<()> {
+        self.account_repository(a)
+            .await?
+            .delete_draft(id, revision)
+            .await
+    }
     pub async fn save_draft(&self, a: &AuthorizedAccount, draft: Draft) -> Result<Draft> {
         let _guard = self.gate.read().await;
         self.account_repository(a).await?.save_draft(draft).await
@@ -579,6 +585,16 @@ impl Store {
         self.account_repository(a)
             .await?
             .submit(request, &due)
+            .await
+    }
+    pub async fn submission_by_operation(
+        &self,
+        a: &AuthorizedAccount,
+        operation: &str,
+    ) -> Result<Submission> {
+        self.account_repository(a)
+            .await?
+            .submission_by_operation(operation)
             .await
     }
     pub async fn submission(&self, a: &AuthorizedAccount, id: &str) -> Result<Submission> {

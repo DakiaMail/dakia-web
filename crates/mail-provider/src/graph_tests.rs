@@ -48,6 +48,46 @@ fn message(id: &str) -> serde_json::Value {
             {"name":"Subject","value":"A fixture"},{"name":"Message-ID","value":"<fixture@example.test>"},{"name":"X_Custom","value":"Allowed"}]})
 }
 #[tokio::test]
+async fn mcp_permanent_deletion_uses_permanent_endpoint_and_absence_readback() {
+    for still_present in [false, true] {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let count = calls.clone();
+        let (provider, task) = fixture(move |method, uri, _, _| {
+            count.fetch_add(1, Ordering::SeqCst);
+            match (method, uri.path()) {
+                (Method::POST, "/v1.0/me/messages/fixture-id/permanentDelete") => {
+                    StatusCode::NO_CONTENT.into_response()
+                }
+                (Method::GET, "/v1.0/me/messages/fixture-id") => {
+                    if still_present {
+                        json(message("fixture-id"))
+                    } else {
+                        StatusCode::NOT_FOUND.into_response()
+                    }
+                }
+                _ => panic!("unexpected deletion path {uri}"),
+            }
+        })
+        .await;
+        let r = MessageRef {
+            graph_id: Some("fixture-id".into()),
+            account_id: "fixture-account".into(),
+            folder: "INBOX".into(),
+            uidvalidity: 1,
+            uid: 1,
+        };
+        let outcome = provider.delete_message(&r).await;
+        if still_present {
+            assert_eq!(outcome.unwrap_err().kind, ErrorKind::Uncertain)
+        } else {
+            outcome.unwrap()
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        task.abort();
+    }
+}
+
+#[tokio::test]
 async fn paginated_sync_preserves_opaque_ids_and_scopes_continuations_and_content() {
     let calls = Arc::new(AtomicUsize::new(0));
     let count = calls.clone();

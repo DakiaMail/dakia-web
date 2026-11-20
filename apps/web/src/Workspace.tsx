@@ -2,6 +2,7 @@ import { ArrowLeft, Keyboard, Mail, Plus, Settings2, Shield } from "lucide-react
 import type { Account } from "@dakia/api-types";
 import { useEffect, useRef, useState } from "react";
 import { SearchSettings } from "./SearchSettings";
+import { AgentConnections } from "./AgentConnections";
 import { TranslationSettings } from "./TranslationSettings";
 import { Invitations } from "./Invitations";
 import { BlockedSenders } from "./BlockedSenders";
@@ -52,6 +53,7 @@ export function Workspace({ updatesFocus = 0, userId, accounts, onBack, onConnec
       <section className="workspace-notifications" aria-labelledby="workspace-privacy">
         <span className="workspace-account-icon"><Shield size={20} /></span><div><h2 id="workspace-privacy">Email privacy</h2><p>Recent mail is saved on this browser for faster opening. Signing out clears saved mail.</p><label className="privacy-toggle"><input type="checkbox" checked={!alwaysLoadImages} onChange={(event) => { try { onImagePrivacyChange(!event.target.checked); setPrivacyError(""); } catch { setPrivacyError("Could not save this preference. Check browser storage permissions."); } }} />Block external images by default</label><p>Off by default. Loading external images can tell senders when you open mail. Turn on to load images only when you choose.</p><label className="privacy-toggle"><input type="checkbox" checked={blockHiddenImages} onChange={(event) => { try { onHiddenImagesChange(event.target.checked); setPrivacyError(""); } catch { setPrivacyError("Could not save this preference. Check browser storage permissions."); } }} />Block hidden images and tracking pixels</label><p>Some email images may be hidden too.</p>{privacyError && <p role="alert">{privacyError}</p>}</div>
       </section>
+      {userId && <AgentConnections key={userId} userId={userId} />}
       <BlockedSenders accounts={accounts} />
       {userId && <Invitations key={userId} userId={userId} />}
       <section className="workspace-notifications workspace-keyboard" aria-labelledby="workspace-keyboard">

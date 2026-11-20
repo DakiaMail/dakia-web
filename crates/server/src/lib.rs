@@ -10,6 +10,7 @@ mod language;
 mod local_auth;
 mod local_users;
 pub mod mail;
+mod mcp;
 pub mod microsoft_oauth;
 pub mod models;
 mod mutations;
@@ -220,6 +221,11 @@ pub fn router(app: App) -> Router {
 pub fn router_with_shutdown(app: App, shutdown: tokio::sync::watch::Sender<bool>) -> Router {
     let api = Router::new()
         .route("/session", get(session))
+        .route("/agent-connections", get(mcp::list).post(mcp::create))
+        .route(
+            "/agent-connections/{id}",
+            axum::routing::put(mcp::edit).delete(mcp::revoke),
+        )
         .route(
             "/search/settings",
             get(search_policy::get_policy).put(search_policy::set_policy),
@@ -263,7 +269,10 @@ pub fn router_with_shutdown(app: App, shutdown: tokio::sync::watch::Sender<bool>
         )
         .route("/push/public-key", get(push::public_key))
         .route("/push/subscriptions", post(push::subscribe))
-        .route("/push/subscriptions/{id}", get(push::status).delete(push::unsubscribe))
+        .route(
+            "/push/subscriptions/{id}",
+            get(push::status).delete(push::unsubscribe),
+        )
         .route(
             "/accounts/{account}",
             axum::routing::put(reconnect).delete(remove_account),
@@ -338,6 +347,36 @@ pub fn router_with_shutdown(app: App, shutdown: tokio::sync::watch::Sender<bool>
     let root = app.config.web_root.clone();
     Router::new()
         .route(
+            "/.well-known/oauth-protected-resource/mcp",
+            get(mcp::oauth::resource),
+        )
+        .route(
+            "/.well-known/oauth-protected-resource",
+            get(mcp::oauth::resource),
+        )
+        .route(
+            "/.well-known/oauth-authorization-server",
+            get(mcp::oauth::metadata),
+        )
+        .route(
+            "/oauth/register",
+            post(mcp::oauth::register).layer(axum::extract::DefaultBodyLimit::max(16384)),
+        )
+        .route(
+            "/oauth/authorize",
+            get(mcp::oauth::authorize)
+                .post(mcp::oauth::approve)
+                .layer(axum::extract::DefaultBodyLimit::max(16384)),
+        )
+        .route(
+            "/oauth/token",
+            post(mcp::oauth::token).layer(axum::extract::DefaultBodyLimit::max(4096)),
+        )
+        .route(
+            "/mcp",
+            post(mcp::http).layer(axum::extract::DefaultBodyLimit::max(1024 * 1024)),
+        )
+        .route(
             "/healthz",
             get(|| async { Json(serde_json::json!({"service":"dakia-web","status":"ok"})) }),
         )
@@ -368,7 +407,10 @@ pub fn router_with_shutdown(app: App, shutdown: tokio::sync::watch::Sender<bool>
             releases::ReleaseChecker::from_environment(),
         )))
         .layer(middleware::from_fn(|req: Request, next: Next| async move {
-            let login_form = matches!(req.uri().path(), "/auth/login" | "/auth/join");
+            let login_form = matches!(
+                req.uri().path(),
+                "/auth/login" | "/auth/join" | "/oauth/authorize"
+            );
             let mut r = next.run(req).await;
             r.headers_mut()
                 .insert(header::CACHE_CONTROL, "no-store".parse().unwrap());

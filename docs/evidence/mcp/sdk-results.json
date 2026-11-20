@@ -1,0 +1,10 @@
+{
+  "sdk": "1.32.2",
+  "passed": [
+    "Official SDK initializes stateless Streamable HTTP, lists tools, and calls list_accounts with connection bearer token",
+    "Official SDK discovers OAuth metadata, dynamically registers, completes resource-bound PKCE, connects, observes edits and receives cached-tool denial",
+    "Official SDK refresh-token exchange rotates credentials",
+    "OAuth access is invalid immediately after connection revocation"
+  ],
+  "limits": "Synthetic SDK harness only. No authenticated ChatGPT or Claude Code session."
+}

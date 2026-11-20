@@ -186,14 +186,48 @@ async fn smtp_outcomes_are_durable_and_filing_never_resends() {
 }
 #[tokio::test]
 async fn agent_send_permission_is_checked_again_at_smtp_boundary() {
-    let (_dir,store,a,old)=setup().await;
-    let c=store.control_repository().create_agent(a.user_id(),"connection-fixture","Agent","hash-only",0).await.unwrap();
-    let s=store.submit(&a,&SubmitRequest{operation_id:format!("agent/{}/request",c.id),draft_id:old.draft_id,expected_revision:old.draft_revision,due_at:None,timezone:"UTC".into()}).await.unwrap();
-    let s=store.transition(&a,&s.id,SubmissionState::Scheduled,SubmissionState::Claimed).await.unwrap();
-    let provider=Provider{outcome:p::SubmissionOutcome::Accepted{response:"ok".into()},sends:AtomicUsize::new(0),filings:AtomicUsize::new(0),raw:Mutex::new(Vec::new())};
-    deliver(&store,&a,&provider,&s).await.unwrap();
-    assert_eq!(provider.sends.load(Ordering::SeqCst),0);
-    assert_eq!(store.submission(&a,&s.id).await.unwrap().state,SubmissionState::Failed);
+    let (_dir, store, a, old) = setup().await;
+    let c = store
+        .control_repository()
+        .create_agent(a.user_id(), "connection-fixture", "Agent", "hash-only", 0)
+        .await
+        .unwrap();
+    let s = store
+        .submit(
+            &a,
+            &SubmitRequest {
+                operation_id: format!("agent/{}/request", c.id),
+                draft_id: old.draft_id,
+                expected_revision: old.draft_revision,
+                due_at: None,
+                timezone: "UTC".into(),
+            },
+        )
+        .await
+        .unwrap();
+    let s = store
+        .transition(
+            &a,
+            &s.id,
+            SubmissionState::Scheduled,
+            SubmissionState::Claimed,
+        )
+        .await
+        .unwrap();
+    let provider = Provider {
+        outcome: p::SubmissionOutcome::Accepted {
+            response: "ok".into(),
+        },
+        sends: AtomicUsize::new(0),
+        filings: AtomicUsize::new(0),
+        raw: Mutex::new(Vec::new()),
+    };
+    deliver(&store, &a, &provider, &s).await.unwrap();
+    assert_eq!(provider.sends.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        store.submission(&a, &s.id).await.unwrap().state,
+        SubmissionState::Failed
+    );
 }
 
 #[tokio::test]

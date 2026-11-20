@@ -144,12 +144,22 @@ impl AccountRepository {
             Ok(serde_json::from_str(&raw.ok_or(Error::NotFound)?)?)
         })
     }
-    pub(crate) async fn delete_draft(&self,id:&str,revision:u32)->Result<()> {
-        transaction!(self,tx,local,true,{
-            let changed=execute!(local,tx,"DELETE FROM drafts WHERE id=? AND revision=?",[id,i64::from(revision)],"DELETE FROM drafts WHERE account_id=$1 AND id=$2 AND revision=$3",[&self.account,id,i64::from(revision)]);
-            if changed==0 {return Err(Error::Conflict)}
-            event!(self,local,tx,revision,"draft_deleted",id);
-            tx.commit().await?;Ok(())
+    pub(crate) async fn delete_draft(&self, id: &str, revision: u32) -> Result<()> {
+        transaction!(self, tx, local, true, {
+            let changed = execute!(
+                local,
+                tx,
+                "DELETE FROM drafts WHERE id=? AND revision=?",
+                [id, i64::from(revision)],
+                "DELETE FROM drafts WHERE account_id=$1 AND id=$2 AND revision=$3",
+                [&self.account, id, i64::from(revision)]
+            );
+            if changed == 0 {
+                return Err(Error::Conflict);
+            }
+            event!(self, local, tx, revision, "draft_deleted", id);
+            tx.commit().await?;
+            Ok(())
         })
     }
     pub(crate) async fn save_draft(&self, mut draft: Draft) -> Result<Draft> {
@@ -314,7 +324,15 @@ impl AccountRepository {
     }
     pub(crate) async fn submission_by_operation(&self, operation: &str) -> Result<Submission> {
         transaction!(self, tx, local, false, {
-            let raw:Option<String>=scalar!(local,tx,"SELECT document FROM submissions WHERE operation_id=?",[operation],"SELECT document FROM submissions WHERE account_id=$1 AND operation_id=$2",[&self.account,operation],fetch_optional);
+            let raw: Option<String> = scalar!(
+                local,
+                tx,
+                "SELECT document FROM submissions WHERE operation_id=?",
+                [operation],
+                "SELECT document FROM submissions WHERE account_id=$1 AND operation_id=$2",
+                [&self.account, operation],
+                fetch_optional
+            );
             Ok(serde_json::from_str(&raw.ok_or(Error::NotFound)?)?)
         })
     }

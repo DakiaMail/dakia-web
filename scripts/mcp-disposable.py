@@ -119,6 +119,41 @@ def main():
   message=page['rows'][0];mid=message['id'];content=rpc(token,'read_message',{'account_id':account,'message_id':mid});assert 'Synthetic body' in content['text'],content
   part=content['attachments'][0];attachment=rpc(token,'get_attachment',{'account_id':account,'attachment_id':part['id']});assert base64.b64decode(attachment['base64'])==b'synthetic attachment',attachment
   check('real TLS IMAP folder discovery, search, message and attachment retrieval')
+  api_http(path,{'name':'Disposable assistant','allow_send':False,'allow_delete':False},'PUT','alice-fixture')
+  assert 'error' not in rpc(token,'read_thread',{'account_id':account,'message_id':mid})
+  reply=rpc(token,'prepare_reply',{'account_id':account,'message_id':mid,'text':'Synthetic reply'});assert reply.get('in_reply_to'),reply
+  forward=rpc(token,'prepare_forward',{'account_id':account,'message_id':mid,'to':[{'email':'recipient@example.invalid','name':None}],'text':'Synthetic forward'});assert forward.get('attachments'),forward
+  forward['text']+=' edited';edited=rpc(token,'save_draft',{'account_id':account,'draft':forward});assert edited.get('revision',0)>forward['revision'],edited
+  for action in ('read','unread','star','unstar','label','archive'):
+   current=rpc(token,'read_message',{'account_id':account,'message_id':mid})['message']
+   operation=rpc(token,'update_message',{'account_id':account,'message_id':mid,'request_id':'organise-'+action,'revision':current['revision'],'action':action,**({'label':'people'} if action=='label' else {})});assert operation.get('id'),operation
+   for _ in range(150):
+    state=rpc(token,'get_operation',{'account_id':account,'operation_id':operation['id']})
+    if state['status'] in ('applied','failed'):break
+    time.sleep(.1)
+   assert state['status']=='applied',state
+  check('read thread, reply and forward with attachment, draft edit and baseline organisation without send/delete permission')
+  # Reject extra-field and mixed-effect mutation attempts rather than ignoring them.
+  assert rpc(token,'update_message',{'account_id':account,'message_id':mid,'request_id':'bypass','revision':0,'action':'archive','change':{'kind':'trash'}})['error']=='invalid_arguments'
+  assert rpc(token,'update_message',{'account_id':account,'message_id':mid,'request_id':'bypass','revision':0,'action':'trash'})['error']=='invalid_arguments'
+  check('extra-field and mixed-effect mutation bypasses rejected')
+  extra=api_http('/api/accounts',{'email':'extra@example.invalid','display_name':'New fixture account','provider':'imap','imap_host':'localhost','imap_port':imapport,'imap_tls':'implicit','smtp_host':'localhost','smtp_port':smtpport,'smtp_tls':'implicit','username':'alice','password':'fixture-only-password'},'POST','alice-fixture');assert extra.get('id'),extra
+  ids={v['id'] for v in rpc(token,'list_accounts')['rows']};assert extra['id'] in ids and bob['account_id'] not in ids,ids
+  check('newly connected fixture account is immediately visible only to owner')
+  for name,draft in [('reply',reply),('forward',edited)]:
+   assert rpc(token,'send_draft',{'account_id':account,'draft_id':draft['id'],'revision':draft['revision'],'request_id':'blocked-'+name})['error']=='permission_denied'
+  check('reply and forward sends share the independent send gate')
+  api_http(path,{'name':'Disposable assistant','allow_send':False,'allow_delete':True},'PUT','alice-fixture')
+  trashmid=page['rows'][1]['id'];current=rpc(token,'read_message',{'account_id':account,'message_id':trashmid})['message']
+  trashed=rpc(token,'trash_message',{'account_id':account,'message_id':trashmid,'request_id':'trash-fixture','revision':current['revision']});assert trashed.get('id'),trashed
+  for _ in range(150):
+   state=rpc(token,'get_operation',{'account_id':account,'operation_id':trashed['id']})
+   if state['status'] in ('applied','failed'):break
+   time.sleep(.1)
+  assert state['status']=='applied',state
+  emptied=rpc(token,'empty_trash',{'account_id':account,'message_ids':[trashmid],'request_id':'empty-fixture'});assert emptied.get('results',[{}])[0].get('outcome')=='confirmed',emptied
+  assert rpc(token,'delete_draft',{'account_id':account,'draft_id':reply['id'],'revision':reply['revision']})['deleted'] is True
+  check('Trash, explicit empty Trash and draft deletion work independently of sending')
   api_http(path,{'name':'Disposable assistant','allow_send':True,'allow_delete':True},'PUT','alice-fixture')
   sendargs={'account_id':account,'draft_id':alice['draft_id'],'revision':alice['revision'],'request_id':'once'}
   with concurrent.futures.ThreadPoolExecutor() as pool:sent=list(pool.map(lambda _:rpc(token,'send_draft',sendargs),range(4)))
@@ -151,9 +186,12 @@ def main():
   check('real UID-scoped permanent deletion with readback')
   with sqlite3.connect(directory/'instance/data/control.sqlite') as db:
    audit=json.dumps(db.execute('SELECT * FROM agent_audit').fetchall());assert token not in audit and 'Synthetic private body' not in audit and 'fixture-only-password' not in audit and 'Authorization' not in audit
+  assert 'Synthetic body audit sentinel' not in audit
   check('audit records contain no fixture bodies, credentials or bearer token')
   api_http(path,None,'DELETE','alice-fixture');response=api_http('/mcp',{'jsonrpc':'2.0','id':1,'method':'tools/list'},bearer=token);assert response['http_status']==401,response
-  check('revocation invalidates cached HTTP client immediately')
+  with sqlite3.connect(directory/'instance/data/control.sqlite') as db:
+   assert db.execute("SELECT count(*) FROM agent_audit WHERE connection_id=? AND action='authentication' AND outcome='denied'",(cid,)).fetchone()[0]>=1
+  check('revocation invalidates cached HTTP client immediately and records redacted denial')
   (directory/'results.json').write_text(json.dumps({'passed':results,'smtp':counts,'origin':origin,'data':'isolated synthetic only'},indent=2))
   (directory/'browser-state.json').write_text(json.dumps({'origin':origin,'cookie':'alice-fixture','directory':str(directory)}))
   print('Evidence: '+str(directory/'results.json'),flush=True)

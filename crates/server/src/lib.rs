@@ -12,6 +12,7 @@ mod local_users;
 pub mod mail;
 pub mod microsoft_oauth;
 pub mod models;
+mod mcp;
 mod mutations;
 pub mod push;
 mod releases;
@@ -220,6 +221,8 @@ pub fn router(app: App) -> Router {
 pub fn router_with_shutdown(app: App, shutdown: tokio::sync::watch::Sender<bool>) -> Router {
     let api = Router::new()
         .route("/session", get(session))
+        .route("/agent-connections", get(mcp::list).post(mcp::create))
+        .route("/agent-connections/{id}", axum::routing::put(mcp::edit).delete(mcp::revoke))
         .route(
             "/search/settings",
             get(search_policy::get_policy).put(search_policy::set_policy),
@@ -337,6 +340,7 @@ pub fn router_with_shutdown(app: App, shutdown: tokio::sync::watch::Sender<bool>
         .route_layer(middleware::from_fn_with_state(app.clone(), protect));
     let root = app.config.web_root.clone();
     Router::new()
+        .route("/mcp", post(mcp::http).layer(axum::extract::DefaultBodyLimit::max(1024 * 1024)))
         .route(
             "/healthz",
             get(|| async { Json(serde_json::json!({"service":"dakia-web","status":"ok"})) }),

@@ -120,6 +120,8 @@ pub trait MailProvider: Send + Sync {
             "Gmail identity recovery unsupported",
         ))
     }
+    async fn delete_message(&self, _reference:&MessageRef)->Result<()> {Err(error(ErrorKind::Unsupported,"permanent deletion unsupported"))}
+    async fn delete_folder(&self, _folder:&str)->Result<()> {Err(error(ErrorKind::Unsupported,"folder deletion unsupported"))}
     async fn mutate(&self, reference: &MessageRef, change: Mutation) -> Result<MutationResult>;
     async fn submit(
         &self,
@@ -345,6 +347,14 @@ impl MailProvider for AccountProvider {
         self.imap.resolve_gmail_message(message_id, folders).await
     }
     #[tracing::instrument(target = "dakia_server::provider_io", skip_all, fields(account_key = %crate::telemetry::key(&self.imap.config.account_id), request_key = %crate::telemetry::request_key(), request_kind = "mutate"))]
+    async fn delete_message(&self,reference:&MessageRef)->Result<()> {
+        let mut cache=self.lock_scan_cache("delete_message").await?;cache.clear();
+        let result=self.imap.delete_message(reference).await;cache.clear();result
+    }
+    async fn delete_folder(&self,folder:&str)->Result<()> {
+        let mut cache=self.lock_scan_cache("delete_folder").await?;cache.clear();
+        let result=self.imap.delete_folder(folder).await;cache.clear();result
+    }
     async fn mutate(&self, reference: &MessageRef, change: Mutation) -> Result<MutationResult> {
         // Serialize invalidation with in-flight scans, including uncertain
         // outcomes. No pre-mutation page may repopulate the cache afterwards.

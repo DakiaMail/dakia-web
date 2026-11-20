@@ -22,6 +22,10 @@ struct Gate<'a> {
 #[async_trait]
 impl SubmissionGate for Gate<'_> {
     async fn begin_data(&self) -> p::Result<()> {
+        let submission=self.store.submission(self.account,self.id).await.map_err(|_|p::error(p::ErrorKind::Retryable,"submission lookup failed"))?;
+        if !agent_send_allowed(self.store,self.account,&submission).await.unwrap_or(false) {
+            return Err(p::error(p::ErrorKind::Authentication,"agent sending permission removed"));
+        }
         self.store
             .transition(
                 self.account,
@@ -94,12 +98,22 @@ async fn prepare(
     )
     .map_err(|_| dakia_storage::Error::Invalid)
 }
+async fn agent_send_allowed(store:&Store,a:&AuthorizedAccount,s:&Submission)->dakia_storage::Result<bool> {
+    let Some(rest)=s.operation_id.strip_prefix("agent/") else {return Ok(true)};
+    let Some((id,_))=rest.split_once('/') else {return Ok(false)};
+    let c=store.control_repository().agent(a.user_id(),id).await?;
+    Ok(!c.revoked&&c.allow_send)
+}
 async fn deliver(
     store: &Store,
     a: &AuthorizedAccount,
     provider: &dyn MailProvider,
     s: &Submission,
 ) -> dakia_storage::Result<()> {
+    if !agent_send_allowed(store,a,s).await.unwrap_or(false) {
+        store.transition(a,&s.id,SubmissionState::Claimed,SubmissionState::Failed).await?;
+        return Ok(());
+    }
     let prepared = match prepare(store, a, s).await {
         Ok(p) => p,
         Err(_) => {
@@ -135,10 +149,11 @@ async fn deliver(
     let next = match outcome {
         p::SubmissionOutcome::Accepted { .. } => SubmissionState::Accepted,
         p::SubmissionOutcome::DeliveryUnknown => SubmissionState::DeliveryUnknown,
-        p::SubmissionOutcome::Deferred { retry_after_secs } => {
+        p::SubmissionOutcome::Deferred { retry_after_secs } if !s.operation_id.starts_with("agent/") => {
             store.defer_submission(a,&s.id,current.state,retry_after_secs).await?;
             return Ok(());
         }
+        p::SubmissionOutcome::Deferred { .. } => SubmissionState::Failed,
         p::SubmissionOutcome::Failed { kind } => {
             if kind == p::ErrorKind::Authentication {
                 store.account_state(a, AccountState::Reconnect).await?;

@@ -100,7 +100,7 @@ macro_rules! statement {
 }
 
 mod mcp;
-pub use mcp::AgentConnection;
+pub use mcp::{AgentConnection,AgentOAuthCode,AgentOAuthToken};
 
 impl Store {
     pub fn control_repository(&self) -> ControlRepository {

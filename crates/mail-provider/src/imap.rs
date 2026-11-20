@@ -567,6 +567,35 @@ impl ImapProvider {
         })
         .await
     }
+    /// Permanently delete a single stable UID. No global EXPUNGE fallback.
+    pub async fn delete_message(&self,r:&MessageRef)->Result<()> {
+        self.check_account(r)?;
+        let mut started=false;
+        self.bounded(async {
+            let mut s=self.command().await?;
+            self.select_ref(&mut s,r).await?;
+            if !has(&capabilities(&mut s).await?,"UIDPLUS") {return Err(error(ErrorKind::Unsupported,"safe deletion requires UIDPLUS"))}
+            started=true;
+            checked(&mut s,&format!("UID STORE {} +FLAGS.SILENT (\\Deleted)",r.uid)).await?;
+            checked(&mut s,&format!("UID EXPUNGE {}",r.uid)).await?;
+            if search_uids(&mut s,&format!("UID {}",r.uid)).await?.contains(&r.uid) {return Err(error(ErrorKind::Uncertain,"message deletion not verified"))}
+            s.recycle();Ok(())
+        }).await.map_err(|e|if started {error(ErrorKind::Uncertain,"message deletion outcome unverified; do not replay automatically")}else{e})
+    }
+    pub async fn delete_folder(&self,folder:&str)->Result<()> {
+        quote(folder)?;
+        let mut started=false;
+        self.bounded(async {
+            let mut s=self.command().await?;
+            let discovered=folders(&mut s).await?;
+            let found=discovered.iter().find(|f|f.name==folder).ok_or_else(||error(ErrorKind::StaleReference,"folder missing"))?;
+            if folder.eq_ignore_ascii_case("INBOX") || found.attributes.iter().any(|a|["\\Sent","\\Trash","\\Drafts","\\Archive","\\All","\\Junk"].iter().any(|v|a.eq_ignore_ascii_case(v))) || [&self.config.folders.sent,&self.config.folders.trash,&self.config.folders.archive].into_iter().flatten().any(|s|s.eq_ignore_ascii_case(folder)) {return Err(error(ErrorKind::InvalidInput,"special folder deletion rejected"))}
+            started=true;
+            checked(&mut s,&format!("DELETE {}",quote(folder)?)).await?;
+            if folders(&mut s).await?.iter().any(|f|f.name==folder) {return Err(error(ErrorKind::Uncertain,"folder deletion not verified"))}
+            s.recycle();Ok(())
+        }).await.map_err(|e|if started {error(ErrorKind::Uncertain,"folder deletion outcome unverified; do not replay automatically")}else{e})
+    }
     pub async fn mutate(&self, r: &MessageRef, mutation: Mutation) -> Result<MutationResult> {
         self.check_account(r)?;
         let spam = matches!(mutation, Mutation::Spam);

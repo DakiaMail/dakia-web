@@ -340,6 +340,12 @@ pub fn router_with_shutdown(app: App, shutdown: tokio::sync::watch::Sender<bool>
         .route_layer(middleware::from_fn_with_state(app.clone(), protect));
     let root = app.config.web_root.clone();
     Router::new()
+        .route("/.well-known/oauth-protected-resource/mcp", get(mcp::oauth::resource))
+        .route("/.well-known/oauth-protected-resource", get(mcp::oauth::resource))
+        .route("/.well-known/oauth-authorization-server", get(mcp::oauth::metadata))
+        .route("/oauth/register", post(mcp::oauth::register).layer(axum::extract::DefaultBodyLimit::max(16384)))
+        .route("/oauth/authorize", get(mcp::oauth::authorize).post(mcp::oauth::approve).layer(axum::extract::DefaultBodyLimit::max(16384)))
+        .route("/oauth/token", post(mcp::oauth::token).layer(axum::extract::DefaultBodyLimit::max(4096)))
         .route("/mcp", post(mcp::http).layer(axum::extract::DefaultBodyLimit::max(1024 * 1024)))
         .route(
             "/healthz",

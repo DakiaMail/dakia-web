@@ -15,7 +15,30 @@ pub struct AgentConnection {
 macro_rules! connection {
     ($r:ident) => { AgentConnection { id:$r.get("id"), user_id:$r.get("user_id"), name:$r.get("name"), allow_send:$r.get::<i32,_>("allow_send")!=0, allow_delete:$r.get::<i32,_>("allow_delete")!=0, revoked:$r.get::<i32,_>("revoked")!=0, created_at:$r.get("created_at") } };
 }
+mod oauth;
+pub use oauth::{AgentOAuthCode,AgentOAuthToken};
 impl ControlRepository {
+    /// None means the caller owns a new request. Existing requests return their
+    /// outcome, or delivery_unknown after a concurrent/interrupted attempt.
+    pub async fn claim_agent_deletion(&self,c:&str,request:&str,payload:&str)->Result<Option<String>> {
+        let changed=execute!(self,"INSERT INTO agent_destructive_requests(connection_id,request_hash,payload_hash) VALUES(?,?,?) ON CONFLICT(connection_id,request_hash) DO NOTHING","INSERT INTO agent_destructive_requests(connection_id,request_hash,payload_hash) VALUES($1,$2,$3) ON CONFLICT(connection_id,request_hash) DO NOTHING",[c,request,payload]);
+        if changed==1 {return Ok(None)}
+        let (old,result)=optional!(self,"SELECT payload_hash,result FROM agent_destructive_requests WHERE connection_id=? AND request_hash=?","SELECT payload_hash,result FROM agent_destructive_requests WHERE connection_id=$1 AND request_hash=$2",[c,request],r=>(r.get::<String,_>("payload_hash"),r.get::<Option<String>,_>("result"))).ok_or(crate::Error::NotFound)?;
+        if old!=payload {return Err(crate::Error::Conflict)}
+        Ok(Some(result.unwrap_or_else(||"{\"outcome\":\"unknown\"}".into())))
+    }
+    pub async fn finish_agent_deletion(&self,c:&str,request:&str,result:&str)->Result<()> {
+        execute!(self,"UPDATE agent_destructive_requests SET result=? WHERE connection_id=? AND request_hash=? AND result IS NULL","UPDATE agent_destructive_requests SET result=$1 WHERE connection_id=$2 AND request_hash=$3 AND result IS NULL",[result,c,request]);Ok(())
+    }
+    pub async fn bind_agent_send(&self, connection: &str, request: &str, payload: &str, account: &str, operation: &str) -> Result<()> {
+        execute!(self,"INSERT INTO agent_send_requests(connection_id,request_hash,payload_hash,account_id,operation_id) VALUES(?,?,?,?,?) ON CONFLICT(connection_id,request_hash) DO NOTHING","INSERT INTO agent_send_requests(connection_id,request_hash,payload_hash,account_id,operation_id) VALUES($1,$2,$3,$4,$5) ON CONFLICT(connection_id,request_hash) DO NOTHING",[connection,request,payload,account,operation]);
+        let previous=optional!(self,"SELECT payload_hash FROM agent_send_requests WHERE connection_id=? AND request_hash=?","SELECT payload_hash FROM agent_send_requests WHERE connection_id=$1 AND request_hash=$2",[connection,request],r=>r.get::<String,_>("payload_hash"));
+        if previous.as_deref()!=Some(payload) {return Err(crate::Error::Conflict)}
+        Ok(())
+    }
+    pub async fn agent_send(&self, connection: &str, request: &str) -> Result<(String,String)> {
+        optional!(self,"SELECT account_id,operation_id FROM agent_send_requests WHERE connection_id=? AND request_hash=?","SELECT account_id,operation_id FROM agent_send_requests WHERE connection_id=$1 AND request_hash=$2",[connection,request],r=>(r.get("account_id"),r.get("operation_id"))).ok_or(crate::Error::NotFound)
+    }
     pub async fn create_agent(&self, user: &str, id: &str, name: &str, token_hash: &str, at: i64) -> Result<AgentConnection> {
         execute!(self,"INSERT INTO agent_connections(id,user_id,name,token_hash,created_at) VALUES(?,?,?,?,?)","INSERT INTO agent_connections(id,user_id,name,token_hash,created_at) VALUES($1,$2,$3,$4,$5)",[id,user,name,token_hash,at]);
         self.agent(user,id).await

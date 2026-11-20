@@ -1,4 +1,6 @@
 //! Remote agent connection management. Browser session and CSRF middleware apply.
+pub(super) mod oauth;
+mod deletion;
 mod contracts;
 use crate::*;
 use dakia_storage::control_repository::AgentConnection;
@@ -46,7 +48,10 @@ pub(super) async fn http(State(app): State<App>, headers: HeaderMap, bytes: axum
     }
     let token=headers.get(header::AUTHORIZATION).and_then(|v|v.to_str().ok()).and_then(|v|v.strip_prefix("Bearer "));
     let connection=match token {
-        Some(token) if token.len()<=256 => app.store.control_repository().authenticate_agent(&hash(token)).await.ok().flatten(),
+        Some(token) if token.len()<=256 => {
+            let repo=app.store.control_repository();
+            match repo.authenticate_agent(&hash(token)).await {Ok(Some(c))=>Some(c),Ok(None)=>repo.authenticate_agent_oauth(&hash(token),&format!("{}/mcp",app.config.origin),Utc::now().timestamp()).await.ok().flatten(),Err(_)=>None}
+        },
         _=>None,
     };
     let Some(connection)=connection else {
@@ -81,8 +86,11 @@ pub(super) async fn http(State(app): State<App>, headers: HeaderMap, bytes: axum
             };
             // Never record arbitrary attacker-selected names or payload fields as audit text.
             let audit_action=definition.as_ref().map(|t|t.name).unwrap_or("unknown_tool");
-            let outcome_name=match &outcome {Ok(_)=>"ok",Err(e)=>e.1};
-            if app.store.control_repository().audit_agent(&connection,audit_action,outcome_name,None,None,None).await.is_err() {
+            let account=args["account_id"].as_str().map(hash);
+            let resource=args["message_id"].as_str().or(args["draft_id"].as_str()).or(args["folder"].as_str()).map(hash);
+            let request=args["request_id"].as_str().map(hash);
+            let outcome_name=match &outcome {Ok(v) if v.get("error").is_some()=>"failed",Ok(v) if v["outcome"]=="unknown"=>"unknown",Ok(_)=>"ok",Err(e)=>e.1};
+            if app.store.control_repository().audit_agent(&connection,audit_action,outcome_name,account.as_deref(),resource.as_deref(),request.as_deref()).await.is_err() {
                 return protocol_error(id,-32603,"Audit persistence unavailable; inspect request outcome before retrying");
             }
             match outcome {
@@ -104,6 +112,11 @@ fn paged<T:serde::Serialize>(rows:Vec<T>,args:&Value)->Result<Value> {
 }
 async fn execute(app:&App,c:&AgentConnection,tool:&str,args:&Value)->Result<Value> {
     if tool=="list_accounts" {return paged(app.store.accounts(&c.user_id).await?,args)}
+    if tool=="get_send_status" {
+        let (account,operation)=app.store.control_repository().agent_send(&c.id,&hash(field(args,"request_id")?)).await?;
+        let a=app.store.authorize(&c.user_id,&account).await?;
+        return encoded(app.store.submission_by_operation(&a,&operation).await?);
+    }
     let account=field(args,"account_id")?;
     let a=app.store.authorize(&c.user_id,account).await?;
     match tool {
@@ -136,8 +149,16 @@ async fn execute(app:&App,c:&AgentConnection,tool:&str,args:&Value)->Result<Valu
         },
         "update_message"|"trash_message"=>{
             let change=if tool=="trash_message"{Change::Trash}else{match field(args,"action")? {"archive"=>Change::Archive,"read"=>Change::Read{value:true},"unread"=>Change::Read{value:false},"star"=>Change::Star{value:true},"unstar"=>Change::Star{value:false},"label"=>Change::Category{value:field(args,"label")?.into()},_=>return Err(ApiFailure(StatusCode::BAD_REQUEST,"invalid_action"))}};
-            let op=Operation{id:format!("agent:{}:{}",c.id,field(args,"request_id")?),account_id:account.into(),target_id:field(args,"message_id")?.into(),expected_revision:args["revision"].as_u64().unwrap() as u32,change,status:OperationStatus::Pending,revision:0};
+            let op=Operation{id:format!("agent:{}:{}",c.id,hash(field(args,"request_id")?)),account_id:account.into(),target_id:field(args,"message_id")?.into(),expected_revision:args["revision"].as_u64().unwrap() as u32,change,status:OperationStatus::Pending,revision:0};
             encoded(app.store.operation(&a,op).await?)
+        },
+        "delete_message"|"empty_trash"|"delete_folder"=>deletion::execute(app,c,&a,tool,args).await,
+        "delete_draft"=>{app.store.delete_draft(&a,field(args,"draft_id")?,args["revision"].as_u64().unwrap() as u32).await?;Ok(json!({"deleted":true}))},
+        "send_draft"=>{
+            let request_hash=hash(field(args,"request_id")?);
+            let operation=format!("agent/{}/{}",c.id,request_hash);
+            app.store.control_repository().bind_agent_send(&c.id,&request_hash,&hash(&args.to_string()),account,&operation).await?;
+            encoded(app.store.submit(&a,&SubmitRequest{operation_id:operation,draft_id:field(args,"draft_id")?.into(),expected_revision:args["revision"].as_u64().unwrap() as u32,due_at:None,timezone:"UTC".into()}).await?)
         },
         "get_operation"=>encoded(app.store.operation_status(&a,field(args,"operation_id")?).await?),
         _=>Err(ApiFailure(StatusCode::BAD_REQUEST,"unsupported_operation")),

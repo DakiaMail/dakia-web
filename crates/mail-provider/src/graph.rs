@@ -657,6 +657,25 @@ impl MailProvider for GraphProvider {
             .map_err(|_| error(ErrorKind::Retryable, "Microsoft Graph unavailable"))?;
         Self::bounded(self.checked(response).await?, max_bytes as usize).await
     }
+    async fn delete_message(&self,reference:&MessageRef)->Result<()> {
+        let path=self.message_path(reference)?;
+        let response=self.request(Method::POST,&format!("{path}/permanentDelete")).await?.send().await.map_err(|_|error(ErrorKind::Uncertain,"message deletion outcome unknown"))?;
+        self.checked(response).await?;
+        let response=self.request(Method::GET,&path).await?.send().await.map_err(|_|error(ErrorKind::Uncertain,"message deletion not verified"))?;
+        if response.status()!=reqwest::StatusCode::NOT_FOUND {return Err(error(ErrorKind::Uncertain,"message deletion not verified"))}
+        Ok(())
+    }
+    async fn delete_folder(&self,name:&str)->Result<()> {
+        let folder=self.folder(name).await?;
+        if folder.folder.attributes.iter().any(|a|["\\Sent","\\Trash","\\Drafts","\\Archive","\\All","\\Junk","\\Inbox"].contains(&a.as_str())) || name.eq_ignore_ascii_case("INBOX") {return Err(error(ErrorKind::InvalidInput,"special folder deletion rejected"))}
+        let path=format!("/me/mailFolders/{}",segment(&folder.id));
+        let response=self.request(Method::DELETE,&path).await?.send().await.map_err(|_|error(ErrorKind::Uncertain,"folder deletion outcome unknown"))?;
+        self.checked(response).await?;
+        let response=self.request(Method::GET,&path).await?.send().await.map_err(|_|error(ErrorKind::Uncertain,"folder deletion not verified"))?;
+        if response.status()!=reqwest::StatusCode::NOT_FOUND {return Err(error(ErrorKind::Uncertain,"folder deletion not verified"))}
+        *self.folders.lock().await=None;
+        Ok(())
+    }
     async fn mutate(&self, reference: &MessageRef, change: Mutation) -> Result<MutationResult> {
         let (plan, destination) = self.mutation_plan(reference, &change).await?;
         let (method, path, body) = (plan.method, plan.path, plan.body.unwrap());

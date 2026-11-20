@@ -8,9 +8,9 @@ import { dirname, resolve } from 'node:path';
 const state = JSON.parse(readFileSync(process.argv[2], 'utf8'));
 const out = resolve(dirname(process.argv[2]), 'browser'); mkdirSync(out, { recursive: true });
 const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || '/usr/bin/chromium', args: ['--no-sandbox'] });
-const context = await browser.newContext({ ignoreHTTPSErrors: true, viewport: { width: 1440, height: 1000 } });
+const context = await browser.newContext({ serviceWorkers: 'block', ignoreHTTPSErrors: true, viewport: { width: 1440, height: 1000 } });
 await context.addCookies([{ name: '__Host-dakia', value: state.cookie, url: state.origin, secure: true, httpOnly: true, sameSite: 'Lax' }]);
-const page = await context.newPage(); const shots = []; const passes = [];
+const page = await context.newPage(); page.on('console', message => { if (message.text().includes('Content Security Policy') || message.text().includes('form-action')) console.log(message.text()); }); const shots = []; const passes = [];
 async function tabTo(selector) {
   for (let i = 0; i < 150; i++) {
     if (await page.locator(selector).evaluateAll(elements => elements.includes(document.activeElement))) return;
@@ -44,6 +44,7 @@ try {
   await shot('setup-generic-narrow-short-light');
   await activate('[role="dialog"] button:has-text("Done")');
   await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.locator('.agent-connections button:has-text("Create connection")')).toBeFocused();
   await page.setViewportSize({ width: 1440, height: 1000 });
   await activate('[aria-label="Dark theme"]');
   await activate('[aria-label="Edit Keyboard fixture"]');
@@ -90,8 +91,16 @@ try {
   await page.setViewportSize({ width: 390, height: 540 }); await page.emulateMedia({ colorScheme: 'dark' }); await shot('oauth-consent-narrow-short-dark');
   await tabTo('button[value="deny"]');
   const response=page.waitForResponse(r => r.url().endsWith('/oauth/authorize') && r.request().method()==='POST');
-  await page.keyboard.press('Enter'); const received=await response; console.log('OAuth form result', received.status(), await received.text(), 'origin', (await received.request().allHeaders()).origin); expect(received.status()).toBe(303);
-  passes.push('OAuth consent keyboard initial focus, light/dark and narrow/short rendering, keyboard cancellation');
+  await page.keyboard.press('Enter'); const cancelled=await response; expect(cancelled.status()).toBe(303); expect(new URL(cancelled.headers().location).searchParams.get('error')).toBe('access_denied');
+  // The registered .invalid callback intentionally has no DNS. Verify the real
+  // browser form response, not a simulated external client callback page.
+  await page.waitForURL('https://client.example.invalid/**').catch(error => { if (!error.message.includes('ERR_NAME_NOT_RESOLVED')) throw error; });
+  const approvalPage=await context.newPage();
+  await approvalPage.goto(state.origin+'/oauth/authorize?'+parameters); await expect(approvalPage.locator('#connection')).toBeFocused(); await approvalPage.keyboard.press('Tab');
+  await expect(approvalPage.locator('button[value="approve"]')).toBeFocused();
+  const approved=approvalPage.waitForResponse(r => r.url().endsWith('/oauth/authorize') && r.request().method()==='POST'); await approvalPage.keyboard.press('Enter');
+  const consent=await approved; expect(consent.status()).toBe(303); expect(new URL(consent.headers().location).searchParams.get('code')).toBeTruthy();
+  passes.push('OAuth consent keyboard initial focus, light/dark and narrow/short rendering, keyboard cancellation and approval');
   console.log(JSON.stringify({ passes, screenshots: shots }, null, 2));
   writeFileSync(`${out}/results.json`, JSON.stringify({ passes, screenshots: shots }, null, 2));
 } finally { await browser.close(); }

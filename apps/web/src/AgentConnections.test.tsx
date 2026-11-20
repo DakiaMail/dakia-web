@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { DakiaProvider } from "@dakia/ui";
 import { AgentConnections, agentConnectionsApi } from "./AgentConnections";
-beforeEach(() => { vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }))); });
+beforeEach(() => { Object.defineProperty(Element.prototype, "scrollIntoView", { configurable: true, value: vi.fn() }); vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() }))); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 it("creates with both permissions off, shows token once, edits and revokes", async () => {
   const connection = { id: "fixture", name: "Research", allow_send: false, allow_delete: false, created_at: 0, revoked: false };

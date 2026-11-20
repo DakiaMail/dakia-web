@@ -26,9 +26,10 @@ export function AgentConnections({ userId }: { userId: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const heading = useRef<HTMLHeadingElement>(null);
+  const opener = useRef<HTMLElement | null>(null);
   const close = () => { if (!busy) { setDialog(null); setToken(""); setError(""); } };
   const update = (connection: AgentConnection) => client.setQueryData<AgentConnection[]>(key, old => [...(old || []).filter(c => c.id !== connection.id), connection]);
-  const open = (kind: typeof dialog, c: AgentConnection | null = null) => { setSelected(c); setName(c?.name || ""); setSend(c?.allow_send || false); setRemove(c?.allow_delete || false); setToken(""); setError(""); setDialog(kind); };
+  const open = (kind: typeof dialog, c: AgentConnection | null = null) => { opener.current = document.activeElement as HTMLElement | null; setSelected(c); setName(c?.name || ""); setSend(c?.allow_send || false); setRemove(c?.allow_delete || false); setToken(""); setError(""); setDialog(kind); };
   return <section className="agent-connections" aria-labelledby="agent-connections-heading">
     <div className="workspace-section-heading"><div className="agent-heading"><Bot size={21} /><h2 ref={heading} tabIndex={-1} id="agent-connections-heading">Agent connections</h2></div><button onClick={() => open("create")}><Plus size={16} />Create connection</button></div>
     <p>Connect an assistant to all your email accounts and drafts. Choose separately whether it can send or delete mail.</p>
@@ -39,7 +40,7 @@ export function AgentConnections({ userId }: { userId: string }) {
       <div><h3>{c.name}</h3><div className="agent-permissions"><span>Sending {c.allow_send ? "on" : "off"}</span><span>Deleting {c.allow_delete ? "on" : "off"}</span></div></div>
       <div className="agent-actions"><button aria-label={`Set up ${c.name}`} onClick={() => open("setup", c)}>Set up client</button><button aria-label={`Edit ${c.name}`} onClick={() => open("edit", c)}>Edit</button><button aria-label={`Revoke ${c.name}`} className="remove-account-link" onClick={() => open("revoke", c)}>Revoke</button></div>
     </article>)}</div>
-    {(dialog === "create" || dialog === "edit") && <Modal title={dialog === "create" ? "Create agent connection" : "Edit agent connection"} onClose={close} initialFocus="#agent-name">
+    {(dialog === "create" || dialog === "edit") && <Modal title={dialog === "create" ? "Create agent connection" : "Edit agent connection"} onClose={close} restoreFocus={() => opener.current} initialFocus="#agent-name">
       <form className="setup agent-form" onSubmit={async event => {
         event.preventDefault(); if (busy) return; setBusy(true); setError("");
         try {
@@ -58,10 +59,10 @@ export function AgentConnections({ userId }: { userId: string }) {
         <footer><button type="button" disabled={busy} onClick={close}>Cancel</button><button className="primary" disabled={busy || !name.trim()}>{busy ? "Saving…" : dialog === "create" ? "Create" : "Save changes"}</button></footer>
       </form>
     </Modal>}
-    {dialog === "setup" && <Modal key="setup" title={token ? "Connection created" : `Set up ${selected?.name || "client"}`} onClose={close} initialFocus="[data-agent-setup]">
+    {dialog === "setup" && <Modal key="setup" title={token ? "Connection created" : `Set up ${selected?.name || "client"}`} onClose={close} restoreFocus={() => opener.current} initialFocus="[data-agent-setup]">
       <div className="agent-setup"><ClientSetup token={token} /><footer><button className="primary" onClick={close}>Done</button></footer></div>
     </Modal>}
-    {dialog === "revoke" && selected && <Modal title={`Revoke ${selected.name}?`} onClose={close}>
+    {dialog === "revoke" && selected && <Modal title={`Revoke ${selected.name}?`} onClose={close} restoreFocus={() => opener.current}>
       <div className="agent-setup"><p>This disconnects clients using this connection, including browser-authorized clients. Your other connections stay active.</p>{error && <p role="alert">{error}</p>}<footer><button disabled={busy} onClick={close}>Keep connection</button><button className="destructive" disabled={busy} onClick={async () => {
         setBusy(true); setError(""); try { await agentConnectionsApi.revoke(selected.id); client.setQueryData<AgentConnection[]>(key, old => old?.filter(c => c.id !== selected.id)); setDialog(null); requestAnimationFrame(() => heading.current?.focus()); } catch { setError("Could not confirm revocation. Reload connections to check its current state."); } finally { setBusy(false); }
       }}>{busy ? "Revoking…" : "Revoke connection"}</button></footer></div>

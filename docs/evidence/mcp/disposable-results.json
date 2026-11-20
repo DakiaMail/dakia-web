@@ -1,0 +1,27 @@
+{
+  "passed": [
+    "built HTTP app creates default-off private connection",
+    "four independent permission combinations, hidden tools and cached direct-call denial",
+    "all human drafts, cross-user isolation and generic/batch bypass rejection",
+    "real TLS IMAP folder discovery, search, message and attachment retrieval",
+    "read thread, reply and forward with attachment, draft edit and baseline organisation without send/delete permission",
+    "extra-field and mixed-effect mutation bypasses rejected",
+    "newly connected fixture account is immediately visible only to owner",
+    "reply and forward sends share the independent send gate",
+    "Trash, explicit empty Trash and draft deletion work independently of sending",
+    "concurrent duplicate sends and built-server restart preserve one SMTP acceptance",
+    "lost SMTP acknowledgement remains unknown across restart without resend",
+    "preaccept SMTP recipient rejection is failed, not unknown",
+    "real disposable IMAP folder deletion with readback",
+    "real UID-scoped permanent deletion with readback",
+    "audit records contain no fixture bodies, credentials or bearer token",
+    "revocation invalidates cached HTTP client immediately and records redacted denial"
+  ],
+  "smtp": {
+    "accepted": 2,
+    "attempts": 3,
+    "mode": "refuse"
+  },
+  "origin": "https://localhost:41825",
+  "data": "isolated synthetic only"
+}

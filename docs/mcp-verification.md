@@ -1,45 +1,68 @@
-# MCP implementation verification checkpoint
+# MCP verification
 
-Task `t_a24029b1`, draft PR <https://github.com/DakiaMail/dakia-web/pull/58>.
-Not yet ready for owner review, merge or deployment.
+Task `t_a24029b1`, draft PR <https://github.com/DakiaMail/dakia-web/pull/58>. Owner review only. Do not merge or deploy.
 
-## Executed successfully
+## Actual execution
 
-- `cargo test -p dakia-server --test api mcp:: -- --nocapture`: four tests passed, covering private connection lifecycle, default-off permissions, four independent permission combinations, cached direct-call denial/revocation, all-human-draft access, new accounts, user isolation, concurrent/reopened send ID bindings, cross-account ID conflicts, draft deletion and browser OAuth PKCE/single-use codes/revocation.
-- `cargo test -p dakia-server --lib executor::tests -- --nocapture`: three tests passed, including SMTP-boundary permission enforcement and durable submission outcomes.
-- `cargo test -p dakia-mail-provider --test mcp_delete_fixture -- --nocapture`: two actual TLS IMAP wire tests passed. UID-scoped deletion verifies absence; servers without UIDPLUS are rejected rather than using global EXPUNGE.
-- `npm test --workspace @dakia/web -- --run src/AgentConnections.test.tsx`: create, token-once, edit and revoke component test passed.
+- Full `cargo test --workspace`: exit 0, including the MCP API, executor, storage and provider suites. Latest full local log: `target/mcp-final-workspace.log`. Optional model/PostgreSQL fixtures retain their existing explicit skips.
+- `NODE_OPTIONS=--no-experimental-webstorage npm test`: all 335 tests passed. The option disables Node 26's experimental global storage, which interferes with the existing jsdom suite. CI uses Node 24.
 - `npm run build`: TypeScript and production Vite build passed. Existing large-chunk warning remains.
-- `cargo build -p dakia-server --bin dakia-server --example mcp_fixture`: actual server and explicit new-directory fixture seeder built successfully.
-- `python3 scripts/mcp-disposable.py`: eleven checks passed against the built server over HTTP, pinned disposable Dovecot and a loopback TLS SMTP sink. Server restarted twice during the test. Docker container, server and listeners were removed in finally cleanup.
+- Four focused MCP API tests pass, including connection isolation, token-once, independent permissions, all drafts/new accounts, concurrent/reopened send IDs, and OAuth PKCE/code reuse/resource/client binding/refresh rotation/revocation.
+- Queued mutation regression passes for revoked connections, disabled deleting and archive mappings resolving to Trash.
+- Three TLS IMAP wire tests pass: UID-scoped permanent deletion/readback, refusal without UIDPLUS, and refusal to claim Gmail permanent deletion outside its advertised Trash.
+- Local synthetic Graph HTTP fixture verifies the permanentDelete endpoint and absence readback; a still-present message returns unknown. This is not a live Microsoft service test.
 
-## Disposable run: actual sanitized results
+## Built-app disposable instance
 
-Evidence retained locally in `target/mcp-disposable-453a22e4f8/results.json` and `server.log`:
+`target/mcp-disposable-69fb069d54/results.json` records 16 passed checks against the compiled server over HTTP, pinned disposable Dovecot, and a loopback TLS SMTP sink:
 
-1. Built HTTP app creates default-off private connection.
-2. Four independent permission combinations, hidden tools and cached direct-call denial.
-3. All human drafts, cross-user isolation and generic/batch bypass rejection.
-4. Real TLS IMAP folder discovery, search, message and attachment retrieval.
-5. Four concurrent duplicates share one submission and produce one SMTP acceptance. Retrying after server restart does not send again.
-6. Lost SMTP acknowledgement persists `delivery_unknown`; retry/restart produces no additional SMTP attempt.
-7. Preaccept SMTP recipient refusal persists `failed`, not unknown.
-8. Disposable IMAP folder deletion is read back.
-9. UID-scoped permanent deletion is read back.
-10. Audit rows contain no fixture body sentinel, credentials or bearer token.
-11. Revocation invalidates the cached HTTP client immediately.
+1. Default-off private connection creation.
+2. All four permission combinations, hidden tools and cached direct-call denial.
+3. Human drafts, cross-user isolation, generic/batch rejection.
+4. Real TLS IMAP folders, search, messages and attachments.
+5. Thread read, reply/forward drafts with attachments, draft editing and baseline read/star/category/archive without send/delete permission.
+6. Extra-field and mixed-effect bypass rejection.
+7. Newly added fixture account visible only to its owner.
+8. Reply/forward sending uses the same send gate.
+9. Trash, explicit bounded empty Trash and draft deletion work independently of sending.
+10. Four concurrent duplicate sends produce one SMTP acceptance; restart/retry does not resend.
+11. Lost SMTP acknowledgement persists delivery_unknown; restart/retry does not cause another SMTP attempt.
+12. Preaccept recipient refusal persists failed, not unknown.
+13. Folder deletion is read back.
+14. UID-scoped permanent deletion is read back.
+15. Audit excludes fixture body sentinels, credentials and bearer token.
+16. Revocation immediately rejects the cached client and records redacted authentication denial.
 
-SMTP sink observed three envelopes: one confirmed acceptance, one consumed body with deliberately lost acknowledgement, and one refusal before DATA. Thus two bodies were consumed, not two confirmed deliveries. No claim of exactly-once SMTP delivery.
+The sink observed three envelopes: one confirmed acceptance, one consumed body with deliberately lost acknowledgement, and one refusal before DATA. Two bodies were consumed, not two confirmed deliveries. This is not exactly-once SMTP delivery.
 
-Only synthetic fixture users, accounts, messages and credentials were used. No owner mail, personal instance, production system, authenticated ChatGPT session or Claude Code session was used.
+## Real Chromium and official SDK
 
-## Still required
+`browser/results.json` records three passing keyboard journeys: create and all client instructions; independent permission edits/rename/focus/persistence; token not redisplayed, cancel/Escape and revoke; OAuth consent initial focus and real browser form approval/cancellation. The registered `.invalid` callback intentionally has no DNS. Browser tests assert the real 303 response and Location, not a working external client callback. API and SDK tests complete code exchange separately.
 
-- Complete security edge-case review and regressions, notably archive mappings resolving to Trash, permission changes while queued Trash is pending, accurate audit outcomes for nested partial/unknown deletion results and denied/revoked authentication, and OAuth refresh/resource/redirect rejection coverage.
-- Review Gmail permanent deletion semantics and Graph deletion tests. The current isolated live deletion smoke covered generic IMAP, not Gmail or Microsoft services.
-- Exercise remaining mail tools, reply/forward drafts, archive/read/star/category, Trash/empty Trash, mixed-effect and extra-field bypass cases over live HTTP.
-- Browser create/edit/revoke keyboard-only paths, focus, light/dark/narrow/short viewport screenshots, personal screenshot inspection and OAuth consent-page visual review. Component tests are not visual evidence.
-- Official MCP SDK/client harness and honest client compatibility limits. No private client login should be attempted by the worker.
-- Full workspace/frontend regression results, current PR exact-head CI, final PR body and owner review handoff.
+Ten genuine screenshots cover create, edit, revoke, client setup, settings and OAuth in light/dark and 390×540 narrow/short viewports. Captures wait for finite animations to settle. The browser checks exposed and fixed both Origin:null from no-referrer form policy and CSP blocking registered OAuth redirects. Modal replacement now preserves the original trigger through setup and closing.
 
-Use `python3 scripts/mcp-disposable.py --serve` to retain the task-owned browser fixture after its smoke run. It prints its strict loopback HTTPS URL; `browser-state.json` contains the test-only session cookie. Stop that harness to clean its resources. Each run requires a new fixture directory; the seeder refuses existing directories.
+Official TypeScript MCP SDK **1.32.2** passed four checks in `sdk-results.json`: Streamable HTTP bearer initialization/tools/calls; OAuth discovery/dynamic registration/resource-bound PKCE; refresh rotation; current permission edits, direct cached-tool denial and revocation.
+
+No actual authenticated ChatGPT or Claude Code session was performed. Private login is owner-only. Public HTTPS reachability, account/workspace eligibility and vendor UI policies still need the owner's client setup check. No live Gmail or Microsoft mailbox was used.
+
+## Reproduce
+
+```sh
+npm ci --ignore-scripts
+npm ci --prefix workers/push --ignore-scripts
+npm ci --prefix workers/translation --ignore-scripts
+npm run build
+cargo build -p dakia-server --bin dakia-server --example mcp_fixture
+python3 scripts/mcp-disposable.py --serve
+# Use the new fixture directory printed by that command:
+node scripts/mcp-browser.mjs target/mcp-disposable-<id>/browser-state.json
+npm install --prefix target/mcp-client --no-save @modelcontextprotocol/sdk@1.32.2
+NODE_EXTRA_CA_CERTS="$PWD/target/mcp-disposable-<id>/cert.pem" \
+  node scripts/mcp-sdk.mjs target/mcp-disposable-<id>/browser-state.json
+```
+
+Requires Docker, OpenSSL, Chromium (`CHROME_PATH` may override `/usr/bin/chromium`) and Node >=22.22.2 in PATH. The fixture uses synthetic users/cookies only, refuses an existing data directory, binds loopback listeners, and cleans its server/container/listeners on termination while retaining evidence. `--serve` keeps it available for browser checks until stopped. No production or personal instance was accessed.
+
+## CI
+
+All five required execution checks passed for checkpoint `38f4d3e`: upgrade checks, classification checks, Demo verify, amd64 repair image and arm64 repair image. Production image/manifest/deploy jobs were skipped by PR conditions. Final exact-head CI must be checked on the PR after the last commit; this document does not substitute older-head results for it.

@@ -72,6 +72,8 @@ DAKIA_CREDENTIAL_KEY_FILE=/var/lib/dakia-secrets/credential-key
 
 The supplied launcher selects the bundled Node, workers, models, and libraries. It keeps SQLite temporary files in the persistent data directory. The service runs as the `dakia` user with a read-only system filesystem, private temporary storage, and persistent write access to its data and secrets. The credential key is generated privately on first start.
 
+Server-side Web Push is also ready by default: before server startup the launcher creates unique mode-0600 VAPID keys at `/var/lib/dakia-secrets/vapid.json`, using your HTTPS `DAKIA_ORIGIN` as the contact subject. The keys are owned by `dakia` and preserved on subsequent starts. Existing `DAKIA_VAPID_FILE` and its valid keys are honored without rotation; `DAKIA_VAPID_SUBJECT` optionally overrides the first-start contact subject. Back up the VAPID file with the other secrets. Invalid keys or provisioning failures stop startup with a sanitized error. See [worker configuration](../workers/README.md). Device permission and subscriptions remain explicitly user-controlled; no notification is sent during setup.
+
 Set up your HTTPS reverse proxy before opening public access. For [Caddy](https://caddyserver.com/docs/install), use:
 
 ```caddyfile

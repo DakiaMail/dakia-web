@@ -111,6 +111,9 @@ def preflight(old):
     for key, value in {'DAKIA_NODE': str(old / 'node'), 'DAKIA_WEB_ROOT': str(old / 'web'), 'DAKIA_WORKERS': str(old / 'workers'), 'DAKIA_SEARCH_MODEL_DIR': str(old / 'search-model'), 'DAKIA_MODEL_CACHE': str(DATA / 'models'), 'DAKIA_LISTEN': '127.0.0.1:3025'}.items():
         expected.setdefault(key, value)
     actual = {k: v for k, v in live.items() if k.startswith('DAKIA_')}
+    for key, value in {'DAKIA_VAPID_FILE': str(SECRETS / 'vapid.json'), 'DAKIA_VAPID_SUBJECT': configured.get('DAKIA_ORIGIN', '')}.items():
+        if actual.get(key):
+            expected[key] = expected.get(key) or value
     for key in runtime_paths:
         if key in actual:
             actual[key] = str(Path(actual[key]).resolve())

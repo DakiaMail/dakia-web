@@ -129,8 +129,17 @@ async fn perform(
         targets.push((id, r, raw));
     }
     let mut outcomes = Vec::new();
-    for (id, r, raw) in targets {
-        allowed(app, c).await?;
+    let mut targets = targets.into_iter();
+    while let Some((id, r, raw)) = targets.next() {
+        if let Err(e) = allowed(app, c).await {
+            if tool != "empty_trash" {
+                return Err(e);
+            }
+            for id in std::iter::once(id).chain(targets.map(|(id, _, _)| id)) {
+                outcomes.push(json!({"message_id":id,"outcome":"not_attempted","error":e.1}));
+            }
+            break;
+        }
         match provider.delete_message(&r).await {
             Ok(())=>{
                 let cache=app.store.invalidate_stale_reference(a,id,&r.folder,&raw).await;

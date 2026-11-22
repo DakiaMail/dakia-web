@@ -164,6 +164,7 @@ The root image already supplies the data, key, web, worker, and model paths. For
 | Variable | Root image default / purpose |
 | --- | --- |
 | `DAKIA_ORIGIN` | Required external HTTPS origin, without a path or trailing slash |
+| `DAKIA_TRUST_REGISTRATION_CLIENT_IP` | Enable only when Dakia is reachable exclusively through a trusted proxy that overwrites `Dakia-Client-IP` with the caller IP. The bundled Caddy overlay sets this automatically. |
 | `DAKIA_DATA_DIR` | `/data`; persistent local data, SQLite account files and blobs |
 | `SQLITE_TMPDIR` | `/data`; disk-backed SQLite temporary files for large upgrades and queries |
 | `DAKIA_DATABASE_URL` | Optional application backend; unset/empty keeps SQLite; PostgreSQL uses native control/account schemas |

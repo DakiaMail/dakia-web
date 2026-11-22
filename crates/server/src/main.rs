@@ -106,7 +106,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = router_with_shutdown(state, shutdown.clone());
     let addr = std::env::var("DAKIA_LISTEN").unwrap_or_else(|_| "127.0.0.1:3025".into());
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app)
+    let service = app.into_make_service_with_connect_info::<std::net::SocketAddr>();
+    axum::serve(listener, service)
         .with_graceful_shutdown(async move {
             let mut terminate =
                 tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())

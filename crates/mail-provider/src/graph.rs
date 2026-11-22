@@ -193,6 +193,16 @@ impl GraphProvider {
         let bytes = Self::bounded(response, 24 * 1024 * 1024).await?;
         serde_json::from_slice(&bytes).map_err(|_| invalid())
     }
+    async fn checked_mutation(&self, response: reqwest::Response) -> Result<reqwest::Response> {
+        let ambiguous = response.status().is_server_error();
+        self.checked(response).await.map_err(|e| {
+            if ambiguous {
+                error(ErrorKind::Uncertain, "Graph mutation outcome unknown")
+            } else {
+                e
+            }
+        })
+    }
     async fn checked(&self, response: reqwest::Response) -> Result<reqwest::Response> {
         if response.status().is_success() {
             return Ok(response);
@@ -665,10 +675,11 @@ impl MailProvider for GraphProvider {
             .send()
             .await
             .map_err(|_| error(ErrorKind::Uncertain, "message deletion outcome unknown"))?;
-        self.checked(response).await?;
+        self.checked_mutation(response).await?;
         let response = self
             .request(Method::GET, &path)
-            .await?
+            .await
+            .map_err(|_| error(ErrorKind::Uncertain, "message deletion not verified"))?
             .send()
             .await
             .map_err(|_| error(ErrorKind::Uncertain, "message deletion not verified"))?;
@@ -696,10 +707,11 @@ impl MailProvider for GraphProvider {
             .send()
             .await
             .map_err(|_| error(ErrorKind::Uncertain, "folder deletion outcome unknown"))?;
-        self.checked(response).await?;
+        self.checked_mutation(response).await?;
         let response = self
             .request(Method::GET, &path)
-            .await?
+            .await
+            .map_err(|_| error(ErrorKind::Uncertain, "folder deletion not verified"))?
             .send()
             .await
             .map_err(|_| error(ErrorKind::Uncertain, "folder deletion not verified"))?;
@@ -717,13 +729,7 @@ impl MailProvider for GraphProvider {
             .send()
             .await
             .map_err(|_| error(ErrorKind::Uncertain, "Graph mutation outcome unknown"))?;
-        if response.status().is_server_error() {
-            return Err(error(
-                ErrorKind::Uncertain,
-                "Graph mutation outcome unknown",
-            ));
-        }
-        let response = self.checked(response).await?;
+        let response = self.checked_mutation(response).await?;
         let destination_reference = if let Some(folder) = &destination {
             #[derive(Deserialize)]
             struct Moved {

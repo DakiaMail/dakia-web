@@ -8,6 +8,7 @@ struct Provider {
     sends: AtomicUsize,
     filings: AtomicUsize,
     raw: Mutex<Vec<u8>>,
+    revoke_before_data: Option<(Store, String, String)>,
 }
 fn unsupported<T>() -> p::Result<T> {
     Err(p::ProviderError {
@@ -55,10 +56,15 @@ impl MailProvider for Provider {
         prepared: &PreparedMessage,
         gate: &dyn SubmissionGate,
     ) -> p::SubmissionOutcome {
-        if gate.begin_data().await.is_err() {
-            return p::SubmissionOutcome::Failed {
-                kind: p::ErrorKind::Retryable,
-            };
+        if let Some((store, user, connection)) = &self.revoke_before_data {
+            store
+                .control_repository()
+                .edit_agent(user, connection, "Agent", false, false)
+                .await
+                .unwrap();
+        }
+        if let Err(error) = gate.begin_data().await {
+            return p::SubmissionOutcome::Failed { kind: error.kind };
         }
         self.sends.fetch_add(1, Ordering::SeqCst);
         *self.raw.lock().unwrap() = prepared.raw().to_vec();
@@ -145,6 +151,7 @@ async fn smtp_outcomes_are_durable_and_filing_never_resends() {
             sends: AtomicUsize::new(0),
             filings: AtomicUsize::new(0),
             raw: Mutex::new(Vec::new()),
+            revoke_before_data: None,
         };
         let mut draft = store.draft(&a, "draft").await.unwrap();
         draft.text = "Newer draft must not be sent".into();
@@ -192,6 +199,12 @@ async fn agent_send_permission_is_checked_again_at_smtp_boundary() {
         .create_agent(a.user_id(), "connection-fixture", "Agent", "hash-only", 0)
         .await
         .unwrap();
+    store
+        .control_repository()
+        .edit_agent(a.user_id(), &c.id, "Agent", true, false)
+        .await
+        .unwrap();
+    let original_state = store.accounts(a.user_id()).await.unwrap()[0].state.clone();
     let s = store
         .submit(
             &a,
@@ -221,8 +234,14 @@ async fn agent_send_permission_is_checked_again_at_smtp_boundary() {
         sends: AtomicUsize::new(0),
         filings: AtomicUsize::new(0),
         raw: Mutex::new(Vec::new()),
+        revoke_before_data: Some((store.clone(), a.user_id().into(), c.id)),
     };
     deliver(&store, &a, &provider, &s).await.unwrap();
+    assert_eq!(
+        store.accounts(a.user_id()).await.unwrap()[0].state,
+        original_state
+    );
+    assert!(!agent_send_allowed(&store, &a, &s).await.unwrap());
     assert_eq!(provider.sends.load(Ordering::SeqCst), 0);
     assert_eq!(
         store.submission(&a, &s.id).await.unwrap().state,
@@ -249,6 +268,7 @@ async fn cancel_before_data_prevents_send() {
         sends: AtomicUsize::new(0),
         filings: AtomicUsize::new(0),
         raw: Mutex::new(Vec::new()),
+        revoke_before_data: None,
     };
     deliver(&store, &a, &provider, &s).await.unwrap();
     assert_eq!(provider.sends.load(Ordering::SeqCst), 0);

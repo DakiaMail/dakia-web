@@ -1,7 +1,12 @@
 //! Public-client OAuth authorization-code flow, S256 PKCE and resource-bound rotating grants.
 use super::*;
-use axum::{extract::Form, response::Html};
+use axum::{
+    extract::{ConnectInfo, Form},
+    response::Html,
+    Extension,
+};
 use dakia_storage::control_repository::{AgentOAuthCode, AgentOAuthToken};
+use std::net::{IpAddr, SocketAddr};
 
 pub(crate) async fn resource(State(app): State<App>) -> Json<Value> {
     Json(
@@ -38,16 +43,10 @@ fn redirect_allowed(s: &str) -> bool {
 }
 pub(crate) async fn register(
     State(app): State<App>,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    headers: HeaderMap,
     Json(input): Json<Registration>,
 ) -> Result<Response> {
-    let attempts = app
-        .store
-        .control_repository()
-        .record_login_attempt("mcp:registration", Utc::now().timestamp())
-        .await?;
-    if attempts > 20 {
-        return Err(ApiFailure(StatusCode::TOO_MANY_REQUESTS, "try_again_later"));
-    }
     if input.redirect_uris.is_empty()
         || input.redirect_uris.len() > 10
         || input
@@ -72,6 +71,28 @@ pub(crate) async fn register(
             StatusCode::BAD_REQUEST,
             "invalid_client_metadata",
         ));
+    }
+    let forwarded_ip = if std::env::var("DAKIA_TRUST_REGISTRATION_CLIENT_IP").as_deref() == Ok("true")
+    {
+        headers
+            .get("Dakia-Client-IP")
+            .and_then(|value| value.to_str().ok()?.parse::<IpAddr>().ok())
+    } else {
+        None
+    };
+    let source = forwarded_ip.or_else(|| peer.map(|Extension(ConnectInfo(addr))| addr.ip()));
+    let bucket = match source.map(|ip| ip.to_canonical()) {
+        Some(IpAddr::V6(ip)) => format!("mcp:registration:v6:{:016x}", u128::from(ip) >> 64),
+        Some(IpAddr::V4(ip)) => format!("mcp:registration:v4:{ip}"),
+        None => "mcp:registration:unknown".into(),
+    };
+    let attempts = app
+        .store
+        .control_repository()
+        .record_login_attempt(&bucket, Utc::now().timestamp())
+        .await?;
+    if attempts > 20 {
+        return Err(ApiFailure(StatusCode::TOO_MANY_REQUESTS, "try_again_later"));
     }
     let id = random();
     app.store

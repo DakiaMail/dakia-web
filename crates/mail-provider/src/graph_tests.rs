@@ -49,14 +49,18 @@ fn message(id: &str) -> serde_json::Value {
 }
 #[tokio::test]
 async fn mcp_permanent_deletion_uses_permanent_endpoint_and_absence_readback() {
-    for still_present in [false, true] {
+    for (write_status, still_present) in [
+        (StatusCode::NO_CONTENT, false),
+        (StatusCode::NO_CONTENT, true),
+        (StatusCode::SERVICE_UNAVAILABLE, false),
+    ] {
         let calls = Arc::new(AtomicUsize::new(0));
         let count = calls.clone();
         let (provider, task) = fixture(move |method, uri, _, _| {
             count.fetch_add(1, Ordering::SeqCst);
             match (method, uri.path()) {
                 (Method::POST, "/v1.0/me/messages/fixture-id/permanentDelete") => {
-                    StatusCode::NO_CONTENT.into_response()
+                    write_status.into_response()
                 }
                 (Method::GET, "/v1.0/me/messages/fixture-id") => {
                     if still_present {
@@ -77,12 +81,15 @@ async fn mcp_permanent_deletion_uses_permanent_endpoint_and_absence_readback() {
             uid: 1,
         };
         let outcome = provider.delete_message(&r).await;
-        if still_present {
+        if still_present || write_status.is_server_error() {
             assert_eq!(outcome.unwrap_err().kind, ErrorKind::Uncertain)
         } else {
             outcome.unwrap()
         }
-        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            if write_status.is_success() { 2 } else { 1 }
+        );
         task.abort();
     }
 }

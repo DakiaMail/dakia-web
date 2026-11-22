@@ -380,6 +380,53 @@ async fn oauth_pkce_resource_binding_one_time_code_and_live_connection_permissio
         StatusCode::BAD_REQUEST
     );
 }
+#[tokio::test]
+async fn oauth_registration_limits_valid_requests_per_source_ip() {
+    use axum::extract::ConnectInfo;
+    use std::net::SocketAddr;
+
+    let (_d, app, _, _) = setup().await;
+    let router = router(app);
+    let register = |peer: &'static str, valid: bool| {
+        let router = router.clone();
+        async move {
+            let body = if valid {
+                json!({"redirect_uris":["https://client.example.invalid/callback"]})
+            } else {
+                json!({"redirect_uris":[]})
+            };
+            router
+                .oneshot(
+                    Request::builder()
+                        .method("POST")
+                        .uri("/oauth/register")
+                        .header("content-type", "application/json")
+                        .extension(ConnectInfo(peer.parse::<SocketAddr>().unwrap()))
+                        .body(Body::from(body.to_string()))
+                        .unwrap(),
+                )
+                .await
+                .unwrap()
+                .status()
+        }
+    };
+
+    for _ in 0..20 {
+        assert_eq!(
+            register("192.0.2.1:3000", false).await,
+            StatusCode::BAD_REQUEST
+        );
+    }
+    for _ in 0..20 {
+        assert_eq!(register("192.0.2.1:3000", true).await, StatusCode::CREATED);
+    }
+    assert_eq!(
+        register("192.0.2.1:3001", true).await,
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    assert_eq!(register("192.0.2.2:3000", true).await, StatusCode::CREATED);
+}
+
 async fn public_json(app: &App, path: &str, value: Value) -> (StatusCode, Value) {
     let r = router(app.clone())
         .oneshot(

@@ -29,10 +29,10 @@ impl SubmissionGate for Gate<'_> {
             .map_err(|_| p::error(p::ErrorKind::Retryable, "submission lookup failed"))?;
         if !agent_send_allowed(self.store, self.account, &submission)
             .await
-            .unwrap_or(false)
+            .map_err(|_| p::error(p::ErrorKind::Retryable, "agent permission lookup failed"))?
         {
             return Err(p::error(
-                p::ErrorKind::Authentication,
+                p::ErrorKind::InvalidInput,
                 "agent sending permission removed",
             ));
         }

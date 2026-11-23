@@ -171,9 +171,8 @@ function ClientSetup({ onCreate }: { onCreate: (connection: AgentConnection) => 
       </details>
     </>}
     {client === "hermes" && <>
-      <p>Run these commands in a terminal, then approve access to Dakia in your browser.</p>
-      <pre className="agent-command">{`hermes mcp add dakia --url "${endpoint}" --auth oauth
-hermes mcp login dakia`}</pre>
+      <p>Run this command, approve access in your browser, then choose the tools to enable in Hermes.</p>
+      <code className="agent-command">{`hermes mcp add dakia --url "${endpoint}" --auth oauth`}</code>
     </>}
     {client === "other" && <>
       <p>Add the server URL using <strong>Streamable HTTP</strong> and <strong>OAuth</strong> with dynamic registration. Approve access in Dakia.</p>

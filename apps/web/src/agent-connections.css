@@ -64,7 +64,6 @@
 .agent-extra summary { cursor: pointer; padding: 8px 0; width: fit-content; }
 .agent-extra p { margin-top: 8px; }
 .agent-command { display: block; background: var(--color-subtle); border-radius: 6px; padding: 10px; }
-pre.agent-command { margin: 0; white-space: pre-wrap; }
 .agent-extra .agent-command { margin-top: 8px; }
 .agent-check, .agent-copy { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; color: var(--color-secondary); }
 .agent-check button, .agent-copy button { color: var(--color-text); border: 1px solid var(--color-border); background: var(--color-surface); }

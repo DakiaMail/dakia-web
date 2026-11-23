@@ -51,7 +51,6 @@ for (const { theme, width } of [{ theme: "light", width: 1440 }, { theme: "dark"
     await page.keyboard.press("ArrowRight");
     await expect(agents.getByRole("radio", { name: "Hermes Agent" })).toBeChecked();
     await expect(agents.getByText(/hermes mcp add dakia --url .* --auth oauth/)).toBeVisible();
-    await expect(agents.getByText(/hermes mcp login dakia/)).toBeVisible();
     await page.keyboard.press("ArrowRight");
     await expect(agents.getByRole("radio", { name: "Other AI agent" })).toBeChecked();
     expect(created).toBe(0);

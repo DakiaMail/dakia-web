@@ -69,10 +69,9 @@ Copy the server URL from Dakia, then run:
 
 ```sh
 hermes mcp add dakia --url "https://YOUR_DAKIA_HOST/mcp" --auth oauth
-hermes mcp login dakia
 ```
 
-Approve access in your browser, then start or restart Hermes. For a remote or headless Hermes installation, see [OAuth over SSH](https://hermes-agent.nousresearch.com/docs/guides/oauth-over-ssh).
+Approve access in your browser, choose the tools to enable, then start a new Hermes session. To sign in again later, run `hermes mcp login dakia`. For a remote or headless Hermes installation, see [OAuth over SSH](https://hermes-agent.nousresearch.com/docs/guides/oauth-over-ssh).
 
 ### Other AI agents
 

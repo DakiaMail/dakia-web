@@ -36,4 +36,4 @@ USER 1000:1000
 RUN node /app/workers/translation/smoke.mjs && /app/dakia-classifier-check && /app/dakia-search-model-check
 EXPOSE 3025
 HEALTHCHECK --interval=30s --timeout=5s CMD ["/app/dakia-healthcheck"]
-ENTRYPOINT ["/app/dakia-server"]
+ENTRYPOINT ["sh", "/app/workers/push/start.sh", "/app/dakia-server"]

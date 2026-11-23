@@ -23,7 +23,7 @@ chmod 755 "$work/runtime/dakia" "$work/runtime/node"
 for file in dakia-server dakia-admin dakia-healthcheck dakia-classifier-check dakia-search-model-check node; do
     test -x "$work/runtime/$file"
 done
-for file in web/index.html workers/translation/smoke.mjs search-model/model.onnx search-model/tokenizer.json licenses/Node-LICENSE; do
+for file in workers/push/start.sh workers/push/provision.mjs workers/push/main.mjs workers/push/service.mjs workers/push/node_modules/web-push/package.json web/index.html workers/translation/smoke.mjs search-model/model.onnx search-model/tokenizer.json licenses/Node-LICENSE; do
     test -s "$work/runtime/$file"
 done
 printf '%s\n' "$version" > "$work/runtime/VERSION"

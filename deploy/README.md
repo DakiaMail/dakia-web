@@ -207,7 +207,10 @@ Optional/runtime settings:
 | `DAKIA_WORKERS` | Node worker source/dependency directory |
 | `DAKIA_NODE` | Node executable, default `node` |
 | `DAKIA_MODEL_CACHE` | Writable cache for public translation models |
-| `DAKIA_VAPID_FILE` | Private VAPID JSON file for Web Push; see `workers/README.md` |
+| `DAKIA_VAPID_FILE` | Launchers default to `vapid.json` beside `DAKIA_CREDENTIAL_KEY_FILE` (`/secrets/vapid.json` in images). Unique private keys auto-provision on first start and persist across upgrades; existing configured keys are preserved |
+| `DAKIA_VAPID_SUBJECT` | First-start HTTPS/mailto contact, defaults to `DAKIA_ORIGIN`. Does not replace the subject in an existing key file |
+
+Native and Compose setup enable server-side notification capability by default without a paid push service. The private persistent secrets directory must be writable on first start; subsequent starts validate and preserve the keys. Keep the VAPID file in backups. Invalid configuration or provisioning failures stop startup rather than reporting false readiness. Device permission and per-device subscriptions still require user action. See [workers/README.md](../workers/README.md). These defaults take effect in runtimes built with the new launchers, not older pinned images.
 
 Preserve key bytes across upgrades. Restrict secret directory/file permissions. New local setup needs writable `/secrets` to create its key. Existing provisioned secret files, such as an OIDC client secret, can be mounted read-only. Never put credentials in command arguments, public URLs, Git or logs. Treat database connection URLs and populated environment files as secrets. Give the service UID access to its data/model cache, not other application stores. Keep live SQLite on a local filesystem, not a network share. Run only one server/operator against a data directory; an exclusive lock enforces this.
 

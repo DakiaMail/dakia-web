@@ -193,6 +193,16 @@ impl GraphProvider {
         let bytes = Self::bounded(response, 24 * 1024 * 1024).await?;
         serde_json::from_slice(&bytes).map_err(|_| invalid())
     }
+    async fn checked_mutation(&self, response: reqwest::Response) -> Result<reqwest::Response> {
+        let ambiguous = response.status().is_server_error();
+        self.checked(response).await.map_err(|e| {
+            if ambiguous {
+                error(ErrorKind::Uncertain, "Graph mutation outcome unknown")
+            } else {
+                e
+            }
+        })
+    }
     async fn checked(&self, response: reqwest::Response) -> Result<reqwest::Response> {
         if response.status().is_success() {
             return Ok(response);
@@ -657,6 +667,60 @@ impl MailProvider for GraphProvider {
             .map_err(|_| error(ErrorKind::Retryable, "Microsoft Graph unavailable"))?;
         Self::bounded(self.checked(response).await?, max_bytes as usize).await
     }
+    async fn delete_message(&self, reference: &MessageRef) -> Result<()> {
+        let path = self.message_path(reference)?;
+        let response = self
+            .request(Method::POST, &format!("{path}/permanentDelete"))
+            .await?
+            .send()
+            .await
+            .map_err(|_| error(ErrorKind::Uncertain, "message deletion outcome unknown"))?;
+        self.checked_mutation(response).await?;
+        let response = self
+            .request(Method::GET, &path)
+            .await
+            .map_err(|_| error(ErrorKind::Uncertain, "message deletion not verified"))?
+            .send()
+            .await
+            .map_err(|_| error(ErrorKind::Uncertain, "message deletion not verified"))?;
+        if response.status() != reqwest::StatusCode::NOT_FOUND {
+            return Err(error(ErrorKind::Uncertain, "message deletion not verified"));
+        }
+        Ok(())
+    }
+    async fn delete_folder(&self, name: &str) -> Result<()> {
+        let folder = self.folder(name).await?;
+        if folder.folder.attributes.iter().any(|a| {
+            ["sent", "trash", "drafts", "archive", "all", "junk", "inbox"]
+                .contains(&a.trim_start_matches('\\').to_ascii_lowercase().as_str())
+        }) || name.eq_ignore_ascii_case("INBOX")
+        {
+            return Err(error(
+                ErrorKind::InvalidInput,
+                "special folder deletion rejected",
+            ));
+        }
+        let path = format!("/me/mailFolders/{}", segment(&folder.id));
+        let response = self
+            .request(Method::DELETE, &path)
+            .await?
+            .send()
+            .await
+            .map_err(|_| error(ErrorKind::Uncertain, "folder deletion outcome unknown"))?;
+        self.checked_mutation(response).await?;
+        let response = self
+            .request(Method::GET, &path)
+            .await
+            .map_err(|_| error(ErrorKind::Uncertain, "folder deletion not verified"))?
+            .send()
+            .await
+            .map_err(|_| error(ErrorKind::Uncertain, "folder deletion not verified"))?;
+        if response.status() != reqwest::StatusCode::NOT_FOUND {
+            return Err(error(ErrorKind::Uncertain, "folder deletion not verified"));
+        }
+        *self.folders.lock().await = None;
+        Ok(())
+    }
     async fn mutate(&self, reference: &MessageRef, change: Mutation) -> Result<MutationResult> {
         let (plan, destination) = self.mutation_plan(reference, &change).await?;
         let (method, path, body) = (plan.method, plan.path, plan.body.unwrap());
@@ -665,13 +729,7 @@ impl MailProvider for GraphProvider {
             .send()
             .await
             .map_err(|_| error(ErrorKind::Uncertain, "Graph mutation outcome unknown"))?;
-        if response.status().is_server_error() {
-            return Err(error(
-                ErrorKind::Uncertain,
-                "Graph mutation outcome unknown",
-            ));
-        }
-        let response = self.checked(response).await?;
+        let response = self.checked_mutation(response).await?;
         let destination_reference = if let Some(folder) = &destination {
             #[derive(Deserialize)]
             struct Moved {

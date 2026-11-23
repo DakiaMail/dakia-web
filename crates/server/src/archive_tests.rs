@@ -243,6 +243,83 @@ async fn queue(app: &crate::App, a: &AuthorizedAccount, id: &str, name: &str) ->
         .unwrap()
 }
 #[tokio::test]
+async fn agent_queued_mutations_recheck_revocation_and_archive_trash_mapping() {
+    for mode in ["revoked", "delete_off", "archive_trash"] {
+        let (_dir, app, a, provider) = fixture(false).await;
+        let c = app
+            .store
+            .control_repository()
+            .create_agent(a.user_id(), "queued-agent", "Fixture", "hash", 0)
+            .await
+            .unwrap();
+        app.store
+            .control_repository()
+            .edit_agent(a.user_id(), &c.id, "Fixture", false, true)
+            .await
+            .unwrap();
+        let page = app
+            .mail
+            .page(&app.store, &a, "INBOX", p::Search::default(), None)
+            .await
+            .unwrap();
+        let m = &page.rows[0];
+        let op = app
+            .store
+            .operation(
+                &a,
+                Operation {
+                    id: format!("agent:{}:request", c.id),
+                    account_id: a.id().into(),
+                    target_id: m.id.clone(),
+                    expected_revision: m.revision,
+                    change: if mode == "archive_trash" {
+                        Change::Archive
+                    } else {
+                        Change::Trash
+                    },
+                    status: OperationStatus::Pending,
+                    revision: 0,
+                },
+            )
+            .await
+            .unwrap();
+        if mode == "revoked" {
+            app.store
+                .control_repository()
+                .revoke_agent(a.user_id(), &c.id)
+                .await
+                .unwrap();
+        } else {
+            app.store
+                .control_repository()
+                .edit_agent(a.user_id(), &c.id, "Fixture", false, false)
+                .await
+                .unwrap();
+            if mode == "archive_trash" {
+                let mut settings = app.mail.settings(&app.store, &a).await.unwrap();
+                settings.archive_folder = Some("Trash".into());
+                settings.trash_folder = Some("Trash".into());
+                app.store
+                    .put_provider_document(
+                        &a,
+                        "mailbox-settings",
+                        &serde_json::to_string(&settings).unwrap(),
+                    )
+                    .await
+                    .unwrap();
+            }
+        }
+        crate::mutations::tick(&app, &a).await.unwrap();
+        assert_eq!(provider.mutations.load(Ordering::SeqCst), 0, "{mode}");
+        assert_eq!(
+            app.store.operation_status(&a, &op.id).await.unwrap().status,
+            OperationStatus::Failed,
+            "{mode}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn queued_restore_after_a_failed_archive_does_not_move_inbox_onto_itself() {
     for gmail in [false, true] {
         let (_dir, app, a, provider) = fixture(gmail).await;

@@ -3,5 +3,7 @@
 # Docker's internal DNS resolves the dakia service; use 127.0.0.1:3025 only
 # when Caddy runs directly on the host instead of in Compose.
 {$DAKIA_ORIGIN} {
-	reverse_proxy dakia:3025
+	reverse_proxy dakia:3025 {
+		header_up Dakia-Client-IP {remote_host}
+	}
 }

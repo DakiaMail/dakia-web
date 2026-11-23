@@ -42,6 +42,7 @@ struct Fake {
     subscription_deletes: AtomicUsize,
     client_state: StdMutex<String>,
     batch_status: StdMutex<HashMap<String, u16>>,
+    revoke_delete_on_write: StdMutex<Option<(Store, String, String)>>,
 }
 fn response(body: Value) -> Response {
     axum::Json(body).into_response()
@@ -208,6 +209,25 @@ async fn setup(
         async move {
             let (parts, body) = request.into_parts();
             let body = axum::body::to_bytes(body, 8 * 1024 * 1024).await.unwrap();
+            if parts.method == axum::http::Method::POST {
+                if let Some(id) = parts
+                    .uri
+                    .path()
+                    .strip_prefix("/v1.0/me/messages/")
+                    .and_then(|path| path.strip_suffix("/permanentDelete"))
+                {
+                    let permission = state.revoke_delete_on_write.lock().unwrap().take();
+                    if let Some((store, user, connection)) = permission {
+                        store
+                            .control_repository()
+                            .edit_agent(&user, &connection, "Agent", false, false)
+                            .await
+                            .unwrap();
+                    }
+                    assert!(state.messages.lock().unwrap().remove(id).is_some());
+                    return axum::http::StatusCode::NO_CONTENT.into_response();
+                }
+            }
             state.answer(parts.method, parts.uri, body)
         }
     }));
@@ -270,6 +290,99 @@ async fn head_due(app: &App, a: &AuthorizedAccount) {
         .await
         .unwrap();
 }
+#[tokio::test]
+async fn mcp_empty_trash_preserves_completed_results_after_permission_revocation() {
+    let (_d, app, account, _graph, fake, task) = setup(true).await;
+    for id in ["first", "second", "third"] {
+        fake.messages
+            .lock()
+            .unwrap()
+            .insert(id.into(), message(id, id));
+    }
+    fake.delta.lock().unwrap().push_back((
+        200,
+        delta(
+            json!([{"id":"first"},{"id":"second"},{"id":"third"}]),
+            false,
+        ),
+    ));
+    tick(&app, &account).await;
+    tick(&app, &account).await;
+    // Use the fixture's imported folder as the configured Trash.
+    let settings = MailboxSettings {
+        trash_folder: Some("INBOX".into()),
+        ..Default::default()
+    };
+    app.store
+        .put_provider_document(
+            &account,
+            "mailbox-settings",
+            &serde_json::to_string(&settings).unwrap(),
+        )
+        .await
+        .unwrap();
+    let mut ids = Vec::new();
+    for id in ["first", "second", "third"] {
+        ids.push(
+            app.store
+                .known_provider_message(&account, &format!("graph:{id}"))
+                .await
+                .unwrap()
+                .unwrap()
+                .id,
+        );
+    }
+    let user = account.user_id();
+    let repo = app.store.control_repository();
+    let connection = "deletion-fixture";
+    let token = "fixture-deletion-token";
+    repo.create_agent(user, connection, "Agent", &crate::hash(token), 0)
+        .await
+        .unwrap();
+    repo.edit_agent(user, connection, "Agent", false, true)
+        .await
+        .unwrap();
+    *fake.revoke_delete_on_write.lock().unwrap() =
+        Some((app.store.clone(), user.into(), connection.into()));
+
+    let payload = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "empty_trash",
+            "arguments": {"account_id": account.id(), "message_ids": ids, "request_id": "batch"}
+        }
+    })
+    .to_string();
+    let rpc = || async {
+        let request = Request::builder()
+            .method("POST")
+            .uri("/mcp")
+            .header("authorization", format!("Bearer {token}"))
+            .header("content-type", "application/json")
+            .body(Body::from(payload.clone()))
+            .unwrap();
+        let response = crate::router(app.clone()).oneshot(request).await.unwrap();
+        let bytes = axum::body::to_bytes(response.into_body(), 16_384)
+            .await
+            .unwrap();
+        serde_json::from_slice::<Value>(&bytes).unwrap()["result"]["structuredContent"].clone()
+    };
+    let result = rpc().await;
+    assert_eq!(result["results"][0]["outcome"], "confirmed", "{result}");
+    for index in [1, 2] {
+        assert_eq!(result["results"][index]["message_id"], ids[index]);
+        assert_eq!(result["results"][index]["outcome"], "not_attempted");
+    }
+    repo.edit_agent(user, connection, "Agent", false, true)
+        .await
+        .unwrap();
+    assert_eq!(rpc().await, result);
+    assert_eq!(fake.messages.lock().unwrap().len(), 2);
+    task.abort();
+}
+
 #[tokio::test]
 async fn graph_delta_import_restart_arrivals_and_removals_preserve_unmentioned_mail() {
     let (_d, mut app, mut a, _graph, fake, task) = setup(true).await;

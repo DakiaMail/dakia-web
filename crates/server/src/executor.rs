@@ -22,6 +22,20 @@ struct Gate<'a> {
 #[async_trait]
 impl SubmissionGate for Gate<'_> {
     async fn begin_data(&self) -> p::Result<()> {
+        let submission = self
+            .store
+            .submission(self.account, self.id)
+            .await
+            .map_err(|_| p::error(p::ErrorKind::Retryable, "submission lookup failed"))?;
+        if !agent_send_allowed(self.store, self.account, &submission)
+            .await
+            .map_err(|_| p::error(p::ErrorKind::Retryable, "agent permission lookup failed"))?
+        {
+            return Err(p::error(
+                p::ErrorKind::InvalidInput,
+                "agent sending permission removed",
+            ));
+        }
         self.store
             .transition(
                 self.account,
@@ -94,12 +108,32 @@ async fn prepare(
     )
     .map_err(|_| dakia_storage::Error::Invalid)
 }
+async fn agent_send_allowed(
+    store: &Store,
+    a: &AuthorizedAccount,
+    s: &Submission,
+) -> dakia_storage::Result<bool> {
+    let Some(rest) = s.operation_id.strip_prefix("agent/") else {
+        return Ok(true);
+    };
+    let Some((id, _)) = rest.split_once('/') else {
+        return Ok(false);
+    };
+    let c = store.control_repository().agent(a.user_id(), id).await?;
+    Ok(!c.revoked && c.allow_send)
+}
 async fn deliver(
     store: &Store,
     a: &AuthorizedAccount,
     provider: &dyn MailProvider,
     s: &Submission,
 ) -> dakia_storage::Result<()> {
+    if !agent_send_allowed(store, a, s).await.unwrap_or(false) {
+        store
+            .transition(a, &s.id, SubmissionState::Claimed, SubmissionState::Failed)
+            .await?;
+        return Ok(());
+    }
     let prepared = match prepare(store, a, s).await {
         Ok(p) => p,
         Err(_) => {
@@ -110,11 +144,37 @@ async fn deliver(
         }
     };
     if let Some(graph) = provider.graph() {
-        if store.provider_document(a,&format!("send:attempts:{}",s.id)).await?.is_some() && graph.has_sent_message(
-            &store.mime(a,&s.id).await?.ok_or(dakia_storage::Error::NotFound)?.message_id
-        ).await.unwrap_or(false) {
-            store.transition(a,&s.id,SubmissionState::Claimed,SubmissionState::Submitting).await?;
-            store.transition(a,&s.id,SubmissionState::Submitting,SubmissionState::Accepted).await?;
+        if store
+            .provider_document(a, &format!("send:attempts:{}", s.id))
+            .await?
+            .is_some()
+            && graph
+                .has_sent_message(
+                    &store
+                        .mime(a, &s.id)
+                        .await?
+                        .ok_or(dakia_storage::Error::NotFound)?
+                        .message_id,
+                )
+                .await
+                .unwrap_or(false)
+        {
+            store
+                .transition(
+                    a,
+                    &s.id,
+                    SubmissionState::Claimed,
+                    SubmissionState::Submitting,
+                )
+                .await?;
+            store
+                .transition(
+                    a,
+                    &s.id,
+                    SubmissionState::Submitting,
+                    SubmissionState::Accepted,
+                )
+                .await?;
             return Ok(());
         }
     }
@@ -135,10 +195,15 @@ async fn deliver(
     let next = match outcome {
         p::SubmissionOutcome::Accepted { .. } => SubmissionState::Accepted,
         p::SubmissionOutcome::DeliveryUnknown => SubmissionState::DeliveryUnknown,
-        p::SubmissionOutcome::Deferred { retry_after_secs } => {
-            store.defer_submission(a,&s.id,current.state,retry_after_secs).await?;
+        p::SubmissionOutcome::Deferred { retry_after_secs }
+            if !s.operation_id.starts_with("agent/") =>
+        {
+            store
+                .defer_submission(a, &s.id, current.state, retry_after_secs)
+                .await?;
             return Ok(());
         }
+        p::SubmissionOutcome::Deferred { .. } => SubmissionState::Failed,
         p::SubmissionOutcome::Failed { kind } => {
             if kind == p::ErrorKind::Authentication {
                 store.account_state(a, AccountState::Reconnect).await?;
@@ -298,13 +363,26 @@ pub(crate) async fn tick(app: &App, a: &AuthorizedAccount) -> dakia_storage::Res
     }
     if let Some(graph) = provider.graph() {
         for submission in app.store.uncertain_submissions(a).await? {
-            let key = format!("send:lookup:{}",submission.id);
-            let last = app.store.provider_document(a,&key).await?.and_then(|s| s.parse::<i64>().ok()).unwrap_or(0);
-            if last>Utc::now().timestamp()-60 { continue; }
-            app.store.put_provider_document(a,&key,&Utc::now().timestamp().to_string()).await?;
-            if let Some(mime) = app.store.mime(a,&submission.id).await? {
-                if graph.has_sent_message(&mime.message_id).await.unwrap_or(false) {
-                    app.store.confirm_delivery(a,&submission.id).await?;
+            let key = format!("send:lookup:{}", submission.id);
+            let last = app
+                .store
+                .provider_document(a, &key)
+                .await?
+                .and_then(|s| s.parse::<i64>().ok())
+                .unwrap_or(0);
+            if last > Utc::now().timestamp() - 60 {
+                continue;
+            }
+            app.store
+                .put_provider_document(a, &key, &Utc::now().timestamp().to_string())
+                .await?;
+            if let Some(mime) = app.store.mime(a, &submission.id).await? {
+                if graph
+                    .has_sent_message(&mime.message_id)
+                    .await
+                    .unwrap_or(false)
+                {
+                    app.store.confirm_delivery(a, &submission.id).await?;
                 }
             }
         }

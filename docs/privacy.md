@@ -24,6 +24,8 @@ Received HTML is sanitized and isolated. Remote images follow your per-browser p
 
 Google and Microsoft sign-in contact those providers when you connect or reconnect a mailbox. OIDC installations also contact their identity provider for Dakia login.
 
+An [agent connection](mcp-connections.md) lets the assistant you authorize request mail, drafts, and attachments from your Dakia server. The assistant receives the data returned by its requests and handles it under its own privacy settings. The connection covers all mailboxes and drafts under your Dakia login, including mailboxes you add later. You can revoke access in **Workspace → Agent connections**.
+
 The owner's update check contacts GitHub for published releases without including mailbox or user data. Operators can disable it with `DAKIA_RELEASE_CHECKS=false`.
 
 Optional Web Push uses the browser's supported push service. Push payloads omit sender, subject, and body. The signed-in browser may fetch a message summary and show it in a notification, so consider lock-screen visibility before enabling notifications.

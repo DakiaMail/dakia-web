@@ -9,6 +9,8 @@ use dakia_storage::Store;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use tower::ServiceExt;
+#[path = "cases/mcp.rs"]
+mod mcp;
 #[path = "cases/events.rs"]
 mod events;
 #[path = "cases/gmail_oauth.rs"]

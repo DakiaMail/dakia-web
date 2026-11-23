@@ -94,7 +94,8 @@ Keep both persistent volumes, including the credential encryption key, and take 
 | Guide | What you'll find |
 | --- | --- |
 | [Getting started](docs/getting-started.md) | First login, mailbox connection, invitations, and everyday use |
-| [Features](docs/features.md) | Inbox filters, translation, search, sending, and cleanup |
+| [Features](docs/features.md) | Inbox filters, translation, search, agent connections, and everyday mail actions |
+| [Agent connections (MCP)](docs/mcp-connections.md) | Connect ChatGPT, Claude, Hermes Agent, or another assistant and manage its permissions |
 | [Gmail](docs/gmail-oauth.md) / [Microsoft](docs/microsoft-oauth.md) | Provider sign-in setup and reconnection |
 | [Hosting](docs/hosting.md) / [Operations](deploy/README.md) | Installation, configuration, backups, and recovery |
 | [Privacy](docs/privacy.md) / [Security](docs/security.md) | Where mail is processed and how to protect it |

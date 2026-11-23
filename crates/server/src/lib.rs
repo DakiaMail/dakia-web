@@ -10,6 +10,7 @@ mod language;
 mod local_auth;
 mod local_users;
 pub mod mail;
+mod mcp;
 pub mod microsoft_oauth;
 pub mod models;
 mod mutations;
@@ -220,6 +221,11 @@ pub fn router(app: App) -> Router {
 pub fn router_with_shutdown(app: App, shutdown: tokio::sync::watch::Sender<bool>) -> Router {
     let api = Router::new()
         .route("/session", get(session))
+        .route("/agent-connections", get(mcp::list).post(mcp::create))
+        .route(
+            "/agent-connections/{id}",
+            axum::routing::put(mcp::edit).delete(mcp::revoke),
+        )
         .route(
             "/search/settings",
             get(search_policy::get_policy).put(search_policy::set_policy),
@@ -263,7 +269,10 @@ pub fn router_with_shutdown(app: App, shutdown: tokio::sync::watch::Sender<bool>
         )
         .route("/push/public-key", get(push::public_key))
         .route("/push/subscriptions", post(push::subscribe))
-        .route("/push/subscriptions/{id}", get(push::status).delete(push::unsubscribe))
+        .route(
+            "/push/subscriptions/{id}",
+            get(push::status).delete(push::unsubscribe),
+        )
         .route(
             "/accounts/{account}",
             axum::routing::put(reconnect).delete(remove_account),
@@ -338,6 +347,36 @@ pub fn router_with_shutdown(app: App, shutdown: tokio::sync::watch::Sender<bool>
     let root = app.config.web_root.clone();
     Router::new()
         .route(
+            "/.well-known/oauth-protected-resource/mcp",
+            get(mcp::oauth::resource),
+        )
+        .route(
+            "/.well-known/oauth-protected-resource",
+            get(mcp::oauth::resource),
+        )
+        .route(
+            "/.well-known/oauth-authorization-server",
+            get(mcp::oauth::metadata),
+        )
+        .route(
+            "/oauth/register",
+            post(mcp::oauth::register).layer(axum::extract::DefaultBodyLimit::max(16384)),
+        )
+        .route(
+            "/oauth/authorize",
+            get(mcp::oauth::authorize)
+                .post(mcp::oauth::approve)
+                .layer(axum::extract::DefaultBodyLimit::max(16384)),
+        )
+        .route(
+            "/oauth/token",
+            post(mcp::oauth::token).layer(axum::extract::DefaultBodyLimit::max(4096)),
+        )
+        .route(
+            "/mcp",
+            post(mcp::http).layer(axum::extract::DefaultBodyLimit::max(1024 * 1024)),
+        )
+        .route(
             "/healthz",
             get(|| async { Json(serde_json::json!({"service":"dakia-web","status":"ok"})) }),
         )
@@ -368,7 +407,10 @@ pub fn router_with_shutdown(app: App, shutdown: tokio::sync::watch::Sender<bool>
             releases::ReleaseChecker::from_environment(),
         )))
         .layer(middleware::from_fn(|req: Request, next: Next| async move {
-            let login_form = matches!(req.uri().path(), "/auth/login" | "/auth/join");
+            let login_form = matches!(
+                req.uri().path(),
+                "/auth/login" | "/auth/join" | "/oauth/authorize"
+            );
             let mut r = next.run(req).await;
             r.headers_mut()
                 .insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
@@ -948,9 +990,32 @@ async fn metadata(app: &App, http: &reqwest::Client) -> Result<CoreProviderMetad
     .await
     .map_err(internal)
 }
-async fn login(State(app): State<App>) -> Result<Response> {
+#[derive(Deserialize)]
+struct LoginQuery {
+    next: Option<String>,
+}
+
+fn login_target(target: &str) -> Option<&str> {
+    // Only resume the OAuth consent page. Bound the encoded continuation to fit a cookie.
+    if target.len() > 2400 || !target.starts_with("/oauth/authorize?") {
+        return None;
+    }
+    let uri: axum::http::Uri = target.parse().ok()?;
+    (uri.path() == "/oauth/authorize" && uri.query().is_some()).then_some(target)
+}
+
+fn login_continuation_cookie(target: Option<&str>) -> String {
+    let encoded = target
+        .map(|target| URL_SAFE_NO_PAD.encode(target))
+        .unwrap_or_default();
+    let age = if encoded.is_empty() { 0 } else { 600 };
+    format!("__Host-dakia-next={encoded}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age={age}")
+}
+
+async fn login(State(app): State<App>, Query(query): Query<LoginQuery>) -> Result<Response> {
+    let next = query.next.as_deref().and_then(login_target);
     if app.config.issuer.is_empty() {
-        return local_auth::page(&app).await;
+        return local_auth::page(&app, next).await;
     }
     let http = http()?;
     let meta = metadata(&app, &http).await?;
@@ -987,7 +1052,10 @@ async fn login(State(app): State<App>) -> Result<Response> {
         state.secret()
     );
     Ok((
-        [(header::SET_COOKIE, cookie)],
+        [
+            (header::SET_COOKIE, cookie),
+            (header::SET_COOKIE, login_continuation_cookie(next)),
+        ],
         Redirect::temporary(url.as_str()),
     )
         .into_response())
@@ -1054,10 +1122,18 @@ async fn callback(
             Utc::now().timestamp() + 86400 * 7,
         )
         .await?;
-    let mut response = Redirect::to("/").into_response();
+    let next = cookie(&headers, "__Host-dakia-next")
+        .and_then(|encoded| URL_SAFE_NO_PAD.decode(encoded).ok())
+        .and_then(|bytes| String::from_utf8(bytes).ok());
+    let mut response =
+        Redirect::to(next.as_deref().and_then(login_target).unwrap_or("/")).into_response();
     response.headers_mut().append(
         header::SET_COOKIE,
         session_cookie(&token, 86400 * 7).parse().unwrap(),
+    );
+    response.headers_mut().append(
+        header::SET_COOKIE,
+        login_continuation_cookie(None).parse().unwrap(),
     );
     response.headers_mut().append(
         header::SET_COOKIE,

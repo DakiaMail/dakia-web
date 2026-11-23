@@ -1,0 +1,94 @@
+.agent-connections.workspace-notifications {
+  display: grid;
+  gap: 18px;
+}
+.agent-connections header p { margin: 4px 0 0; }
+.agent-connections .workspace-account-identity { align-items: center; }
+.agent-client-setup { display: grid; gap: 14px; min-width: 0; }
+.agent-client-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+}
+.agent-client-options legend { margin-bottom: 8px; font-weight: 600; }
+.agent-client-options label { position: relative; }
+.agent-client-options input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.agent-client-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 12px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  font-weight: 500;
+}
+.agent-client-option img { width: 20px; height: 20px; }
+.agent-client-option .agent-openai-logo { width: 34px; height: 34px; margin: -7px; }
+[data-theme="dark"] .agent-openai-logo { filter: invert(1); }
+.agent-client-options input:hover + span { background: var(--color-subtle); }
+.agent-client-options input:checked + span { background: var(--color-selected); border-color: var(--color-accent); }
+.agent-client-options input:focus-visible + span { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.agent-server {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 12px 14px;
+  background: var(--color-subtle);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+.agent-server-url { display: grid; gap: 4px; min-width: 0; }
+.agent-server-url span { color: var(--color-secondary); font-size: 12px; font-weight: 600; }
+.agent-server-url code, .agent-command { overflow-wrap: anywhere; }
+.agent-client-setup ol { margin: 0; padding-inline-start: 22px; line-height: 1.65; }
+.agent-client-setup li + li { margin-top: 5px; }
+.agent-client-setup p, .agent-list p { margin: 0; }
+.agent-client-link { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; justify-self: start; }
+.agent-client-link:hover { text-decoration: underline; }
+.agent-extra summary { cursor: pointer; padding: 8px 0; width: fit-content; }
+.agent-extra p { margin-top: 8px; }
+.agent-command { display: block; background: var(--color-subtle); border-radius: 6px; padding: 10px; }
+.agent-extra .agent-command { margin-top: 8px; }
+.agent-check, .agent-copy { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; color: var(--color-secondary); }
+.agent-check button, .agent-copy button { color: var(--color-text); border: 1px solid var(--color-border); background: var(--color-surface); }
+.agent-check button:hover, .agent-copy button:hover { background: var(--color-subtle); }
+.agent-check span:empty, .agent-copy span:empty { display: none; }
+.agent-list { border-top: 1px solid var(--color-border); }
+.agent-list > p { padding-top: 14px; }
+.agent-row { padding-top: 12px; }
+.agent-row + .agent-row { margin-top: 12px; border-top: 1px solid var(--color-border); }
+.agent-row-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.agent-row h3 { margin: 0 0 4px; font-size: 14px; overflow-wrap: anywhere; }
+.agent-row-header > div { min-width: 0; }
+.agent-actions, .agent-inline-form footer, .agent-confirm footer { display: flex; flex-wrap: wrap; gap: 8px; }
+.agent-actions .remove-account-link { color: var(--color-secondary); }
+.agent-actions .remove-account-link:hover, .agent-connections [role="alert"] { color: var(--color-danger); }
+.agent-inline-form {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+}
+.agent-inline-form label { display: grid; gap: 6px; }
+.agent-inline-form .agent-checkbox { display: flex; align-items: center; gap: 8px; min-height: 32px; }
+.agent-checkbox input { width: 16px; height: 16px; accent-color: var(--color-accent); }
+.agent-inline-form footer, .agent-confirm footer { justify-content: flex-end; }
+.agent-confirm { padding: 20px; }

@@ -132,12 +132,17 @@ impl ImapProvider {
         // Shared by command and IDLE lanes. The permit also backs off cancelled
         // handshakes; a task deadline must not reopen the connection floodgate.
         let mut attempt = if foreground {
-            self.connection_backoff.begin_waiting(&self.config.account_id).await?
+            self.connection_backoff
+                .begin_waiting(&self.config.account_id)
+                .await?
         } else {
             self.connection_backoff.begin(&self.config.account_id)?
         };
         if self.retired.load(std::sync::atomic::Ordering::Acquire) {
-            return Err(error(ErrorKind::Authentication, "account provider replaced"));
+            return Err(error(
+                ErrorKind::Authentication,
+                "account provider replaced",
+            ));
         }
         let result = self.connect_inner(&mut attempt).await;
         attempt.finished(&result);
@@ -261,7 +266,11 @@ impl ImapProvider {
     }
     async fn command_on(&self, foreground: bool) -> Result<CommandLease<'_>> {
         let started = std::time::Instant::now();
-        let lane = if foreground { &self.read_lane } else { &self.lane };
+        let lane = if foreground {
+            &self.read_lane
+        } else {
+            &self.lane
+        };
         let mut slot = lane.lock().await;
         tracing::info!(target: "dakia_server::provider_io", operation = "command_checkout", foreground,
             wait_ms = started.elapsed().as_millis() as u64, "mail command lane");
@@ -566,6 +575,118 @@ impl ImapProvider {
             Ok(body)
         })
         .await
+    }
+    /// Permanently delete a single stable UID. No global EXPUNGE fallback.
+    pub async fn delete_message(&self, r: &MessageRef) -> Result<()> {
+        self.check_account(r)?;
+        let mut started = false;
+        self.bounded(async {
+            let mut s = self.command().await?;
+            if self.config.kind == ProviderKind::Gmail {
+                // Gmail expunge outside Trash can merely archive. Only the
+                // provider-advertised Trash role establishes permanent semantics.
+                let discovered = folders(&mut s).await?;
+                if !discovered
+                    .iter()
+                    .any(|f| f.name == r.folder && has(&f.attributes, "Trash"))
+                {
+                    return Err(error(
+                        ErrorKind::Unsupported,
+                        "move Gmail message to Trash before permanent deletion",
+                    ));
+                }
+            }
+            self.select_ref(&mut s, r).await?;
+            if !has(&capabilities(&mut s).await?, "UIDPLUS") {
+                return Err(error(
+                    ErrorKind::Unsupported,
+                    "safe deletion requires UIDPLUS",
+                ));
+            }
+            started = true;
+            checked(
+                &mut s,
+                &format!("UID STORE {} +FLAGS.SILENT (\\Deleted)", r.uid),
+            )
+            .await?;
+            checked(&mut s, &format!("UID EXPUNGE {}", r.uid)).await?;
+            if search_uids(&mut s, &format!("UID {}", r.uid))
+                .await?
+                .contains(&r.uid)
+            {
+                return Err(error(ErrorKind::Uncertain, "message deletion not verified"));
+            }
+            s.recycle();
+            Ok(())
+        })
+        .await
+        .map_err(|e| {
+            if started {
+                error(
+                    ErrorKind::Uncertain,
+                    "message deletion outcome unverified; do not replay automatically",
+                )
+            } else {
+                e
+            }
+        })
+    }
+    pub async fn delete_folder(&self, folder: &str) -> Result<()> {
+        quote(folder)?;
+        let mut started = false;
+        self.bounded(async {
+            let mut s = self.command().await?;
+            let discovered = folders(&mut s).await?;
+            let found = discovered
+                .iter()
+                .find(|f| f.name == folder)
+                .ok_or_else(|| error(ErrorKind::StaleReference, "folder missing"))?;
+            if folder.eq_ignore_ascii_case("INBOX")
+                || found.attributes.iter().any(|a| {
+                    [
+                        "\\Sent",
+                        "\\Trash",
+                        "\\Drafts",
+                        "\\Archive",
+                        "\\All",
+                        "\\Junk",
+                    ]
+                    .iter()
+                    .any(|v| a.eq_ignore_ascii_case(v))
+                })
+                || [
+                    &self.config.folders.sent,
+                    &self.config.folders.trash,
+                    &self.config.folders.archive,
+                ]
+                .into_iter()
+                .flatten()
+                .any(|s| s.eq_ignore_ascii_case(folder))
+            {
+                return Err(error(
+                    ErrorKind::InvalidInput,
+                    "special folder deletion rejected",
+                ));
+            }
+            started = true;
+            checked(&mut s, &format!("DELETE {}", quote(folder)?)).await?;
+            if folders(&mut s).await?.iter().any(|f| f.name == folder) {
+                return Err(error(ErrorKind::Uncertain, "folder deletion not verified"));
+            }
+            s.recycle();
+            Ok(())
+        })
+        .await
+        .map_err(|e| {
+            if started {
+                error(
+                    ErrorKind::Uncertain,
+                    "folder deletion outcome unverified; do not replay automatically",
+                )
+            } else {
+                e
+            }
+        })
     }
     pub async fn mutate(&self, r: &MessageRef, mutation: Mutation) -> Result<MutationResult> {
         self.check_account(r)?;

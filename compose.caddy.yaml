@@ -2,6 +2,9 @@
 # Usage: docker compose -f compose.yaml -f compose.caddy.yaml up -d --wait
 # DAKIA_ORIGIN must already be the exact HTTPS address people open.
 services:
+  dakia:
+    environment:
+      DAKIA_TRUST_REGISTRATION_CLIENT_IP: "true"
   caddy:
     image: caddy:2.10-alpine
     restart: unless-stopped

@@ -48,7 +48,6 @@ export function Modal({
               else document.querySelector<HTMLElement>('.workspace-view .workspace-content > h1, .app.reading .reader, .mailbox .message-list[tabindex], .mailbox')?.focus();
             });
           }}
-          onInteractOutside={(e) => e.preventDefault()}
           onEscapeKeyDown={(event) => {
             // Radix listens in document capture, before recipient input handlers.
             // Nested time pickers and recipient suggestions dismiss before their enclosing draft.

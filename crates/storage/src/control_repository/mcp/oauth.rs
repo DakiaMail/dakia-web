@@ -45,16 +45,52 @@ impl ControlRepository {
             optional!(self,"SELECT document FROM agent_oauth_clients WHERE id=? AND expires_at>?","SELECT document FROM agent_oauth_clients WHERE id=$1 AND expires_at>$2",[id,at],r=>r.get("document")),
         )
     }
-    pub async fn create_agent_code(&self, c: &AgentOAuthCode) -> Result<()> {
+    pub async fn create_agent_code(
+        &self,
+        c: &AgentOAuthCode,
+        new_connection: Option<(&str, &str, &str)>,
+    ) -> Result<()> {
         let at = chrono::Utc::now().timestamp();
-        execute!(
-            self,
-            "DELETE FROM agent_oauth_codes WHERE expires_at<?",
-            "DELETE FROM agent_oauth_codes WHERE expires_at<$1",
-            [at]
-        );
-        execute!(self,"INSERT INTO agent_oauth_codes(code_hash,connection_id,client_id,redirect_uri,challenge,resource,expires_at) VALUES(?,?,?,?,?,?,?)","INSERT INTO agent_oauth_codes(code_hash,connection_id,client_id,redirect_uri,challenge,resource,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7)",[&c.hash,&c.connection,&c.client,&c.redirect,&c.challenge,&c.resource,c.expires]);
-        Ok(())
+        transaction!(self, tx, sqlite, {
+            if let Some((user, name, unused_token_hash)) = new_connection {
+                sqlx::query(statement!(
+                    sqlite,
+                    "INSERT INTO agent_connections(id,user_id,name,token_hash,created_at) VALUES(?,?,?,?,?)",
+                    "INSERT INTO agent_connections(id,user_id,name,token_hash,created_at) VALUES($1,$2,$3,$4,$5)"
+                ))
+                .bind(&c.connection)
+                .bind(user)
+                .bind(name)
+                .bind(unused_token_hash)
+                .bind(at)
+                .execute(&mut *tx)
+                .await?;
+            }
+            sqlx::query(statement!(
+                sqlite,
+                "DELETE FROM agent_oauth_codes WHERE expires_at<?",
+                "DELETE FROM agent_oauth_codes WHERE expires_at<$1"
+            ))
+            .bind(at)
+            .execute(&mut *tx)
+            .await?;
+            sqlx::query(statement!(
+                sqlite,
+                "INSERT INTO agent_oauth_codes(code_hash,connection_id,client_id,redirect_uri,challenge,resource,expires_at) VALUES(?,?,?,?,?,?,?)",
+                "INSERT INTO agent_oauth_codes(code_hash,connection_id,client_id,redirect_uri,challenge,resource,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7)"
+            ))
+            .bind(&c.hash)
+            .bind(&c.connection)
+            .bind(&c.client)
+            .bind(&c.redirect)
+            .bind(&c.challenge)
+            .bind(&c.resource)
+            .bind(c.expires)
+            .execute(&mut *tx)
+            .await?;
+            tx.commit().await?;
+            Ok(())
+        })
     }
     pub async fn consume_agent_code(&self, c: &AgentOAuthCode, at: i64) -> Result<Option<String>> {
         Ok(

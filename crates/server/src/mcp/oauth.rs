@@ -1,7 +1,7 @@
 //! Public-client OAuth authorization-code flow, S256 PKCE and resource-bound rotating grants.
 use super::*;
 use axum::{
-    extract::{ConnectInfo, Form},
+    extract::{ConnectInfo, Form, OriginalUri},
     response::Html,
     Extension,
 };
@@ -10,7 +10,7 @@ use std::net::{IpAddr, SocketAddr};
 
 pub(crate) async fn resource(State(app): State<App>) -> Json<Value> {
     Json(
-        json!({"resource":format!("{}/mcp",app.config.origin),"authorization_servers":[app.config.origin],"scopes_supported":["mail"],"bearer_methods_supported":["header"],"resource_name":"Dakia Mail"}),
+        json!({"resource":format!("{}/mcp",app.config.origin),"authorization_servers":[app.config.origin],"scopes_supported":["mail"],"bearer_methods_supported":["header"],"resource_name":"Dakia"}),
     )
 }
 pub(crate) async fn metadata(State(app): State<App>) -> Json<Value> {
@@ -32,7 +32,7 @@ fn invalid() -> ApiFailure {
 }
 fn redirect_allowed(s: &str) -> bool {
     url::Url::parse(s).ok().is_some_and(|u| {
-        !u.has_host() == false
+        u.has_host()
             && u.username().is_empty()
             && u.password().is_none()
             && u.fragment().is_none()
@@ -72,14 +72,14 @@ pub(crate) async fn register(
             "invalid_client_metadata",
         ));
     }
-    let forwarded_ip = if std::env::var("DAKIA_TRUST_REGISTRATION_CLIENT_IP").as_deref() == Ok("true")
-    {
-        headers
-            .get("Dakia-Client-IP")
-            .and_then(|value| value.to_str().ok()?.parse::<IpAddr>().ok())
-    } else {
-        None
-    };
+    let forwarded_ip =
+        if std::env::var("DAKIA_TRUST_REGISTRATION_CLIENT_IP").as_deref() == Ok("true") {
+            headers
+                .get("Dakia-Client-IP")
+                .and_then(|value| value.to_str().ok()?.parse::<IpAddr>().ok())
+        } else {
+            None
+        };
     let source = forwarded_ip.or_else(|| peer.map(|Extension(ConnectInfo(addr))| addr.ip()));
     let bucket = match source.map(|ip| ip.to_canonical()) {
         Some(IpAddr::V6(ip)) => format!("mcp:registration:v6:{:016x}", u128::from(ip) >> 64),
@@ -159,38 +159,126 @@ async fn browser_identity(app: &App, headers: &HeaderMap) -> Result<Identity> {
         .ok_or(ApiFailure(StatusCode::UNAUTHORIZED, "login_required"))?;
     identity(app, &hash(&token)).await
 }
+const CONSENT_TOKENS: &str = include_str!("../../../../packages/ui/src/tokens.css");
+const CONSENT_STYLE: &str = include_str!("consent.css");
+
 pub(crate) async fn authorize(
     State(app): State<App>,
     headers: HeaderMap,
+    OriginalUri(uri): OriginalUri,
     Query(a): Query<Authorization>,
 ) -> Result<Response> {
     let client = validate(&app, &a).await?;
-    let identity = browser_identity(&app, &headers).await;
-    let (content,title)=match identity {
-        Err(_)=>("<p>Sign in to Dakia, then return to this tab to continue.</p><p><a href=\"/auth/login\" target=\"_blank\" rel=\"noopener\">Sign in to Dakia</a></p><button onclick=\"location.reload()\">Continue</button>".to_owned(),"Connect your mail"),
-        Ok(id)=>{
-            let connections=app.store.control_repository().agents(&id.user).await?;
-            let fields=serde_json::to_value(&a).map_err(|_|invalid())?.as_object().unwrap().iter().map(|(k,v)|format!("<input type=\"hidden\" name=\"{}\" value=\"{}\">",escape(k),escape(v.as_str().unwrap_or("")))).collect::<String>();
-            let options=connections.iter().map(|c|format!("<option value=\"{}\" data-permissions=\"Sending {} · Deleting {}\">{}</option>",escape(&c.id),if c.allow_send{"on"}else{"off"},if c.allow_delete{"on"}else{"off"},escape(&c.name))).collect::<String>();
-            let permission_note=connections.first().map(|c|format!("Sending {} · Deleting {}",if c.allow_send{"on"}else{"off"},if c.allow_delete{"on"}else{"off"})).unwrap_or_default();
-            let body=if connections.is_empty() {"<p>Create an agent connection in Workspace first, then return here.</p><a href=\"/\" target=\"_blank\" rel=\"noopener\">Open Dakia</a>".to_owned()} else {format!("<p><strong>{}</strong> wants to use your mail through Dakia.</p><p>The connection includes all your email accounts and drafts. Its sending and deletion settings apply to this client.</p><form method=\"post\" action=\"/oauth/authorize\">{fields}<input type=\"hidden\" name=\"csrf\" value=\"{}\"><label for=\"connection\">Agent connection</label><select id=\"connection\" name=\"connection_id\" aria-describedby=\"permissions\" onchange=\"document.getElementById('permissions').textContent=this.selectedOptions[0].dataset.permissions\" required autofocus>{options}</select><p id=\"permissions\" aria-live=\"polite\" style=\"margin:0 0 24px\">{permission_note}</p><div class=\"actions\"><button name=\"decision\" value=\"approve\">Connect</button><button class=\"secondary\" name=\"decision\" value=\"deny\">Cancel</button></div></form>",escape(client.client_name.as_deref().unwrap_or("MCP client")),escape(&id.csrf))};
-            (body,"Connect to Dakia")
+    let callback = url::Url::parse(&a.redirect_uri).map_err(|_| invalid())?;
+    let callback_origin = callback.origin().ascii_serialization();
+    let name = escape(client_display_name(&client));
+    let body = match browser_identity(&app, &headers).await {
+        Ok(id) => {
+            let connections = app.store.control_repository().agents(&id.user).await?;
+            let reuse = if connections.is_empty() {
+                String::new()
+            } else {
+                let options: String = connections
+                    .iter()
+                    .map(|c| {
+                        let permissions = match (c.allow_send, c.allow_delete) {
+                            (true, true) => " (can send and permanently delete)",
+                            (true, false) => " (can send)",
+                            (false, true) => " (can permanently delete)",
+                            (false, false) => "",
+                        };
+                        format!(
+                            "<option value=\"{}\">{}{permissions}</option>",
+                            escape(&c.id),
+                            escape(&c.name)
+                        )
+                    })
+                    .collect();
+                format!(
+                    r#"<label for="connection">Agent connection</label><select id="connection" name="connection_id"><option value="">Create a new connection</option>{options}</select>"#
+                )
+            };
+            let document = serde_json::to_value(&a).map_err(|_| invalid())?;
+            let fields: String = document
+                .as_object()
+                .ok_or_else(invalid)?
+                .iter()
+                .filter_map(|(key, value)| {
+                    let value = value.as_str()?;
+                    Some(format!(
+                        r#"<input type="hidden" name="{}" value="{}">"#,
+                        escape(key),
+                        escape(value)
+                    ))
+                })
+                .collect();
+            format!(
+                r#"<p><strong>{name}</strong> is requesting access to all your mail accounts and drafts.</p><p class="callback">Returns to {}</p><form method="post" action="/oauth/authorize">{fields}<input type="hidden" name="csrf" value="{}">{reuse}<div class="actions"><button class="primary" name="decision" value="approve">Connect</button><button name="decision" value="deny">Cancel</button></div></form>"#,
+                escape(&callback_origin),
+                escape(&id.csrf),
+            )
         }
+        Err(ApiFailure(StatusCode::UNAUTHORIZED, _)) => {
+            let next = uri.to_string();
+            if login_target(&next).is_some() {
+                let query = url::form_urlencoded::Serializer::new(String::new())
+                    .append_pair("next", &next)
+                    .finish();
+                format!(
+                    r#"<p>Sign in to connect <strong>{name}</strong> to your mail.</p><div class="actions"><a class="primary" href="/auth/login?{}">Sign in</a></div>"#,
+                    escape(&query)
+                )
+            } else {
+                format!(
+                    r#"<p>Sign in to connect <strong>{name}</strong> to your mail.</p><div class="actions"><a class="primary" href="/auth/login" target="_blank" rel="noopener">Sign in</a><a href="{}">Continue</a></div>"#,
+                    escape(&next)
+                )
+            }
+        }
+        Err(error) => return Err(error),
     };
-    // Chromium applies form-action to the redirect as well as the initial POST.
-    // Permit only the already validated registered callback origin, never arbitrary URLs.
-    let callback_origin=url::Url::parse(&a.redirect_uri).map_err(|_|invalid())?.origin().ascii_serialization();
-    let csp=format!("default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; form-action 'self' {callback_origin}; frame-ancestors 'none'");
-    Ok(([(header::CONTENT_SECURITY_POLICY,csp.as_str()),(header::X_FRAME_OPTIONS,"DENY")],Html(format!("<!doctype html><html lang=\"en\"><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>{title}</title><style>:root{{color-scheme:light dark}}*{{box-sizing:border-box}}body{{font:16px system-ui;margin:0;padding:24px;min-height:100dvh;display:grid;place-items:center;background:light-dark(#f5f5f7,#141416);color:light-dark(#202124,#ececef)}}main{{width:100%;max-width:480px;background:light-dark(white,#242428);border:1px solid light-dark(#e4e4e7,#3f3f46);padding:32px;border-radius:20px}}h1{{font-size:26px;margin-top:0}}p{{line-height:1.6}}label{{display:block;margin-top:24px}}select{{font:inherit;width:100%;padding:12px;margin:8px 0 24px;min-height:44px}}.actions{{display:flex;gap:12px;flex-wrap:wrap}}button,a{{font:inherit;min-height:44px;padding:12px 18px;border-radius:8px}}button{{background:light-dark(#27272a,#e4e4e7);color:light-dark(white,#18181b);border:1px solid transparent;cursor:pointer}}.secondary{{background:transparent;color:inherit;border-color:light-dark(#ccc,#666)}}:focus-visible{{outline:3px solid #5789ff;outline-offset:3px}}@media(max-width:420px){{main{{padding:24px}}body{{padding:16px}}}}</style><main><h1>{title}</h1>{content}</main></html>"))).into_response())
+    // Chromium checks the registered callback origin as well as the form's initial destination.
+    let nonce = random();
+    let csp = format!("default-src 'none'; img-src 'self'; style-src 'nonce-{nonce}'; script-src 'nonce-{nonce}'; form-action 'self' {callback_origin}; frame-ancestors 'none'; base-uri 'none'");
+    Ok((
+        [
+            (header::CONTENT_SECURITY_POLICY, csp.as_str()),
+            (header::X_FRAME_OPTIONS, "DENY"),
+        ],
+        Html(format!(
+            r#"<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Connect to Dakia</title><link rel="icon" href="/dakia-icon-192.png" type="image/png">
+<script nonce="{nonce}">
+let theme;
+try {{ theme = localStorage.getItem("dakia-theme"); }} catch {{}}
+document.documentElement.dataset.theme = theme === "dark"
+    || (theme === "auto" && matchMedia("(prefers-color-scheme: dark)").matches) ? "dark" : "light";
+</script><style nonce="{nonce}">{CONSENT_TOKENS}{CONSENT_STYLE}</style></head>
+<body><main><img src="/dakia-icon-192.png" alt="" width="44" height="44"><h1>Connect to Dakia</h1>{body}</main></body></html>"#,
+        )),
+    )
+        .into_response())
 }
+
+fn client_display_name(client: &Registration) -> &str {
+    client
+        .client_name
+        .as_deref()
+        .and_then(|name| super::name(name).ok())
+        .unwrap_or("AI agent")
+}
+
 #[derive(Deserialize)]
 pub(crate) struct Approval {
     #[serde(flatten)]
     authorization: Authorization,
     csrf: String,
+    #[serde(default)]
     connection_id: String,
     decision: String,
 }
+
 pub(crate) async fn approve(
     State(app): State<App>,
     headers: HeaderMap,
@@ -202,34 +290,41 @@ pub(crate) async fn approve(
     {
         return Err(ApiFailure(StatusCode::FORBIDDEN, "csrf_rejected"));
     }
-    validate(&app, &input.authorization).await?;
-    let c = app
-        .store
-        .control_repository()
-        .agent(&id.user, &input.connection_id)
-        .await?;
-    if c.revoked {
-        return Err(ApiFailure(StatusCode::BAD_REQUEST, "connection_revoked"));
-    }
     let a = input.authorization;
+    let client = validate(&app, &a).await?;
     let mut redirect = url::Url::parse(&a.redirect_uri).map_err(|_| invalid())?;
     if input.decision == "approve" {
+        let repo = app.store.control_repository();
+        let new_connection = input.connection_id.is_empty();
+        let connection = if new_connection {
+            uuid::Uuid::new_v4().to_string()
+        } else {
+            let c = repo.agent(&id.user, &input.connection_id).await?;
+            if c.revoked {
+                return Err(ApiFailure(StatusCode::BAD_REQUEST, "connection_revoked"));
+            }
+            c.id
+        };
         let code = random();
-        app.store
-            .control_repository()
-            .create_agent_code(&AgentOAuthCode {
+        // OAuth-only connections have no issued bearer credential.
+        let unused_token_hash = new_connection.then(|| hash(&random()));
+        repo.create_agent_code(
+            &AgentOAuthCode {
                 hash: hash(&code),
-                connection: c.id.clone(),
+                connection: connection.clone(),
                 client: a.client_id,
                 redirect: a.redirect_uri.clone(),
                 challenge: a.code_challenge,
                 resource: a.resource,
                 expires: Utc::now().timestamp() + 120,
-            })
-            .await?;
-        app.store
-            .control_repository()
-            .audit_agent(&c, "oauth_approve", "ok", None, None, None)
+            },
+            unused_token_hash
+                .as_deref()
+                .map(|token_hash| (id.user.as_str(), client_display_name(&client), token_hash)),
+        )
+        .await?;
+        let c = repo.agent(&id.user, &connection).await?;
+        repo.audit_agent(&c, "oauth_approve", "ok", None, None, None)
             .await?;
         redirect.query_pairs_mut().append_pair("code", &code);
     } else if input.decision == "deny" {

@@ -1,6 +1,6 @@
 # MCP verification
 
-Task `t_a24029b1`, draft PR <https://github.com/DakiaMail/dakia-web/pull/58>. Owner review only. Do not merge or deploy.
+This page records the original MCP fixtures and their coverage during development of [PR #58](https://github.com/DakiaMail/dakia-web/pull/58).
 
 ## Actual execution
 

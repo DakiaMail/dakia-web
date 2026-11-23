@@ -228,14 +228,6 @@ async fn call(app: &App, token: &str, tool: &str, args: Value) -> Value {
 #[tokio::test]
 async fn oauth_pkce_resource_binding_one_time_code_and_live_connection_permissions() {
     let (_d, app, _, _) = setup().await;
-    let (_, created) = manage(
-        &app,
-        "POST",
-        "/api/agent-connections",
-        "alice-token",
-        json!({"name":"ChatGPT"}),
-    )
-    .await;
     let client=public_json(&app,"/oauth/register",json!({"client_name":"Fixture client","redirect_uris":["https://client.example.invalid/callback"],"token_endpoint_auth_method":"none","grant_types":["authorization_code","refresh_token"],"response_types":["code"]})).await;
     assert_eq!(client.0, StatusCode::CREATED);
     let client_id = client.1["client_id"].as_str().unwrap();
@@ -247,34 +239,67 @@ async fn oauth_pkce_resource_binding_one_time_code_and_live_connection_permissio
         pairs.append_pair(k, v.as_str().unwrap());
     }
     let query = pairs.finish();
-    let page = router(app.clone())
-        .oneshot(req(
-            "GET",
-            &format!("/oauth/authorize?{query}"),
-            "alice-token",
-            false,
-            String::new(),
-        ))
-        .await
-        .unwrap();
+    let target = format!("/oauth/authorize?{query}");
+    let render = |token: &'static str| {
+        router(app.clone()).oneshot(req("GET", &target, token, false, String::new()))
+    };
+    let signed_out = render("expired-token").await.unwrap();
+    let html = String::from_utf8(
+        to_bytes(signed_out.into_body(), 80_000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(html.contains("/auth/login?next=%2Foauth%2Fauthorize%3F"));
+    assert!(!html.contains("target=\"_blank\""));
+    let page = render("alice-token").await.unwrap();
     assert_eq!(page.status(), StatusCode::OK);
-    let approval = format!(
-        "{query}&csrf=csrf-value&connection_id={}&decision=approve",
-        created["connection"]["id"].as_str().unwrap()
-    );
-    let response = router(app.clone())
-        .oneshot(
+    let html =
+        String::from_utf8(to_bytes(page.into_body(), 80_000).await.unwrap().to_vec()).unwrap();
+    assert!(html.contains("Connect to Dakia"));
+    assert!(html.contains("/dakia-icon-192.png"));
+    assert!(!html.contains("Sending off"));
+    assert!(!html.contains("<select"));
+    let decide = |origin: &'static str, decision: &str, connection: &str| {
+        router(app.clone()).oneshot(
             Request::builder()
                 .method("POST")
                 .uri("/oauth/authorize")
                 .header("cookie", "__Host-dakia=alice-token")
-                .header("origin", "https://dakia.example.invalid")
+                .header("origin", origin)
                 .header("content-type", "application/x-www-form-urlencoded")
-                .body(Body::from(approval))
+                .body(Body::from(format!(
+                    "{query}&csrf=csrf-value&connection_id={connection}&decision={decision}"
+                )))
                 .unwrap(),
         )
+    };
+    let origin = "https://dakia.example.invalid";
+    let denied = decide(origin, "deny", "").await.unwrap();
+    assert_eq!(denied.status(), StatusCode::SEE_OTHER);
+    assert!(denied.headers()["location"]
+        .to_str()
+        .unwrap()
+        .contains("error=access_denied"));
+    let untrusted = decide("https://wrong.example.invalid", "approve", "")
         .await
         .unwrap();
+    assert_eq!(untrusted.status(), StatusCode::FORBIDDEN);
+    assert_eq!(
+        manage(
+            &app,
+            "GET",
+            "/api/agent-connections",
+            "alice-token",
+            Value::Null
+        )
+        .await
+        .1,
+        json!([])
+    );
+
+    let response = decide(origin, "approve", "").await.unwrap();
     assert_eq!(response.status(), StatusCode::SEE_OTHER);
     let location = url::Url::parse(response.headers()["location"].to_str().unwrap()).unwrap();
     let code = location
@@ -311,10 +336,47 @@ async fn oauth_pkce_resource_binding_one_time_code_and_live_connection_permissio
         .0,
         StatusCode::OK
     );
-    let path = format!(
-        "/api/agent-connections/{}",
-        created["connection"]["id"].as_str().unwrap()
+    let (_, connections) = manage(
+        &app,
+        "GET",
+        "/api/agent-connections",
+        "alice-token",
+        Value::Null,
+    )
+    .await;
+    let connection = &connections[0];
+    assert_eq!(connections.as_array().unwrap().len(), 1);
+    assert_eq!(connection["name"], "Fixture client");
+    assert_eq!(connection["allow_send"], false);
+    assert_eq!(connection["allow_delete"], false);
+    assert!(connection.get("token").is_none());
+
+    let connection_id = connection["id"].as_str().unwrap();
+    let reused = decide(origin, "approve", connection_id).await.unwrap();
+    assert_eq!(reused.status(), StatusCode::SEE_OTHER);
+    assert_eq!(
+        manage(
+            &app,
+            "GET",
+            "/api/agent-connections",
+            "alice-token",
+            Value::Null
+        )
+        .await
+        .1,
+        connections
     );
+
+    let (_, initialized) = rpc(&app, access, json!({"jsonrpc":"2.0","id":2,"method":"initialize","params":{"protocolVersion":"2025-11-25"}})).await;
+    let server = &initialized["result"]["serverInfo"];
+    assert_eq!(server["title"], "Dakia");
+    assert_eq!(
+        server["icons"][0]["src"],
+        format!("{origin}/dakia-icon-192.png")
+    );
+    assert_eq!(server["icons"][0]["mimeType"], "image/png");
+
+    let path = format!("/api/agent-connections/{connection_id}");
     let refresh=format!("grant_type=refresh_token&refresh_token={}&client_id={client_id}&resource=https%3A%2F%2Fdakia.example.invalid%2Fmcp",tokens["refresh_token"].as_str().unwrap());
     assert_eq!(
         public_form(

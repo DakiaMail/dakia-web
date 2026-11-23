@@ -49,8 +49,8 @@ pub async fn initialize_local_login(
     Ok(())
 }
 
-pub async fn page(app: &App) -> Result<Response> {
-    render(app, "", "", "", false).await
+pub async fn page(app: &App, next: Option<&str>) -> Result<Response> {
+    render(app, "", "", "", false, next).await
 }
 fn escape_html(value: &str) -> String {
     value
@@ -66,6 +66,7 @@ async fn render(
     username: &str,
     code: &str,
     joining: bool,
+    next: Option<&str>,
 ) -> Result<Response> {
     let username = escape_html(username);
     let code = escape_html(code);
@@ -89,6 +90,14 @@ async fn render(
     } else {
         String::new()
     };
+    let continuation = next
+        .map(|target| {
+            format!(
+                r#"<input type="hidden" name="next" value="{}">"#,
+                escape_html(target)
+            )
+        })
+        .unwrap_or_default();
     let action = if joining { "/auth/join" } else { "/auth/login" };
     let script = if joining {
         r#"<script>function loadInvite(){const code=location.hash.slice(1)||history.state?.dakiaInvite;if(typeof code==="string"&&code.length<=256){document.getElementById("invite-code").value=code;history.replaceState({dakiaInvite:code},"",location.pathname)}}loadInvite();addEventListener("hashchange",loadInvite)</script>"#
@@ -100,7 +109,7 @@ async fn render(
     } else {
         "current-password"
     };
-    Ok(Html(format!(r#"<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{title}</title><link rel="icon" href="/favicon.ico"><style>*{{box-sizing:border-box}}body{{font:16px system-ui;background:#f5f5f7;color:#202124;margin:0;display:grid;min-height:100dvh;place-items:center;padding:24px 16px}}main{{width:100%;max-width:412px;padding:36px;background:white;border-radius:20px;box-shadow:0 8px 40px #0001}}img{{width:64px;height:64px}}h1{{font-size:26px}}label{{display:block;margin:20px 0}}input{{display:block;box-sizing:border-box;width:100%;margin-top:8px;padding:12px;border:1px solid #aaa;border-radius:8px;font:inherit}}button{{width:100%;min-height:44px;padding:12px;background:#27272a;color:white;border:0;border-radius:8px;font:inherit;cursor:pointer}}p{{font-size:14px;line-height:1.6;color:#555}}@media(max-width:420px){{body{{padding:16px}}main{{padding:24px}}}}</style><main><img src="/dakia-icon-192.png" alt="Dakia"><h1>{title}</h1>{notice}<form method="post" action="{action}">{setup}<label>Username<input name="username" value="{username}" required autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="128"></label><label>Password<input name="password" type="password" required minlength="12" maxlength="1024" autocomplete="{autocomplete}"></label><button>Continue</button></form></main>{script}</html>"#)).into_response())
+    Ok(Html(format!(r#"<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{title}</title><link rel="icon" href="/favicon.ico"><style>*{{box-sizing:border-box}}body{{font:16px system-ui;background:#f5f5f7;color:#202124;margin:0;display:grid;min-height:100dvh;place-items:center;padding:24px 16px}}main{{width:100%;max-width:412px;padding:36px;background:white;border-radius:20px;box-shadow:0 8px 40px #0001}}img{{width:64px;height:64px}}h1{{font-size:26px}}label{{display:block;margin:20px 0}}input{{display:block;box-sizing:border-box;width:100%;margin-top:8px;padding:12px;border:1px solid #aaa;border-radius:8px;font:inherit}}button{{width:100%;min-height:44px;padding:12px;background:#27272a;color:white;border:0;border-radius:8px;font:inherit;cursor:pointer}}p{{font-size:14px;line-height:1.6;color:#555}}@media(max-width:420px){{body{{padding:16px}}main{{padding:24px}}}}</style><main><img src="/dakia-icon-192.png" alt="Dakia"><h1>{title}</h1>{notice}<form method="post" action="{action}">{continuation}{setup}<label>Username<input name="username" value="{username}" required autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="128"></label><label>Password<input name="password" type="password" required minlength="12" maxlength="1024" autocomplete="{autocomplete}"></label><button>Continue</button></form></main>{script}</html>"#)).into_response())
 }
 
 #[derive(Deserialize)]
@@ -109,6 +118,7 @@ pub struct Credentials {
     password: String,
     #[serde(default)]
     code: String,
+    next: Option<String>,
 }
 static HASH_SLOTS: std::sync::LazyLock<Arc<tokio::sync::Semaphore>> =
     std::sync::LazyLock::new(|| Arc::new(tokio::sync::Semaphore::new(2)));
@@ -180,7 +190,7 @@ pub(super) async fn join_page(State(app): State<App>) -> Result<Response> {
     if !app.config.issuer.is_empty() {
         return Err(ApiFailure(StatusCode::NOT_FOUND, "local_login_disabled"));
     }
-    render(&app, "", "", "", true).await
+    render(&app, "", "", "", true, None).await
 }
 pub(super) async fn join_submit(
     State(app): State<App>,
@@ -206,7 +216,24 @@ async fn submit_mode(
     // Preserve non-password fields on retries, bounding reflected input before escaping.
     let username: String = input.username.chars().take(128).collect();
     let code: String = input.code.chars().take(256).collect();
-    match process(State(app.clone()), headers, Form(input), joining).await {
+    let next = if joining {
+        None
+    } else {
+        input
+            .next
+            .as_deref()
+            .and_then(login_target)
+            .map(str::to_owned)
+    };
+    match process(
+        State(app.clone()),
+        headers,
+        Form(input),
+        joining,
+        next.as_deref(),
+    )
+    .await
+    {
         Ok(response) => Ok(response),
         Err(error) => {
             let message = match error.1 {
@@ -225,7 +252,8 @@ async fn submit_mode(
             if !app.config.issuer.is_empty() {
                 return Err(error);
             }
-            let mut response = render(&app, message, &username, &code, joining).await?;
+            let mut response =
+                render(&app, message, &username, &code, joining, next.as_deref()).await?;
             *response.status_mut() = error.0;
             Ok(response)
         }
@@ -237,6 +265,7 @@ async fn process(
     headers: HeaderMap,
     Form(input): Form<Credentials>,
     joining: bool,
+    next: Option<&str>,
 ) -> Result<Response> {
     if !app.config.issuer.is_empty() {
         return Err(ApiFailure(StatusCode::NOT_FOUND, "local_login_disabled"));
@@ -288,9 +317,9 @@ async fn process(
         }
         user
     };
-    finish_login(&app, user).await
+    finish_login(&app, user, next).await
 }
-pub(super) async fn finish_login(app: &App, user: String) -> Result<Response> {
+async fn finish_login(app: &App, user: String, next: Option<&str>) -> Result<Response> {
     let now = Utc::now().timestamp();
     let token = random();
     app.store
@@ -299,7 +328,7 @@ pub(super) async fn finish_login(app: &App, user: String) -> Result<Response> {
         .await?;
     Ok((
         [(header::SET_COOKIE, session_cookie(&token, 86400 * 7))],
-        Redirect::to("/"),
+        Redirect::to(next.unwrap_or("/")),
     )
         .into_response())
 }
@@ -378,6 +407,27 @@ mod tests {
             StatusCode::FORBIDDEN
         );
     }
+    #[tokio::test]
+    async fn sign_in_resumes_only_dakia_oauth_consent() {
+        let (_dir, app) = fixture().await;
+        let app = router(app);
+        let target = "/oauth/authorize?client_id=fixture&state=value";
+        for (next, expected) in [(target, target), ("//outside.example/redirect", "/")] {
+            let form = url::form_urlencoded::Serializer::new(String::new())
+                .append_pair("username", "owner")
+                .append_pair("password", "long-test-password")
+                .append_pair("next", next)
+                .finish();
+            let response = app
+                .clone()
+                .oneshot(request("https://mail.test", form))
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::SEE_OTHER);
+            assert_eq!(response.headers()["location"], expected);
+        }
+    }
+
     #[tokio::test]
     async fn setup_login_sessions_and_replay() {
         let (_dir, app) = fixture().await;

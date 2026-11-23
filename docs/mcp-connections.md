@@ -1,12 +1,10 @@
 # Agent connections and remote MCP
 
-Implementation checkpoint, task `t_a24029b1`. No production deployment or merge is authorized.
-
-## Agreed product contract
+## Connection permissions
 
 Remote MCP is built into Dakia. Templates are excluded. A named connection belongs to one user and automatically sees all their current and future accounts and all drafts, including human-created drafts. It never sees another user's data.
 
-Each connection has a random credential shown once. Store only its SHA-256 hash. Sending and deleting are independent controls, both off by default. Users can rename, edit permissions and revoke individual connections. Permission edits and revocation take effect on the next request, including cached clients. Restricted tools are hidden and checked independently on invocation.
+Manual connections use a random token shown once. Dakia stores only its SHA-256 hash. OAuth connections use access and refresh tokens. Sending and deleting are independent controls, both off by default. Users can rename, edit permissions and revoke individual connections. Permission edits and revocation take effect on the next request, including cached clients. Restricted tools are hidden and checked independently on invocation.
 
 Baseline access includes account/folder discovery, search, messages, threads, attachments, draft creation/editing, reply/forward preparation, archive, read/unread, stars and labels. Sending covers new messages, replies, forwards and existing drafts. Deletion covers Trash, permanent deletion, empty Trash, folders and drafts. No arbitrary REST proxy or generic mutation tool is exposed. Mixed-effect operations require every relevant permission.
 
@@ -18,7 +16,7 @@ Backend audit records metadata and denied attempts, never bodies, attachments, c
 
 - Stateless Streamable HTTP at `/mcp`, JSON responses, bearer authentication on every request. No session authorization cache.
 - Connection management is inside the existing cookie-session and CSRF-protected API.
-- OAuth authorization-code flow with S256 PKCE, exact registered redirect URI and resource binding. Browser approval selects an existing user-owned connection; OAuth credentials cannot increase its permissions. Access/refresh grants remain bound to that connection and revocation.
+- OAuth authorization-code flow with S256 PKCE, exact registered redirect URI and resource binding. Browser approval creates a connection or uses an existing connection owned by the signed-in user. Access/refresh grants remain bound to that connection and revocation.
 - Support public-client dynamic registration for existing clients. Do not fetch arbitrary client metadata URLs, avoiding an SSRF surface. Advertise only implemented registration mechanisms.
 - All persistence belongs behind the typed control repository with native SQLite and PostgreSQL statements and migrations.
 - Reuse authorized-account capabilities, mail runtime, durable drafts and submission state machines. Never fabricate a browser session or forward arbitrary API paths.
@@ -34,7 +32,22 @@ Checked 20 November 2026:
 
 ## Client setup
 
-In Workspace → Agent connections, create a named connection and save the token shown once. Both permissions start off. Edit either independently or revoke only this connection. Access includes current/future accounts and all drafts.
+Open Workspace → Agent connections, choose your client and copy the server URL. The browser approval creates a connection with sending and deletion disabled. To reuse an existing connection, select it on the approval page. Connections and their permissions can be changed or revoked in Workspace.
+
+Use **Check server URL** to test HTTPS and OAuth discovery from your browser. To verify public access, run these from outside your network and VPN:
+
+```sh
+curl --fail https://YOUR_DAKIA_HOST/.well-known/oauth-protected-resource/mcp
+curl -i https://YOUR_DAKIA_HOST/mcp \
+  -H 'Content-Type: application/json' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"ping"}'
+```
+
+Expect resource metadata for your exact server URL and a `401 Unauthorized` response with a `WWW-Authenticate` header that points to that metadata.
+
+### Claude
+
+In Claude → Customize → Connectors, add a custom connector named **Dakia** and paste the server URL. If prompted, choose **Register automatically**. Choose **Connect** and approve access in Dakia. See [Claude’s custom connector guide](https://support.claude.com/en/articles/11175166-get-started-with-custom-connectors-using-remote-mcp) for workspace-specific steps.
 
 ### Claude Code
 
@@ -42,15 +55,28 @@ In Workspace → Agent connections, create a named connection and save the token
 claude mcp add --transport http dakia https://YOUR_DAKIA_HOST/mcp
 ```
 
-Run `/mcp` in Claude Code, authorize in your browser, sign in to Dakia and select the connection. Alternatively add `--header "Authorization: Bearer YOUR_SAVED_TOKEN"` using your saved token, treating the CLI configuration/history as sensitive. Never paste a real token into an issue or PR.
+Run `/mcp` in Claude Code and approve access in Dakia.
 
 ### ChatGPT
 
-On ChatGPT web, open Plugins → Add custom MCP server. Enter `https://YOUR_DAKIA_HOST/mcp`, choose OAuth with dynamic registration, sign in to Dakia, select the named connection and Connect. Create/install the plugin and select it with @ in a conversation. The server must be reachable by ChatGPT over public HTTPS; localhost is only a disposable test endpoint. Workspace eligibility and controls depend on the ChatGPT account. Token entry is not promised. The owner must complete any private login; SDK verification is not a live ChatGPT session.
+On [ChatGPT Plugins](https://chatgpt.com/plugins), select **Add custom MCP server**. Enter **Dakia** as the name, paste the server URL and choose OAuth with dynamic registration. Approve access in Dakia, install the plugin and select it with @ in a conversation.
 
-### Generic clients
+Dakia advertises its name and PNG through MCP. ChatGPT also has its own name field when creating a custom server, and distributed plugins have their own icon settings. Use the [ChatGPT setup guide](https://developers.openai.com/plugins/deploy/connect-chatgpt) to refresh an existing custom server. For a packaged plugin, use the Dakia PNG as the logo and composer icon in the [plugin manifest](https://developers.openai.com/plugins/deploy/submission#icons).
 
-Use Streamable HTTP POST at `/mcp`, with browser OAuth or `Authorization: Bearer YOUR_SAVED_TOKEN`. Authorization discovery is advertised by the 401 `WWW-Authenticate` challenge. Public-client registration, S256 PKCE, exact redirect validation, the `/mcp` resource indicator and rotating refresh credentials are implemented. No SSE-only legacy transport, arbitrary metadata URL fetching or unauthenticated mail access is provided.
+### Hermes Agent
+
+Copy the server URL from Dakia, then run:
+
+```sh
+hermes mcp add dakia --url "https://YOUR_DAKIA_HOST/mcp" --auth oauth
+hermes mcp login dakia
+```
+
+Approve access in your browser, then start or restart Hermes. For a remote or headless Hermes installation, see [OAuth over SSH](https://hermes-agent.nousresearch.com/docs/guides/oauth-over-ssh).
+
+### Other AI agents
+
+Use Streamable HTTP and OAuth with automatic registration. If your client requires a bearer token, choose **Other AI agent → Use a token instead** in Dakia and enter the generated `Authorization` header in the client.
 
 ## Tool contracts and limits
 
@@ -66,16 +92,3 @@ Use Streamable HTTP POST at `/mcp`, with browser OAuth or `Authorization: Bearer
 Two flags are independent and default off. Hidden tools are still denied directly. All requests reauthenticate without session authority caching; owner authorization scopes every account lookup. Backend audit records bounded action/outcome categories and hashed resource/request identifiers, not arbitrary attacker-selected names, message content, attachments, tokens or headers. Queued results are recorded as queued, not delivered; later status reads expose durable actual outcomes. Audit retention is 90 days and has no UI.
 
 See [actual verification and compatibility limits](mcp-verification.md).
-
-## Historical implementation checklist
-
-- [x] Read approved specification and repository instructions; move clean task branch to current canonical upstream.
-- [x] Check current official authentication/transport documentation.
-- [ ] Persistence, management API, OAuth and redacted audit.
-- [ ] Concrete bounded tool schemas and mail operations.
-- [ ] Durable send deduplication and ambiguity tests.
-- [ ] Settings and client setup UI; keyboard and visual verification.
-- [ ] Disposable synthetic IMAP/SMTP, built HTTP app and protocol verification.
-- [ ] Local builds/tests, draft PR and exact-head CI; owner review.
-
-This document is a progress record, not a claim that unchecked features work.

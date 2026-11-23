@@ -990,9 +990,32 @@ async fn metadata(app: &App, http: &reqwest::Client) -> Result<CoreProviderMetad
     .await
     .map_err(internal)
 }
-async fn login(State(app): State<App>) -> Result<Response> {
+#[derive(Deserialize)]
+struct LoginQuery {
+    next: Option<String>,
+}
+
+fn login_target(target: &str) -> Option<&str> {
+    // Only resume the OAuth consent page. Bound the encoded continuation to fit a cookie.
+    if target.len() > 2400 || !target.starts_with("/oauth/authorize?") {
+        return None;
+    }
+    let uri: axum::http::Uri = target.parse().ok()?;
+    (uri.path() == "/oauth/authorize" && uri.query().is_some()).then_some(target)
+}
+
+fn login_continuation_cookie(target: Option<&str>) -> String {
+    let encoded = target
+        .map(|target| URL_SAFE_NO_PAD.encode(target))
+        .unwrap_or_default();
+    let age = if encoded.is_empty() { 0 } else { 600 };
+    format!("__Host-dakia-next={encoded}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age={age}")
+}
+
+async fn login(State(app): State<App>, Query(query): Query<LoginQuery>) -> Result<Response> {
+    let next = query.next.as_deref().and_then(login_target);
     if app.config.issuer.is_empty() {
-        return local_auth::page(&app).await;
+        return local_auth::page(&app, next).await;
     }
     let http = http()?;
     let meta = metadata(&app, &http).await?;
@@ -1029,7 +1052,10 @@ async fn login(State(app): State<App>) -> Result<Response> {
         state.secret()
     );
     Ok((
-        [(header::SET_COOKIE, cookie)],
+        [
+            (header::SET_COOKIE, cookie),
+            (header::SET_COOKIE, login_continuation_cookie(next)),
+        ],
         Redirect::temporary(url.as_str()),
     )
         .into_response())
@@ -1096,10 +1122,18 @@ async fn callback(
             Utc::now().timestamp() + 86400 * 7,
         )
         .await?;
-    let mut response = Redirect::to("/").into_response();
+    let next = cookie(&headers, "__Host-dakia-next")
+        .and_then(|encoded| URL_SAFE_NO_PAD.decode(encoded).ok())
+        .and_then(|bytes| String::from_utf8(bytes).ok());
+    let mut response =
+        Redirect::to(next.as_deref().and_then(login_target).unwrap_or("/")).into_response();
     response.headers_mut().append(
         header::SET_COOKIE,
         session_cookie(&token, 86400 * 7).parse().unwrap(),
+    );
+    response.headers_mut().append(
+        header::SET_COOKIE,
+        login_continuation_cookie(None).parse().unwrap(),
     );
     response.headers_mut().append(
         header::SET_COOKIE,

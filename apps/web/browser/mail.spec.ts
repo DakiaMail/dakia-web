@@ -102,6 +102,38 @@ async function fixture(page: Page): Promise<FixtureState> {
   return state;
 }
 const discovered = { provider: "imap", imap_host: "imap.migadu.com", imap_port: 993, imap_tls: "implicit", smtp_host: "smtp.migadu.com", smtp_port: 465, smtp_tls: "implicit", username: "alex@example.org", source: "mx" };
+test("clicking outside the composer saves the draft and restores focus", async ({ page }) => {
+  const state = await fixture(page);
+  await page.goto("/");
+  await page.getByRole("tab", { name: "All", exact: true }).click();
+  await expect(page.locator(".message-open").first()).toBeVisible();
+  const compose = page.getByRole("button", { name: "Compose", exact: true }).first();
+  await compose.focus();
+  await page.keyboard.press("Enter");
+  const dialog = page.getByRole("dialog", { name: "New message" });
+  const subject = dialog.getByRole("textbox", { name: "Subject", exact: true });
+  await expect(dialog.getByRole("textbox", { name: "To", exact: true })).toBeFocused();
+  await subject.click();
+  await page.keyboard.type("Draft from the composer");
+  await expect(dialog).toBeVisible();
+  await page.locator(".overlay").click({ position: { x: 10, y: 10 } });
+  await expect(dialog).toBeHidden();
+  await expect(compose).toBeFocused();
+  expect([...state.drafts.values()]).toEqual([
+    expect.objectContaining({ subject: "Draft from the composer" }),
+  ]);
+  await page.reload();
+  const drafts = page.getByRole("button", { name: "Drafts", exact: true });
+  await drafts.focus();
+  await page.keyboard.press("Enter");
+  const savedDraft = page.getByRole("button", { name: /Draft from the composer/ });
+  await savedDraft.focus();
+  await page.keyboard.press("Enter");
+  await expect(subject).toHaveValue("Draft from the composer");
+  await page.keyboard.press("Escape");
+  await expect(savedDraft).toBeFocused();
+});
+
 test("send later review captures and keyboard, dismissal, preset and custom flows", async ({ page }) => {
   await page.clock.install({ time: new Date("2026-10-29T08:15:00Z") });
   const state = await fixture(page);

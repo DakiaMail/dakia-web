@@ -54,17 +54,6 @@ impl MailboxTransaction<'_> {
             {
                 return Err(Error::Invalid);
             }
-            let pending: bool = value!(
-                self,
-                &sqlite,
-                [&target.id],
-                &pg,
-                [&self.account, &target.id],
-                fetch_one
-            );
-            if pending {
-                return Err(Error::CleanupMoveUnverified);
-            }
             if let Some(location) = &target.expected_location {
                 let mut expected = location.folder_ids.clone();
                 let mut current = message.folder_ids.clone();
@@ -81,6 +70,17 @@ impl MailboxTransaction<'_> {
                 }
             } else if target.expected_revision != message.revision {
                 return Err(Error::Conflict);
+            }
+            let pending: bool = value!(
+                self,
+                &sqlite,
+                [&target.id],
+                &pg,
+                [&self.account, &target.id],
+                fetch_one
+            );
+            if pending {
+                return Err(Error::CleanupMoveUnverified);
             }
             self.operation(Operation {
                 id: format!("sender-cleanup:{}:{n}", request.id),

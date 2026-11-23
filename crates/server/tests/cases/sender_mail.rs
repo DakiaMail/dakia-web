@@ -96,17 +96,18 @@ async fn sender_catalogue_is_fast_local_owned_exact_paginated_and_read_neutral()
         }
     };
     let first = get(path.clone()).await;
-    assert_eq!(first["count"], 105);
+    assert_eq!(first["count"], 106);
     assert_eq!(first["rows"].as_array().unwrap().len(), 100);
-    assert_eq!(first["after"], "m099");
+    assert_eq!(first["rows"][0]["id"], "case");
+    assert_eq!(first["after"], "m098");
     let next = get(format!(
-        "{path}?cutoff={}&after=m099",
+        "{path}?cutoff={}&after=m098",
         url::form_urlencoded::byte_serialize(first["cutoff"].as_str().unwrap().as_bytes())
             .collect::<String>()
     ))
     .await;
-    assert_eq!(next["count"], 105);
-    assert_eq!(next["rows"].as_array().unwrap().len(), 5);
+    assert_eq!(next["count"], 106);
+    assert_eq!(next["rows"].as_array().unwrap().len(), 6);
     assert!(next["after"].is_null());
     assert!(app.store.message(&a, "m000").await.unwrap().unread);
     let db = sqlx::SqlitePool::connect(&format!(
@@ -125,8 +126,8 @@ async fn sender_catalogue_is_fast_local_owned_exact_paginated_and_read_neutral()
             .unwrap(),
         0
     );
-    let plan: String=sqlx::query("EXPLAIN QUERY PLAN SELECT id FROM messages WHERE json_extract(document,'$.sender.email')='list+tag@example.invalid' AND id>'' ORDER BY id").fetch_one(&db).await.unwrap().get(3);
-    assert!(plan.contains("messages_sender_id"), "{plan}");
+    let plan: String=sqlx::query("EXPLAIN QUERY PLAN SELECT id FROM messages WHERE lower(trim(json_extract(document,'$.sender.email')))='list+tag@example.invalid' AND id>'' ORDER BY id").fetch_one(&db).await.unwrap().get(3);
+    assert!(plan.contains("messages_classification_sender"), "{plan}");
     for query in ["cutoff=garbage", "cutoff=2999-01-01T00%3A00%3A00Z"] {
         let r = router(app.clone())
             .oneshot(req(

@@ -7,6 +7,12 @@ pub(super) struct Request {
     cutoff: Option<String>,
     after: Option<String>,
 }
+#[derive(Deserialize)]
+pub(super) struct CleanupRequest {
+    sender: String,
+    #[serde(flatten)]
+    page: Request,
+}
 #[derive(Serialize)]
 pub(super) struct Page {
     rows: Vec<Message>,
@@ -22,6 +28,25 @@ pub(super) async fn cached(
 ) -> Result<Json<Page>> {
     let a = app.store.authorize(&user.user, &account).await?;
     let source = app.store.message(&a, &message).await?;
+    page(&app, &a, &source.sender.email, request).await
+}
+
+pub(super) async fn cleanup(
+    State(app): State<App>,
+    Extension(user): Extension<Identity>,
+    Path(account): Path<String>,
+    Query(request): Query<CleanupRequest>,
+) -> Result<Json<Page>> {
+    let a = app.store.authorize(&user.user, &account).await?;
+    page(&app, &a, &request.sender, request.page).await
+}
+
+async fn page(
+    app: &App,
+    a: &dakia_storage::AuthorizedAccount,
+    sender: &str,
+    request: Request,
+) -> Result<Json<Page>> {
     let cutoff = match request.cutoff {
         Some(raw) => chrono::DateTime::parse_from_rfc3339(&raw)
             .map_err(|_| ApiFailure(StatusCode::BAD_REQUEST, "invalid_cutoff"))?
@@ -32,33 +57,21 @@ pub(super) async fn cached(
         return Err(ApiFailure(StatusCode::BAD_REQUEST, "invalid_cutoff"));
     }
     let cutoff = cutoff.to_rfc3339();
-    let settings = app.mail.settings(&app.store, &a).await?;
-    let mut trash: Vec<String> = settings.trash_folder.into_iter().collect();
-    // Use saved discovery, never make this local lookup wait for IMAP.
-    if let Some(raw) = app.store.provider_document(&a, "probe").await? {
-        if let Ok(probe) = serde_json::from_str::<dakia_mail_provider::Probe>(&raw) {
-            trash.extend(
-                probe
-                    .folders
-                    .into_iter()
-                    .filter(|f| {
-                        f.attributes
-                            .iter()
-                            .any(|v| v.trim_start_matches('\\').eq_ignore_ascii_case("Trash"))
-                    })
-                    .map(|f| f.name),
-            );
-        }
-    }
+    let settings = app.mail.settings(&app.store, a).await?;
+    // Read saved folder discovery so the catalogue works without a provider connection.
+    let folders = app
+        .store
+        .provider_document(a, "probe")
+        .await?
+        .and_then(|raw| serde_json::from_str::<dakia_mail_provider::Probe>(&raw).ok())
+        .map(|probe| probe.folders)
+        .unwrap_or_default();
+    let mut excluded = crate::mail::search_exclusions(&folders, &settings);
+    excluded.extend(app.store.search_excluded_folders(a).await?);
+    excluded.extend(["Spam".into(), "Junk".into()]);
     let (count, mut rows) = app
         .store
-        .cached_sender_mail(
-            &a,
-            &source.sender.email,
-            &cutoff,
-            request.after.as_deref(),
-            &trash,
-        )
+        .cached_sender_mail(a, sender, &cutoff, request.after.as_deref(), &excluded)
         .await?;
     let after = if rows.len() > 100 {
         rows.truncate(100);

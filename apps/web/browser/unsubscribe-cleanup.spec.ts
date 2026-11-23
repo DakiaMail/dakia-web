@@ -3,12 +3,17 @@ import type { Message } from "@dakia/api-types";
 import { accounts, content, page as mail } from "./fixtures";
 import type { CleanupIntent, CleanupJob, CleanupRequest } from "../src/cleanupJobs";
 
-type Options = { count?: number; cleanup?: "held" | "lost" | "rejected" | "blocked" | "unaccepted"; slowSearch?: boolean; unsubscribe?: string };
+type Options = { count?: number; cleanup?: "held" | "lost" | "rejected" | "blocked" | "unaccepted"; slowSearch?: boolean; unsubscribe?: string; previousCleanup?: boolean };
 async function fixture(page: Page, options: Options = {}) {
   const rows: Message[] = Array.from({ length: options.count ?? 48 }, (_, i) => ({ ...mail.rows[0], id: `cleanup-${i}`, provider_id: `p${i}`, unread: false, subject: `List email ${i}`, folder_ids: ["INBOX"] }));
   const outsiders: Message[] = [{ ...rows[0], id: "other-account", account_id: "personal", subject: "Same sender other account" }, { ...rows[0], id: "substring", sender: { email: "xsender0@example.org", name: "Other sender" }, subject: "Other sender" }];
   const batches: CleanupRequest[] = [];
   const jobs = new Map<string, CleanupJob>();
+  if (options.previousCleanup) jobs.set("previous", {
+    request: { id: "previous", source_id: "older-message", search_complete: true, targets: [{ id: "older-message", expected_revision: 1 }] },
+    account_id: "work", sender: rows[0].sender.email, created_at: "2026-01-01T00:00:00Z",
+    dismissed: false, applied: 1, failed: 0, pending: 0, failed_targets: [],
+  });
   let sends = 0, reads = 0, status: string | null = null;
   let accept!: () => void, release!: () => void;
   const gate = new Promise<void>(resolve => { accept = resolve; });
@@ -56,7 +61,7 @@ async function fixture(page: Page, options: Options = {}) {
       if (senderSearch) {
         expect(url.searchParams.get("accounts")).toBe("work");
         if (options.slowSearch) await searchGate;
-        return respond({ ...mail, rows: [...rows, ...outsiders], coverage: [{ account_id: "work", state: "complete", folder_ids: ["INBOX"] }], continuation: null });
+        return respond({ ...mail, rows: [...rows.map(row => ({ ...row, folder_ids: ["Projected folder"] })), ...outsiders], coverage: [{ account_id: "work", state: "complete", folder_ids: ["INBOX"] }], continuation: null });
       }
       const trash = url.searchParams.get("folder") === "Trash" || url.searchParams.get("q") === "folder:Trash";
       // Deliberately stale provider/list/search responses while work is pending.
@@ -137,6 +142,15 @@ for (const mode of ["lost", "rejected", "blocked", "unaccepted"] as const) test(
   if (mode === "rejected" || mode === "blocked") await expect(page.locator(".message-open").filter({ hasText: "List email 0" })).toBeVisible();
   else await expect(page.locator(".message-open").filter({ hasText: "List email" })).toHaveCount(0);
   expect(f.batches).toHaveLength(1); expect(f.sends()).toBe(1);
+});
+test("a historical cleanup leaves new emails reviewable and provider projections stay out of the move", async ({ page }) => {
+  const f = await fixture(page, { count: 2, previousCleanup: true });
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toContainText("2 previous emails");
+  await dialog.getByRole("button", { name: "Move 2 emails to Trash" }).press("Enter");
+  await silent(page);
+  await expect.poll(() => f.batches.length).toBe(1);
+  expect(f.batches[0].targets.map(target => target.id).sort()).toEqual(["cleanup-0", "cleanup-1"]);
 });
 test("partial failure restores only failed mail, remains silent and never replays", async ({ page }) => {
   const f = await fixture(page, { count: 2 });

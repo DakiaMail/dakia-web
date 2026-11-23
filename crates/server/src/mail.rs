@@ -218,7 +218,7 @@ fn retain_implicit_all_mail(folders: &mut Vec<String>, previous: &[String], prob
     folders.sort();
     folders.dedup();
 }
-fn search_exclusions(folders: &[p::Folder], settings: &MailboxSettings) -> Vec<String> {
+pub(super) fn search_exclusions(folders: &[p::Folder], settings: &MailboxSettings) -> Vec<String> {
     let mut excluded: Vec<_> = folders
         .iter()
         .filter(|folder| {

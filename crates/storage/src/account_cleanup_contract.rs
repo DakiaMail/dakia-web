@@ -122,6 +122,28 @@ pub(super) async fn contract(a: &AccountRepository, b: &AccountRepository) {
         Err(Error::Conflict)
     ));
 
+    let mut restored = a.message("cleanup-one").await.unwrap();
+    restored.folder_ids = vec!["INBOX".into()];
+    let restored = a
+        .ingest_messages(vec![restored], &[], &[], None)
+        .await
+        .unwrap()
+        .remove(0);
+    let repeated = a
+        .enqueue_sender_cleanup(request(&restored, vec![target(&restored)]))
+        .await
+        .unwrap();
+    assert_eq!(
+        repeated.pending, 1,
+        "a restored email can be cleaned up again"
+    );
+    let mut move_again = a.claim_mutation(&[]).await.unwrap().unwrap();
+    assert_eq!(move_again.target_id, restored.id);
+    move_again.status = OperationStatus::Applied;
+    a.finish_mutation(move_again, Some(vec!["Deleted Items".into()]))
+        .await
+        .unwrap();
+
     let mut wrong = message(&a.account, "cleanup-rollback-z");
     wrong.sender.email = "another@example.invalid".into();
     let rows = a
@@ -195,15 +217,30 @@ async fn catalogue(a: &AccountRepository, b: &AccountRepository) {
             "2030-11-10T00:00:00Z",
             vec![format!("{}Trash", char::from(92))],
         ),
+        ("catalogue-without-folder", "2030-11-10T00:00:00Z", vec![]),
+        (
+            "catalogue-pending",
+            "2030-11-10T00:00:00Z",
+            vec!["INBOX".into()],
+        ),
         ("catalogue-invalid", "invalid-date", vec!["INBOX".into()]),
     ] {
         let mut row = message(&a.account, id);
-        row.sender.email = "catalogue@example.invalid".into();
+        row.sender.email = if id == "catalogue-b" {
+            "Catalogue@example.invalid"
+        } else {
+            "catalogue@example.invalid"
+        }
+        .into();
         row.received_at = date.into();
         row.folder_ids = folders;
         rows.push(row);
     }
     a.ingest_messages(rows, &[], &[], None).await.unwrap();
+    let pending = a.message("catalogue-pending").await.unwrap();
+    a.operation(mutation(&pending, "catalogue-move", Change::Trash))
+        .await
+        .unwrap();
     let (count, rows) = a
         .cached_sender_mail(
             "catalogue@example.invalid",
@@ -235,7 +272,19 @@ async fn catalogue(a: &AccountRepository, b: &AccountRepository) {
             "CATALOGUE@example.invalid",
             "2030-11-10T00:00:00Z",
             None,
-            &[]
+            &[],
+        )
+        .await
+        .unwrap()
+        .0,
+        3
+    );
+    assert_eq!(
+        a.cached_sender_mail(
+            "catalogue@example.invalid",
+            "invalid-cutoff",
+            None,
+            &[],
         )
         .await
         .unwrap()
@@ -243,18 +292,11 @@ async fn catalogue(a: &AccountRepository, b: &AccountRepository) {
         0
     );
     assert_eq!(
-        a.cached_sender_mail("catalogue@example.invalid", "invalid-cutoff", None, &[])
-            .await
-            .unwrap()
-            .0,
-        0
-    );
-    assert_eq!(
         b.cached_sender_mail(
             "catalogue@example.invalid",
             "2030-11-10T00:00:00Z",
             None,
-            &[]
+            &[],
         )
         .await
         .unwrap()

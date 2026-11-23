@@ -1,4 +1,6 @@
 use super::*;
+const SQLITE_UNVERIFIED_MOVE: &str = "json_extract(document,'$.status') IN ('pending','failed') AND json_extract(document,'$.change.kind') IN ('archive','trash','spam','move') AND id NOT IN (SELECT operation_id FROM rule_executions WHERE state='cancelled' AND operation_id IS NOT NULL)";
+const PG_UNVERIFIED_MOVE: &str = "status IN ('pending','failed') AND change_kind IN ('archive','trash','spam','move') AND id NOT IN (SELECT operation_id FROM rule_executions WHERE account_id=$1 AND state='cancelled' AND operation_id IS NOT NULL)";
 fn key(id: &str) -> String {
     format!("sender-cleanup:{id}")
 }
@@ -22,24 +24,27 @@ impl MailboxTransaction<'_> {
             "UPDATE provider_documents SET document=document WHERE account_id=$1 AND key=$2",
             [&self.account, &receipt]
         );
-        let existing:Vec<String>=value!(self,"SELECT document FROM provider_documents WHERE key GLOB 'sender-cleanup:*'",[],"SELECT document FROM provider_documents WHERE account_id=$1 AND key COLLATE \"C\">='sender-cleanup:' AND key COLLATE \"C\"<'sender-cleanup;'",[&self.account],fetch_all);
-        for raw in existing {
+        let existing: Option<String> = value!(
+            self,
+            "SELECT document FROM provider_documents WHERE key=?",
+            [&receipt],
+            "SELECT document FROM provider_documents WHERE account_id=$1 AND key=$2",
+            [&self.account, &receipt],
+            fetch_optional
+        );
+        if let Some(raw) = existing {
             let old: CleanupJob = serde_json::from_str(&raw)?;
-            if old.request.id == request.id {
-                if old.request != request {
-                    return Err(Error::Conflict);
-                }
-                return self.cleanup_status(old).await;
-            }
-            if old.request.targets.iter().any(|target| {
-                request
-                    .targets
-                    .binary_search_by(|value| value.id.cmp(&target.id))
-                    .is_ok()
-            }) {
+            if old.request != request {
                 return Err(Error::Conflict);
             }
+            return self.cleanup_status(old).await;
         }
+        let sqlite = format!(
+            "SELECT EXISTS(SELECT 1 FROM operations WHERE json_extract(document,'$.target_id')=? AND {SQLITE_UNVERIFIED_MOVE})"
+        );
+        let pg = format!(
+            "SELECT EXISTS(SELECT 1 FROM operations WHERE account_id=$1 AND target_id=$2 AND {PG_UNVERIFIED_MOVE})"
+        );
         let source = self.message(&request.source_id).await?;
         for (n, target) in request.targets.iter().enumerate() {
             let message = self.message(&target.id).await?;
@@ -49,7 +54,14 @@ impl MailboxTransaction<'_> {
             {
                 return Err(Error::Invalid);
             }
-            let pending:bool=value!(self,"SELECT EXISTS(SELECT 1 FROM operations WHERE json_extract(document,'$.target_id')=? AND json_extract(document,'$.status') IN ('pending','failed') AND json_extract(document,'$.change.kind') IN ('archive','trash','spam','move') AND id NOT IN (SELECT operation_id FROM rule_executions WHERE state='cancelled' AND operation_id IS NOT NULL))",[&target.id],"SELECT EXISTS(SELECT 1 FROM operations WHERE account_id=$1 AND target_id=$2 AND status IN ('pending','failed') AND change_kind IN ('archive','trash','spam','move') AND id NOT IN (SELECT operation_id FROM rule_executions WHERE account_id=$1 AND state='cancelled' AND operation_id IS NOT NULL))",[&self.account,&target.id],fetch_one);
+            let pending: bool = value!(
+                self,
+                &sqlite,
+                [&target.id],
+                &pg,
+                [&self.account, &target.id],
+                fetch_one
+            );
             if pending {
                 return Err(Error::CleanupMoveUnverified);
             }
@@ -207,25 +219,29 @@ impl AccountRepository {
         after: Option<&str>,
         trash: &[String],
     ) -> Result<(i64, Vec<Message>)> {
-        let excluded = serde_json::to_string(trash)?;
-        let sqlite="json_extract(document,'$.sender.email')=? AND julianday(json_extract(document,'$.received_at'))<=julianday(?) AND NOT EXISTS (SELECT 1 FROM json_each(document,'$.folder_ids') f WHERE f.value IN (SELECT value FROM json_each(?)) OR lower(ltrim(f.value,'\\'))='trash')";
-        let pg="account_id=$1 AND sender_address=$2 AND mail_julianday(received_at)<=mail_julianday($3) AND NOT EXISTS(SELECT 1 FROM unnest(folder_ids) f WHERE f=ANY($4::TEXT[]) OR lower(ltrim(f,'\\'))='trash')";
+        let sender = sender.trim().to_lowercase();
+        let trash: Vec<_> = trash.iter().map(|folder| folder.to_lowercase()).collect();
+        let excluded = serde_json::to_string(&trash)?;
+        let mut sqlite = r"lower(trim(json_extract(m.document,'$.sender.email')))=? AND julianday(json_extract(m.document,'$.received_at'))<=julianday(?) AND NOT EXISTS (SELECT 1 FROM json_each(m.document,'$.folder_ids') f WHERE lower(f.value) IN (SELECT value FROM json_each(?)) OR lower(ltrim(f.value,'\'))='trash')".to_owned();
+        let mut pg = r"m.account_id=$1 AND lower(trim(m.document::jsonb#>>'{sender,email}'))=$2 AND mail_julianday(m.received_at)<=mail_julianday($3) AND NOT EXISTS(SELECT 1 FROM unnest(m.folder_ids) f WHERE lower(f)=ANY($4::TEXT[]) OR lower(ltrim(f,'\'))='trash')".to_owned();
+        sqlite.push_str(&format!(" AND json_array_length(m.document,'$.folder_ids')>0 AND NOT EXISTS (SELECT 1 FROM operations WHERE json_extract(document,'$.target_id')=m.id AND {SQLITE_UNVERIFIED_MOVE})"));
+        pg.push_str(&format!(" AND cardinality(m.folder_ids)>0 AND NOT EXISTS (SELECT 1 FROM operations WHERE account_id=$1 AND target_id=m.id AND {PG_UNVERIFIED_MOVE})"));
         let rows: Vec<String>;
         let count: i64;
         match &self.backend {
             Backend::Sqlite(db) => {
                 let mut tx = db.begin().await?;
                 count =
-                    sqlx::query_scalar(&format!("SELECT COUNT(*) FROM messages WHERE {sqlite}"))
-                        .bind(sender)
+                    sqlx::query_scalar(&format!("SELECT COUNT(*) FROM messages m WHERE {sqlite}"))
+                        .bind(&sender)
                         .bind(cutoff)
                         .bind(&excluded)
                         .fetch_one(&mut *tx)
                         .await?;
                 rows = sqlx::query_scalar(&format!(
-                    "SELECT document FROM messages WHERE {sqlite} AND id>? ORDER BY id LIMIT 101"
+                    "SELECT document FROM messages m WHERE {sqlite} AND id>? ORDER BY id LIMIT 101"
                 ))
-                .bind(sender)
+                .bind(&sender)
                 .bind(cutoff)
                 .bind(&excluded)
                 .bind(after.unwrap_or(""))
@@ -237,7 +253,7 @@ impl AccountRepository {
                 let mut tx = self.begin_postgres(db, false).await?;
                 // One statement gives count and page the same snapshot without
                 // strengthening isolation around the ownership row lock.
-                (count,rows)=sqlx::query_as(&format!("SELECT (SELECT COUNT(*) FROM messages WHERE {pg}),ARRAY(SELECT document FROM messages WHERE {pg} AND id COLLATE \"C\">$5 ORDER BY id COLLATE \"C\" LIMIT 101)")).bind(&self.account).bind(sender).bind(cutoff).bind(trash).bind(after.unwrap_or("")).fetch_one(&mut *tx).await?;
+                (count,rows)=sqlx::query_as(&format!("SELECT (SELECT COUNT(*) FROM messages m WHERE {pg}),ARRAY(SELECT document FROM messages m WHERE {pg} AND id COLLATE \"C\">$5 ORDER BY id COLLATE \"C\" LIMIT 101)")).bind(&self.account).bind(&sender).bind(cutoff).bind(&trash).bind(after.unwrap_or("")).fetch_one(&mut *tx).await?;
                 tx.commit().await?;
             }
         }

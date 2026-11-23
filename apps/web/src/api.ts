@@ -92,6 +92,8 @@ export const api = {
   snoozes: (account: string, signal?: AbortSignal) => request<SnoozedThread[]>(`${accountPath(account)}/snoozes`, { signal }),
   senderMail: (message: Message, signal?: AbortSignal, cutoff?: string, after?: string) =>
     request<SenderMailPage>(`${accountPath(message.account_id)}/messages/${key(message.id)}/sender-mail?${new URLSearchParams({ ...(cutoff ? { cutoff } : {}), ...(after ? { after } : {}) })}`, { signal }),
+  senderCleanupMail: (account: string, sender: string, cutoff: string, signal: AbortSignal, after?: string) =>
+    request<SenderMailPage>(`${accountPath(account)}/sender-mail?${new URLSearchParams({ sender, cutoff, ...(after ? { after } : {}) })}`, { signal }),
   session: async () => {
     const s = await request<Session>("/session");
     csrf = s.csrf_token;

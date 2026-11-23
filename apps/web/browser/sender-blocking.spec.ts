@@ -3,7 +3,7 @@ import type { MailRule, Message } from "@dakia/api-types";
 import { accounts, content, page as mail } from "./fixtures";
 import type { CleanupJob, CleanupRequest } from "../src/cleanupJobs";
 
-async function fixture(page: Page, bodyFails = false, previousCleanup = false, slowRefresh = false) {
+async function fixture(page: Page, bodyFails = false, previousCleanup = false, slowRefresh = false, rejectFirstMove = false) {
   let rules: MailRule[] = [];
   const requests: { account: string; request: CleanupRequest }[] = [];
   const jobs: CleanupJob[] = previousCleanup ? [{ request: { id: "previous-cleanup", source_id: "old", search_complete: true, targets: [{ id: "old", expected_revision: 1 }] }, account_id: "work", sender: mail.rows[0].sender.email, created_at: "2026-01-01T00:00:00Z", dismissed: false, pending: 0, applied: 1, failed: 0, failed_targets: [] }] : [];
@@ -26,15 +26,22 @@ async function fixture(page: Page, bodyFails = false, previousCleanup = false, s
       const account = path.split("/")[3];
       if (method === "GET") return respond(jobs.filter(job => job.account_id === account));
       const request: CleanupRequest = route.request().postDataJSON(); requests.push({ account, request });
-      if (account === "personal") return respond({ code: "cleanup_move_unverified", message: "A previous move could not be verified." }, 409);
+      if (account === "personal" && rejectFirstMove && requests.filter(row => row.account === account).length === 1) return respond({ code: "cleanup_move_unverified", message: "A previous move could not be verified." }, 409);
       const job: CleanupJob = { request, account_id: account, sender: base.sender.email, created_at: new Date().toISOString(), dismissed: false, pending: request.targets.length, applied: 0, failed: 0, failed_targets: [] };
       jobs.push(job); return respond(job);
     }
+    if (path.endsWith("/sender-mail")) {
+      const account = path.split("/")[3];
+      expect(url.searchParams.get("sender")).toBe(base.sender.email);
+      const pending = new Set(jobs.filter(job => job.account_id === account).flatMap(job => job.request.targets.map(target => target.id)));
+      const available = rows.filter(row => row.account_id === account && !pending.has(row.id));
+      const cutoff = url.searchParams.get("cutoff");
+      expect(cutoff).toBeTruthy();
+      const after = account === "work" && !url.searchParams.has("after") && available.length ? "work-next" : null;
+      return respond({ rows: after ? [] : available, count: available.length, cutoff, after });
+    }
     if (path === "/api/search" || path.endsWith("/messages")) {
-      if (url.searchParams.get("exclude_trash") === "true") {
-        const account = url.searchParams.get("accounts")!;
-        return respond({ ...mail, rows: [...rows, { ...base, id: "substring", sender: { email: `x${base.sender.email}`, name: "Other" } }], coverage: [{ account_id: account, folder_ids: ["INBOX"], state: account === "personal" ? "limited" : "complete" }] });
-      }
+      expect(url.searchParams.get("exclude_trash")).toBeNull();
       return respond({ ...mail, rows });
     }
     if (path.endsWith("/conversation")) return respond({ rows: [path.includes("/personal/") ? rows[1] : base], complete: true, continuation: null });
@@ -61,21 +68,33 @@ test("blocking works before body loading succeeds and does not clean up implicit
   expect(state.getRules()[0].enabled).toBe(true); expect(state.requests).toEqual([]);
 });
 
-test("older-mail review isolates exact senders and accounts and preserves partial failures", async ({ page }) => {
-  const state = await fixture(page); await page.goto("/"); await page.locator(".message-open").first().click();
+test("older-mail review combines local results and refreshes after a partial rejection", async ({ page }) => {
+  const state = await fixture(page, false, false, false, true); await page.goto("/"); await page.locator(".message-open").first().click();
   await senderMenu(page);
   await page.getByRole("menuitem", { name: "Block sender", exact: true }).click();
   const dialog = page.getByRole("dialog"); await dialog.getByRole("button", { name: "Block sender", exact: true }).click();
-  await dialog.getByRole("button", { name: "Review older emails", exact: true }).click();
-  const work = dialog.getByRole("region", { name: "Older emails in Work", exact: true });
-  const personal = dialog.getByRole("region", { name: "Older emails in Personal", exact: true });
-  await expect(work.getByRole("button", { name: "Move 1 email to Trash", exact: true })).toBeEnabled();
-  await expect(personal.getByText("Search incomplete. Other emails may remain.")).toBeVisible();
-  await work.getByRole("button", { name: "Move 1 email to Trash", exact: true }).click();
-  await personal.getByRole("button", { name: "Move 1 email to Trash", exact: true }).click();
-  await expect(personal.getByText("Cleanup was rejected. No move was accepted.")).toBeVisible();
-  await expect(work.getByText("1 pending · 0 moved · 0 failed")).toBeVisible();
-  expect(state.requests.map(row => [row.account, row.request.targets.map(t => t.id)])).toEqual([["work", ["m0"]], ["personal", ["personal-match"]]]);
+  await dialog.getByRole("button", { name: "Review older emails", exact: true }).press("Enter");
+  const review = dialog.getByRole("region", { name: "Older sender mail", exact: true });
+  await expect(review).toBeFocused();
+  await expect(review.getByText("2 synced emails available to move")).toBeVisible();
+  await page.keyboard.press("Tab");
+  await expect(review.getByText("Review emails", { exact: true })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(review.getByRole("list", { name: "Matching emails" }).getByRole("listitem")).toHaveCount(2);
+  await expect(review.getByText("Older personal email")).toBeVisible();
+  await page.keyboard.press("Enter"); await page.keyboard.press("Tab");
+  const move = review.getByRole("button", { name: "Move 2 emails to Trash", exact: true });
+  await expect(move).toBeFocused(); await page.keyboard.press("Enter");
+  await expect(review.getByText("Personal: An earlier move is unresolved. Review available emails again.")).toBeVisible();
+  await expect(review.getByText("1 pending · 0 moved · 0 failed")).toBeVisible();
+  await page.keyboard.press("Tab"); await page.keyboard.press("Tab"); await page.keyboard.press("Enter");
+  await expect(review.getByRole("heading", { name: "Older emails", exact: true })).toBeFocused();
+  await expect(review.getByText("1 synced email available to move")).toBeVisible();
+  await review.getByRole("button", { name: "Move 1 email to Trash", exact: true }).press("Enter");
+  await expect(review.getByText("1 pending · 0 moved · 0 failed")).toBeVisible();
+  expect(state.requests).toHaveLength(3);
+  expect(state.requests.filter(row => row.account === "work").map(row => row.request.targets.map(t => t.id))).toEqual([["m0"]]);
+  expect(state.requests.filter(row => row.account === "personal").map(row => row.request.targets.map(t => t.id))).toEqual([["personal-match"], ["personal-match"]]);
   expect(state.getRules()[0].enabled).toBe(true);
   await page.keyboard.press("Escape"); await page.reload(); await page.locator(".message-open").first().click();
   await senderMenu(page);
@@ -88,10 +107,9 @@ test("a previous completed cleanup does not prevent cleaning up newer emails", a
   await page.getByRole("menuitem", { name: "Block sender", exact: true }).click();
   const dialog = page.getByRole("dialog"); await dialog.getByRole("button", { name: "Block sender", exact: true }).click();
   await dialog.getByRole("button", { name: "Review older emails", exact: true }).click();
-  const work = dialog.getByRole("region", { name: "Older emails in Work", exact: true });
-  await work.getByRole("button", { name: "Move 1 email to Trash", exact: true }).click();
-  await expect(work.getByText("1 pending · 0 moved · 0 failed")).toBeVisible();
-  expect(state.requests[0].request.targets.map(row => row.id)).toEqual(["m0"]);
+  await dialog.getByRole("button", { name: "Move 2 emails to Trash", exact: true }).click();
+  await expect(dialog.getByText("2 pending · 0 moved · 0 failed")).toBeVisible();
+  expect(state.requests.find(row => row.account === "work")!.request.targets.map(row => row.id)).toEqual(["m0"]);
 });
 
 for (const theme of ["light", "dark"]) for (const viewport of [{ width: 1480, height: 900 }, { width: 390, height: 568 }, { width: 1024, height: 400 }]) {
@@ -120,6 +138,15 @@ for (const theme of ["light", "dark"]) for (const viewport of [{ width: 1480, he
     await page.keyboard.press("e"); expect(state.getRules()).toEqual([]);
     await page.keyboard.press("Tab"); await page.keyboard.press("Tab"); await page.keyboard.press("Enter");
     await expect(dialog.getByRole("heading", { name: "Sender blocked", exact: true })).toBeVisible();
+    await page.keyboard.press("Enter");
+    const review = dialog.getByRole("region", { name: "Older sender mail", exact: true });
+    await expect(review).toBeFocused();
+    await expect(review.getByText("2 synced emails available to move")).toBeVisible();
+    await page.keyboard.press("Tab");
+    await expect(review.getByText("Review emails", { exact: true })).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(review.getByText("Older personal email")).toBeVisible();
+    await dialog.screenshot({ animations: "disabled", path: info.outputPath("older-mail-review.png") });
     await page.keyboard.press("Escape"); await expect(more).toBeFocused();
     await expect(page.getByRole("menuitem", { name: "Unblock sender", exact: true })).toHaveCount(0);
     await page.reload(); await page.locator(".message-open").first().click(); await senderMenu(page);

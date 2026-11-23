@@ -1,49 +1,16 @@
-# Agent connections and remote MCP
+# Connect an AI assistant to Dakia
 
-## Connection permissions
+An agent connection lets an assistant search your mail, read threads and attachments, and prepare drafts in Dakia. It uses Model Context Protocol (MCP), a standard for connecting assistants to apps.
 
-Remote MCP is built into Dakia. Templates are excluded. A named connection belongs to one user and automatically sees all their current and future accounts and all drafts, including human-created drafts. It never sees another user's data.
+## Get your server URL
 
-Manual connections use a random token shown once. Dakia stores only its SHA-256 hash. OAuth connections use access and refresh tokens. Sending and deleting are independent controls, both off by default. Users can rename, edit permissions and revoke individual connections. Permission edits and revocation take effect on the next request, including cached clients. Restricted tools are hidden and checked independently on invocation.
+1. In Dakia, open **Workspace → Agent connections**.
+2. Choose your assistant and select **Copy URL**. The address ends in `/mcp`.
+3. Follow the instructions for your assistant below. When Dakia opens in your browser, sign in and choose **Connect**.
 
-Baseline access includes account/folder discovery, search, messages, threads, attachments, draft creation/editing, reply/forward preparation, archive, read/unread, stars and labels. Sending covers new messages, replies, forwards and existing drafts. Deletion covers Trash, permanent deletion, empty Trash, folders and drafts. No arbitrary REST proxy or generic mutation tool is exposed. Mixed-effect operations require every relevant permission.
-
-Every send uses a durable request identifier. Identical retries must not resubmit; changed content with the same identifier conflicts. An uncertain SMTP result stays unknown and is never automatically retried. This is duplicate protection, not exactly-once SMTP delivery.
-
-Backend audit records metadata and denied attempts, never bodies, attachments, credentials or headers. There is no activity UI.
-
-## Architecture decisions
-
-- Stateless Streamable HTTP at `/mcp`, JSON responses, bearer authentication on every request. No session authorization cache.
-- Connection management is inside the existing cookie-session and CSRF-protected API.
-- OAuth authorization-code flow with S256 PKCE, exact registered redirect URI and resource binding. Browser approval creates a connection or uses an existing connection owned by the signed-in user. Access/refresh grants remain bound to that connection and revocation.
-- Support public-client dynamic registration for existing clients. Do not fetch arbitrary client metadata URLs, avoiding an SSRF surface. Advertise only implemented registration mechanisms.
-- All persistence belongs behind the typed control repository with native SQLite and PostgreSQL statements and migrations.
-- Reuse authorized-account capabilities, mail runtime, durable drafts and submission state machines. Never fabricate a browser session or forward arbitrary API paths.
-- Audit metadata retained for 90 days; connection/send deduplication tombstones retained until user removal. Request identifiers are scoped to a connection and never recycled automatically.
-
-## Official client evidence
-
-Checked 20 November 2026:
-
-- [MCP authorization](https://modelcontextprotocol.io/specification/latest/basic/authorization): OAuth 2.1, protected-resource metadata, authorization-server discovery, resource indicators and PKCE. Dynamic registration remains supported for backward compatibility.
-- [Claude Code MCP](https://code.claude.com/docs/en/mcp): remote HTTP recommended; `claude mcp add --transport http NAME URL`; bearer headers and browser OAuth supported.
-- [ChatGPT custom MCP servers](https://developers.openai.com/api/docs/guides/custom-mcp-server): Streamable HTTP and SSE supported; OAuth, unauthenticated or mixed authentication. No general bearer-token-entry setup is documented. OAuth is required for private Dakia access. Current UI uses Plugins → Add custom MCP server; workspace restrictions apply.
+For a cloud assistant, use an HTTPS address that the assistant can reach from its own network. For Hermes or Claude Code running on your computer, the server must be reachable from that computer.
 
 ## Client setup
-
-Open Workspace → Agent connections, choose your client and copy the server URL. The browser approval creates a connection with sending and deletion disabled. To reuse an existing connection, select it on the approval page. Connections and their permissions can be changed or revoked in Workspace.
-
-Use **Check server URL** to test HTTPS and OAuth discovery from your browser. To verify public access, run these from outside your network and VPN:
-
-```sh
-curl --fail https://YOUR_DAKIA_HOST/.well-known/oauth-protected-resource/mcp
-curl -i https://YOUR_DAKIA_HOST/mcp \
-  -H 'Content-Type: application/json' \
-  --data '{"jsonrpc":"2.0","id":1,"method":"ping"}'
-```
-
-Expect resource metadata for your exact server URL and a `401 Unauthorized` response with a `WWW-Authenticate` header that points to that metadata.
 
 ### Claude
 
@@ -76,6 +43,48 @@ Approve access in your browser, choose the tools to enable, then start a new Her
 ### Other AI agents
 
 Use Streamable HTTP and OAuth with automatic registration. If your client requires a bearer token, choose **Other AI agent → Use a token instead** in Dakia and enter the generated `Authorization` header in the client.
+
+## Manage access
+
+A new connection can read mail and attachments, prepare or edit drafts, and organize mail. This includes mail and drafts in accounts you add later under your Dakia login.
+
+In **Workspace → Agent connections**, choose **Edit** next to a connection to rename it or change either permission:
+
+- **Allow sending** lets the assistant send new messages, replies, forwards, and existing drafts.
+- **Allow deleting** lets it move messages to Trash, permanently delete mail, empty selected messages from Trash, and delete folders or drafts.
+
+Both permissions start off. To disconnect an assistant, choose **Revoke** next to its connection. Revoking a connection stops further requests from apps that use it. To use an existing connection when signing in again, select it on the approval page.
+
+## Troubleshoot a connection
+
+| Problem | What to check |
+| --- | --- |
+| The assistant can’t reach Dakia | Use **Check server URL** in Workspace. It checks from your browser. Test from outside your network or VPN if the assistant runs in the cloud. |
+| Setup asks for authentication | Choose OAuth with automatic registration where the client offers it. For a manual-token client, use **Other AI agent → Use a token instead**. Dakia shows that token once. |
+| Send or delete tools are missing | Check the connection’s permissions in Workspace, then refresh the tools in your assistant. |
+
+To confirm HTTPS and OAuth discovery from another network:
+
+```sh
+curl --fail https://YOUR_DAKIA_HOST/.well-known/oauth-protected-resource/mcp
+curl -i https://YOUR_DAKIA_HOST/mcp \
+  -H 'Content-Type: application/json' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"ping"}'
+```
+
+The first command returns metadata for your server URL. The second should return `401 Unauthorized` with a `WWW-Authenticate` header pointing to that metadata.
+
+## How the connection works
+
+- Stateless Streamable HTTP at `/mcp`, JSON responses, bearer authentication on every request. No session authorization cache.
+- Connection management is inside the existing cookie-session and CSRF-protected API.
+- OAuth authorization-code flow with S256 PKCE, exact registered redirect URI and resource binding. Browser approval creates a connection or uses an existing connection owned by the signed-in user. Access/refresh grants remain bound to that connection and revocation.
+- Support public-client dynamic registration for existing clients. Do not fetch arbitrary client metadata URLs, avoiding an SSRF surface. Advertise only implemented registration mechanisms.
+- All persistence belongs behind the typed control repository with native SQLite and PostgreSQL statements and migrations.
+- Reuse authorized-account capabilities, mail runtime, durable drafts and submission state machines. Never fabricate a browser session or forward arbitrary API paths.
+- Audit metadata retained for 90 days; connection/send deduplication tombstones retained until user removal. Request identifiers are scoped to a connection and never recycled automatically.
+
+Dakia stores only the hash of a manual token. OAuth connections use access and refresh tokens.
 
 ## Tool contracts and limits
 

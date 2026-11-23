@@ -86,6 +86,10 @@ Open the same HTTPS address and sign in with your existing Dakia username and pa
 
 You can install the web app through your browser's installation controls. Installation does not download a complete offline mailbox. Recent mail can be available within an already-authorized session; a fresh startup needs online session checks. See [saved mail](persistent-local-cache.md). Notification setup requires the host's optional push configuration and browser permission; see [operations](../deploy/README.md) and [worker configuration](../workers/README.md).
 
+## Connect an AI assistant
+
+Open **Workspace → Agent connections**, choose an assistant, and copy the server URL. Approve the connection in your browser. Sending and deletion start off, and you can change each permission or revoke the connection in Workspace. Follow the [client setup guide](mcp-connections.md) for ChatGPT, Claude, Hermes Agent, and other MCP clients.
+
 ## Troubleshooting
 
 | Problem | What to check |

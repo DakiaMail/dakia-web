@@ -36,6 +36,12 @@ Search by meaning is enabled automatically when Dakia has at least 8 GB RAM and 
 
 Search across your connected accounts or narrow the scope to one mailbox. Choose **Has attachment** to find mail with files, or add `has:attachment` to your search. Follow replies in conversations, download attachments, star messages, and switch between folders. Recent folders and message bodies are saved in a bounded browser cache for faster reopening after session checks. See [saved mail and offline limits](persistent-local-cache.md).
 
+## Agent connections (MCP)
+
+Connect ChatGPT, Claude, Hermes Agent, or another MCP client to Dakia from **Workspace → Agent connections**. Ask your assistant to find mail across your accounts, summarize a conversation, or prepare a reply for you to review. You can give each connection permission to send or delete mail separately, and revoke access from Workspace.
+
+[Set up an agent connection](mcp-connections.md).
+
 ## Write now, send later
 
 Compose rich-text messages with attachments, reply, forward, and keep drafts. Choose a send time when a message should go later. Dakia must stay running and connected for scheduled sending.

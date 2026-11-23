@@ -85,9 +85,9 @@ for (const width of [390, 1480]) {
     await expect(page.getByRole("checkbox", { name: "Select Quiet work" })).toBeChecked();
     await expect(page.getByRole("button", { name: action, exact: true })).toBeEnabled();
     await expect(page.locator(".message-open").filter({ hasText: "Quiet personal" })).toHaveCount(0);
-    await expect(page.getByRole("alert").filter({hasText:"Refresh mail and check"})).toBeVisible();
-    await expect(page.locator(".dakia-toast-container")).toHaveAttribute("role", "alert");
-    await expect(page.locator(".dakia-toast-container")).toContainText("couldn’t be updated");
+    const failure = page.locator(".dakia-toast").getByRole("alert").filter({ hasText: "Refresh mail and check" });
+    await expect(failure).toBeVisible();
+    await expect(page.getByRole("alert").filter({ hasText: "Refresh mail and check" })).toHaveCount(1);
     // Work is restored while Personal is still pending, not after Promise.all.
     expect([...f.ops.values()].find(o => o.account_id === "personal")!.status).toBe("pending");
     await capture(page, `${width}-${action}-partial-failure`);

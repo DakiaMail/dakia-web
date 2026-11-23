@@ -69,7 +69,7 @@ import { Composer, newDraft } from "./Composer";
 import { AccountSetup } from "./AccountSetup";
 import { MailboxSettingsDialog } from "./MailboxSettings";
 import { AccountRemoval } from "./AccountRemoval";
-import { Empty, ErrorNotice, Modal } from "./ui";
+import { Empty, Modal } from "./ui";
 import { DraftList, ScheduledList } from "./Records";
 
 import { extraApi } from "./extra-api";
@@ -136,8 +136,8 @@ const navs = [
 // Spam views query the \Junk special-use attribute / Graph's Junk folder, not a literal "Spam" name.
 const folderForNav = (nav: Nav) => (nav === "Needs attention" ? "INBOX" : nav === "Spam" ? "Junk" : nav);
 const identity = (m: Message) => `${m.account_id}/${m.id}`;
-const failureSummary = (failures: string[]) => new Error(failures.length > 1
-  ? `${failures[0]} ${failures.length - 1} other messages also need checking.` : failures[0]);
+const failureSummary = (failures: string[]) => failures.length > 1
+  ? `${failures[0]} ${failures.length - 1} other messages also need checking.` : failures[0];
 
 const time = (t: string) =>
   new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(
@@ -252,11 +252,11 @@ export function App() {
   });
   const [deepLinkError, setDeepLinkError] = useState<unknown>();
   const deepLinkPending = useRef(true);
-  const [actionError, setActionError] = useState<unknown>();
+  const [actionError, setActionError] = useState<string>();
   const attemptedReads = useRef(new Set<string>());
   const [pendingTargets, setPendingTargets] = useState<Record<string, number>>({});
   const [submission, setSubmission] = useState<Submission | null>(null);
-  const [toast, setToast] = useState<{ id: string; message: string; error?: boolean } | null>(null);
+  const [toast, setToast] = useState<{ id: string; message: string } | null>(null);
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(null), 7000); return () => clearTimeout(timer); }, [toast]);
   const [snooze, setSnooze] = useState<Message[] | null>(null);
   const [move, setMove] = useState<Message[] | null>(null);
@@ -672,9 +672,10 @@ export function App() {
     setOverrides(old => ({ ...old, ...Object.fromEntries(prepared.flatMap(p => [[identity(p.m), p.value], ...p.senderTargets.map(row => [identity(row), optimistic(row, change)])])) }));
     setSelected(old => old ? prepared.find(p => identity(p.m) === identity(old))?.value || old : old);
     if (removing) setRemoved(old => ({ ...old, ...Object.fromEntries(prepared.map(p => [identity(p.m), p.token])) }));
-    if (messages.length > 1 && !background) {
+    const confirmationId = messages.length > 1 && !background ? crypto.randomUUID() : undefined;
+    if (confirmationId) {
       const action = change.kind === "archive" ? "archived" : change.kind === "trash" ? "moved to Trash" : change.kind === "read" ? change.value ? "marked read" : "marked unread" : "updated";
-      setToast({ id: crypto.randomUUID(), message: `${messages.length} emails ${action}.` });
+      setToast({ id: confirmationId, message: `${messages.length} emails ${action}.` });
       requestAnimationFrame(() => { if (document.activeElement === document.body) listRef.current?.focus(); });
     }
     await Promise.all(
@@ -701,8 +702,8 @@ export function App() {
             if (mutationTokens.current.get(identity(m)) === token) setSelected(old => old && identity(old) === identity(m) ? m : old);
 
             if (!background) {
+              setToast(current => current?.id === confirmationId ? null : current);
               setActionError(failureSummary(failures));
-              setToast({ id: crypto.randomUUID(), message: `${failures.length === 1 ? "An email couldn’t" : `${failures.length} emails couldn’t`} be updated. Check the error details.`, error: true });
             }
             // Restore this item immediately, without overwriting newer intent.
             if (mutationTokens.current.get(identity(m)) === token) {
@@ -783,11 +784,28 @@ export function App() {
     void act(bulk, { kind });
     if (active && !checked.size) closeReader();
   }
-  function actionFailure() {
-    return actionError ? <div>
-      <ErrorNotice error={actionError} />
-      <button title="Dismiss mail action error" onClick={() => setActionError(undefined)}>Dismiss mail action error</button>
-    </div> : null;
+  function restoreToastFocus() {
+    const target = workspace ? ".workspace-content > h1"
+      : active ? ".reader" : listRef.current?.matches("[tabindex]") ? ".mailbox .message-list[tabindex]" : ".mailbox";
+    document.querySelector<HTMLElement>(target)?.focus();
+  }
+
+  async function cancelSend(current: Submission, button: HTMLButtonElement, edit: boolean) {
+    try {
+      const cancelled = await api.cancelSubmission(current);
+      if (document.activeElement === button) {
+        button.parentElement?.querySelector<HTMLElement>("[aria-label='Dismiss send status']")?.focus();
+      }
+      client.setQueryData(["submission", cancelled.account_id, cancelled.id], cancelled);
+      setSubmission(previous => previous?.id === cancelled.id ? cancelled : previous);
+      void client.invalidateQueries({ queryKey: ["submission"] });
+      if (edit) {
+        const draft = await api.draft(cancelled.account_id, cancelled.draft_id);
+        setCompose({ draft, initialDue: current.due_at });
+      }
+    } catch (error) {
+      setError(error);
+    }
   }
 
   async function open(m: Message, linkedAccount?: string) {
@@ -897,7 +915,10 @@ export function App() {
           select={(messages, expanded) => { setMatching(expanded ? { scope: matchingScope, rows: messages } : undefined); setSelection({ scope: selectionScope, view, checked: new Set(messages.map(identity)), anchor: null }); }} />;
   const coverage = mail.data?.pages.at(-1);
   const inboxCoverage = !q && nav === "INBOX" ? coverage : undefined;
-  const refreshFailed = !!mail.error || !!inboxCoverage?.coverage.some(c => c.state === "error");
+  const inboxIncomplete = !!inboxCoverage?.coverage.some(c => c.state === "error");
+  const searchIncomplete = !!q && [...mail.data?.pages || [], ...supplements.pages].some(page => page.coverage.some(c => c.state === "error"));
+  const mailError = accounts.error || mail.error || supplements.error || error || deepLinkError;
+  const refreshFailed = !!mail.error || inboxIncomplete;
   const updating = manualRefreshing;
   const refreshStatus = refreshFailed
     ? "Couldn’t update mail. Try refreshing again."
@@ -910,16 +931,11 @@ export function App() {
   if (identityChanged) return <Empty title="Opening Dakia…" />;
   const sessionExpired = session.error instanceof ApiFailure && session.error.status === 401;
   const connectionProblem = !online || !!session.error;
-  const connectionNotice = connectionProblem && !sessionExpired && (
-    <div role="status" className="connection-state session-connection-state">
-      <span>{online
-        ? (session.error instanceof Error ? session.error.message : "Couldn’t connect to Dakia. Please try again.")
-        : "You’re offline. Connect to the internet to load or change mail."}</span>
-      {online && <button title="Retry connection" disabled={session.isFetching} onClick={() => void session.refetch()}>
-        {session.isFetching ? "Retrying…" : "Retry connection"}
-      </button>}
-    </div>
-  );
+  const connectionMessage = connectionProblem && !sessionExpired
+    ? online
+      ? (session.error instanceof Error ? session.error.message : "Couldn’t connect to Dakia. Please try again.")
+      : "You’re offline. Connect to the internet to load or change mail."
+    : undefined;
   // A failed session read is not evidence of logout. Retain the mounted
   // workspace (including reader/composer state) unless authentication is denied.
   if (!session.data && !sessionExpired && connectionProblem)
@@ -1105,89 +1121,6 @@ export function App() {
         <div className="pull-status" role="status" style={{ height: pull.refreshing ? 44 : pull.distance }}>
           {(pull.distance > 0 || pull.refreshing) && <span><RefreshCw size={15} />{pull.refreshing ? "Refreshing…" : pull.distance >= 64 ? "Release to refresh" : "Pull to refresh"}</span>}
         </div>
-        <ErrorNotice error={accounts.error || mail.error || supplements.error || error || deepLinkError} />
-
-        {!active && actionFailure()}
-
-
-        {ready
-          .filter((a) => a.state !== "ready")
-          .map((a) => (
-            <div className="connection-state" key={a.id}>
-              {a.email}: {a.state}
-              <button title="Reconnect"
-                onClick={() => {
-                  setReconnect(a);
-                  setSetup(true);
-                }}
-              >
-                Reconnect
-              </button>
-            </div>
-          ))}
-        {connectionNotice}
-
-        {latestSubmission && (
-          <div className="submission" role="status">
-            {submissionLabel(latestSubmission)}{" "}
-            {["scheduled", "claimed"].includes(latestSubmission.state) && (
-              <button title="Cancel send"
-                onClick={() =>
-                  void api
-                    .cancelSubmission(latestSubmission)
-                    .then((s) => {
-                      setSubmission(s);
-                      void client.invalidateQueries({
-                        queryKey: ["submission"],
-                      });
-                    })
-                    .catch(setError)
-                }
-              >
-                Cancel send
-              </button>
-            )}
-            {latestSubmission.state === "scheduled" && (
-              <button title="Edit scheduled"
-                onClick={() =>
-                  void api
-                    .cancelSubmission(latestSubmission)
-                    .then(async (cancelled) => {
-                      const draft = await api.draft(
-                        cancelled.account_id,
-                        cancelled.draft_id,
-                      );
-                      setSubmission(cancelled);
-                      setCompose({
-                        draft,
-                        initialDue: latestSubmission.due_at,
-                      });
-                      void client.invalidateQueries({
-                        queryKey: ["submission"],
-                      });
-                    })
-                    .catch(setError)
-                }
-              >
-                Edit scheduled
-              </button>
-            )}
-            <button title="Dismiss send status"
-              aria-label="Dismiss send status"
-              onClick={() => setSubmission(null)}
-            >
-              <X size={14} />
-            </button>
-          </div>
-        )}
-        {inboxCoverage?.coverage.some(c => c.state === "error") && (
-          <p role="status" className="inbox-sync-status">
-            Couldn’t update inbox. Showing saved mail.
-          </p>
-        )}
-        {q && [...mail.data?.pages||[],...supplements.pages].some(page=>page.coverage.some(c=>c.state==="error")) && (
-          <p role="alert" className="inbox-sync-status">Some accounts couldn’t be searched completely. Try searching again.</p>
-        )}
         {!(accounts.data || []).length && !accounts.isPending ? (
           <Empty title="Welcome to Dakia">
             <p>Connect your first mailbox to get started.</p>
@@ -1412,8 +1345,6 @@ export function App() {
             Compose <KeyHint keys="C" />
           </button>
         </header>
-        {connectionNotice}
-        {active && actionFailure()}
         {active && checked.size > 0 && selectionControls}
 
         {active && !checked.size && messageActions}
@@ -1457,7 +1388,50 @@ export function App() {
         />
       )}
       <MobileInstallPrompt enabled={!!accounts.data?.some(a => a.state === "ready") && !mail.isPending && !compose && !setup && !workspace && !sidebar} />
-      <Toast announcementKey={toast?.id} error={toast?.error}>{toast?.message}</Toast>
+      <div className="dakia-toast-stack">
+        <Toast announcementKey={toast?.id}>{toast?.message}</Toast>
+        <Toast error>{mailError ? (mailError instanceof Error ? mailError.message : String(mailError)) : undefined}</Toast>
+        <Toast error actions={actionError && (
+          <button type="button" onClick={event => {
+            if (document.activeElement === event.currentTarget) restoreToastFocus();
+            setActionError(undefined);
+          }}>Dismiss mail action error</button>
+        )}>{actionError}</Toast>
+        <Toast error>{inboxIncomplete ? "Couldn’t update inbox. Showing saved mail." : undefined}</Toast>
+        <Toast error>{searchIncomplete ? "Some accounts couldn’t be searched completely. Try searching again." : undefined}</Toast>
+        {ready.filter(a => a.state !== "ready").map(a => (
+          <Toast key={a.id} error actions={
+            <button type="button" onClick={() => {
+              setReconnect(a);
+              setSetup(true);
+            }}>Reconnect</button>
+          }>{`${a.email}: ${a.state}`}</Toast>
+        ))}
+        <Toast error actions={online && connectionMessage && (
+          <button type="button" aria-disabled={session.isFetching || undefined} onClick={event => {
+            if (session.isFetching) return;
+            const button = event.currentTarget;
+            void session.refetch().then(result => {
+              if (result.isSuccess && document.activeElement === document.body && !button.isConnected) restoreToastFocus();
+            });
+          }}>{session.isFetching ? "Retrying…" : "Retry connection"}</button>
+        )}>{connectionMessage}</Toast>
+        <Toast error={latestSubmission?.state === "failed" || latestSubmission?.state === "delivery_unknown" || latestSubmission?.filing_status === "failed"}
+          actions={latestSubmission && <>
+            {["scheduled", "claimed"].includes(latestSubmission.state) && (
+              <button type="button" onClick={event => void cancelSend(latestSubmission, event.currentTarget, false)}>Cancel send</button>
+            )}
+            {latestSubmission.state === "scheduled" && (
+              <button type="button" onClick={event => void cancelSend(latestSubmission, event.currentTarget, true)}>Edit scheduled</button>
+            )}
+            <button type="button" aria-label="Dismiss send status" onClick={event => {
+              if (document.activeElement === event.currentTarget) restoreToastFocus();
+              setSubmission(null);
+            }}><X size={14} aria-hidden="true" /></button>
+          </>}>
+          {latestSubmission ? submissionLabel(latestSubmission) : undefined}
+        </Toast>
+      </div>
       {snooze && <DateTimeDialog title="Snooze until" confirmLabel="Snooze"
         onChoose={until => { void snoozeMessages([...snooze], until); }}
         onClose={() => setSnooze(null)} />}

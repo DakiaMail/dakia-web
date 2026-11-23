@@ -30,8 +30,12 @@ test("keyboard compose, send, persistence, reset, and isolated visitors without 
   await tabTo(page, "Send");
   await page.keyboard.press("Enter");
   await expect(dialog).toHaveCount(0);
-  await expect(page.getByRole("status").filter({ hasText: "Sent" })).toBeVisible({ timeout: 16000 });
+  const sentToast = page.locator(".dakia-toast").filter({ has: page.getByRole("status").filter({ hasText: /^Sent$/ }) });
+  await expect(sentToast).toBeVisible({ timeout: 16000 });
   await expect(page.getByRole("button", { name: "Compose", exact: true })).toBeFocused();
+  await tabTo(page, "Dismiss send status"); await page.keyboard.press("Enter");
+  await expect(sentToast).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Messages" })).toBeFocused();
   await tabTo(page, "Sent"); await page.keyboard.press("Enter");
   await expect(page.getByRole("button", { name: /A note from the keyboard/ })).toBeVisible();
   await page.reload();

@@ -38,6 +38,6 @@ for (const state of ["pending", "error"] as const) {
     await expect(page.getByText("Checking for mail…", { exact: true })).toBeVisible();
     await expect(page.getByText("All caught up", { exact: true })).toHaveCount(0);
     await expect(page.locator(".header-refresh-control [role=status]")).toHaveText(state === "pending" ? "Inbox refresh is pending." : "Couldn’t update mail. Try refreshing again.");
-    if (state === "error") await expect(page.locator(".inbox-sync-status")).toHaveText("Couldn’t update inbox. Showing saved mail.");
+    if (state === "error") await expect(page.locator(".dakia-toast").getByRole("alert").filter({ hasText: "Showing saved mail" })).toHaveText("Couldn’t update inbox. Showing saved mail.");
   });
 }

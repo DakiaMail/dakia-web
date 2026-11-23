@@ -209,9 +209,17 @@ test("scheduled view shows useful pending mail and hides history and inbox-only 
     }
   }
   await page.getByRole("button", { name: "Manage schedule", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Edit scheduled" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Cancel send" })).toBeVisible();
-  await page.getByRole("button", { name: "Dismiss send status" }).click();
+  const toast = page.locator(".dakia-toast").filter({ hasText: "Scheduled" });
+  await expect(toast.getByRole("status")).toHaveText("Scheduled");
+  await expect(toast.getByRole("button", { name: "Edit scheduled" })).toBeVisible();
+  await expect(toast.getByRole("button", { name: "Cancel send" })).toBeVisible();
+  const dismiss = toast.getByRole("button", { name: "Dismiss send status" });
+  await toast.getByRole("button", { name: "Edit scheduled" }).focus();
+  await page.keyboard.press("Tab");
+  await expect(dismiss).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(toast).toHaveCount(0);
+  await expect(page.locator(".mailbox")).toBeFocused();
   await selectAccount(page, "personal");
   await expect(page.getByRole("heading", { name: "No scheduled messages" })).toBeVisible();
   await page.screenshot({ path: "artifacts/scheduled-mobile-dark-empty.png", fullPage: true });

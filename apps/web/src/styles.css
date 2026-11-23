@@ -382,12 +382,6 @@ kbd {
   text-align: center;
   margin: 8px 18px;
 }
-.inbox-sync-status {
-  margin: 0;
-  padding: 6px 18px;
-  color: var(--color-secondary);
-  font-size: 12px;
-}
 .message-row {
   position: relative;
   height: 64px;
@@ -731,41 +725,8 @@ kbd {
   font-size: 12px;
   overflow-wrap: anywhere;
 }
-.connection-state,
-.coverage,
-.submission {
-  background: var(--color-sidebar);
-  border-bottom: 1px solid var(--color-border);
-  padding: 10px 17px;
-  font-size: 11px;
-  line-height: 1.6;
-}
-.connection-state {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 8px 16px;
-}
-.session-connection-state button { text-decoration: underline; }
-.reader .session-connection-state,
-.reading .mailbox .session-connection-state { display: none; }
-.reading .reader .session-connection-state { display: flex; }
 .connection-recovery { text-align: center; }
 .connection-recovery p { max-width: 34ch; margin: 0; line-height: 1.6; color: var(--color-secondary); }
-.coverage {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.submission {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.submission > button:last-child {
-  margin-left: auto;
-}
 .load-more {
   display: block;
   margin: 15px auto;

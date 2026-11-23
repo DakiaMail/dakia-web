@@ -119,6 +119,36 @@ test("ordinary open anchors Shift-row selection without opening another reader o
   expect(state.operations).toEqual([]);
 });
 
+test("the bulk toolbar stays above the list while a preview is open", async ({ page }) => {
+  const state = await fixture(page);
+  await page.getByRole("tab", { name: "All", exact: true }).press("Enter");
+  await checkbox(page, 2).press("Space");
+  const toolbar = page.locator(".mailbox").getByRole("group", { name: "Selected message actions", exact: true });
+  const messages = page.getByRole("region", { name: "Messages", exact: true });
+  await expect(toolbar).toBeVisible();
+
+  await row(page, 1).locator(".message-open").press("Enter");
+  await expect(page.locator(".conversation-message")).toHaveCount(1);
+  await checkbox(page, 3).press("Space");
+  await expect(toolbar).toBeVisible();
+  const bounds = (await toolbar.boundingBox())!;
+  expect(bounds.y + bounds.height).toBeLessThanOrEqual((await messages.boundingBox())!.y);
+  await expect(page.getByRole("region", { name: "Reading pane" }).getByRole("group", { name: "Selected message actions", exact: true })).toHaveCount(0);
+
+  await messages.press("Shift+Tab");
+  await expect(toolbar.getByRole("button", { name: "More actions", exact: true })).toBeFocused();
+  await toolbar.getByRole("button", { name: "Archive", exact: true }).press("Enter");
+  await expect.poll(() => state.operations.map(op => op.target_id).sort()).toEqual(["range-2", "range-3"]);
+  await expect(page.locator(".message-row.selected")).toContainText("Range message 1");
+  await expect(toolbar).toBeHidden();
+  await page.reload();
+  await expect(page.locator(".conversation-message")).toHaveCount(1);
+  await page.getByRole("navigation", { name: "Accounts" }).getByRole("button", { name: "All accounts", exact: true }).press("Enter");
+  await expect(checkbox(page, 0)).toBeVisible();
+  await expect(checkbox(page, 2)).toHaveCount(0);
+  await expect(checkbox(page, 3)).toHaveCount(0);
+});
+
 test("keyboard Space, Shift+Space and Shift+Enter select without opening", async ({ page }) => {
   const state = await fixture(page); await list(page);
   await checkbox(page, 1).focus(); await page.keyboard.press("Space");

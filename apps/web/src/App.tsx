@@ -1117,7 +1117,7 @@ export function App() {
           <button aria-pressed={!typeFilter} onClick={() => setTypeFilter("")}><Layers size={14} aria-hidden="true" />All automated</button>
           {automatedFilters.map(({ value, label, icon: Icon }) => <button key={value} aria-pressed={typeFilter === value} onClick={() => setTypeFilter(value)}><Icon size={14} aria-hidden="true" />{label}</button>)}
         </div>}
-        {!active && !workspace && selectionControls}
+        {!workspace && selectionControls}
         <div className="pull-status" role="status" style={{ height: pull.refreshing ? 44 : pull.distance }}>
           {(pull.distance > 0 || pull.refreshing) && <span><RefreshCw size={15} />{pull.refreshing ? "Refreshing…" : pull.distance >= 64 ? "Release to refresh" : "Pull to refresh"}</span>}
         </div>
@@ -1345,8 +1345,6 @@ export function App() {
             Compose <KeyHint keys="C" />
           </button>
         </header>
-        {active && checked.size > 0 && selectionControls}
-
         {active && !checked.size && messageActions}
         {active && snoozedThreads[`${active.account_id}/${active.thread_id}`] && <p className="snooze-notice">Snoozed until {snoozeTime(snoozedThreads[`${active.account_id}/${active.thread_id}`].until)}</p>}
         {active ? (

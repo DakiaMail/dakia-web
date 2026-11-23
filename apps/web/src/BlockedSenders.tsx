@@ -5,8 +5,8 @@ import type { Account, MailRule, Message } from "@dakia/api-types";
 import { ShieldBan } from "lucide-react";
 import { Modal, ErrorNotice } from "./ui";
 import { announceRuleUpdate, ruleEmail, rulesApi, senderAddress, useMailRules } from "./mailRules";
-import { findSenderMail, type CleanupResult } from "./SenderCleanup";
-import { useSenderCleanup } from "./cleanupJobs";
+import { api } from "./api";
+import { loadCleanupCandidates, useSenderCleanups } from "./cleanupJobs";
 import "./blockedSenders.css";
 
 export type SenderAction = () => ReactNode;
@@ -58,8 +58,8 @@ export function SenderBlock({ message, accounts, onCleanup, children }: {
       </> : <>
         {!actionRule && <>
           <p>Older emails are unchanged. You can unblock this sender in Workspace.</p>
-          {!review ? <button ref={savedFocus} type="button" onClick={() => setReview(true)}>Review older emails</button> : <div ref={reviewFocus} role="region" tabIndex={-1} aria-label="Older sender mail" className="blocked-cleanup-groups">
-            {accounts.map(account => <OlderSenderMail key={account.id} account={account} message={message} cutoff={cutoff.current} onCleanup={onCleanup} onDone={close} />)}
+          {!review ? <button ref={savedFocus} type="button" onClick={() => setReview(true)}>Review older emails</button> : <div ref={reviewFocus} role="region" tabIndex={-1} aria-label="Older sender mail" className="blocked-cleanup">
+            <OlderSenderMail accounts={accounts} sender={message.sender.email} cutoff={cutoff.current} onCleanup={onCleanup} onDone={close} />
           </div>}
         </>}
         <div className="form-actions"><button ref={actionRule ? savedFocus : undefined} type="button" onClick={close}>Done</button></div>
@@ -69,41 +69,100 @@ export function SenderBlock({ message, accounts, onCleanup, children }: {
   </>;
 }
 
-function OlderSenderMail({ account, message, cutoff, onCleanup, onDone }: { account: Account; message: Message; cutoff: number; onCleanup?: (rows: Message[]) => void; onDone: () => void }) {
-  const [found, setFound] = useState<CleanupResult>();
-  const [checking, setChecking] = useState(true);
-  const cleanup = useSenderCleanup(account.id);
-  const [jobId, setJobId] = useState<string>();
+function OlderSenderMail({ accounts, sender, cutoff, onCleanup, onDone }: {
+  accounts: Account[]; sender: string; cutoff: number; onCleanup?: (rows: Message[]) => void; onDone: () => void;
+}) {
+  const [review, setReview] = useState(0);
+  const [jobIds, setJobIds] = useState<Record<string, string>>({});
+  const [listPage, setListPage] = useState(0);
   const locked = useRef(false);
-  const job = cleanup.jobs.data?.find(row => row.request.id === jobId);
-  const intent = cleanup.submissions.find(row => row.request.id === jobId);
-  useEffect(() => {
-    const abort = new AbortController();
-    void findSenderMail({ ...message, account_id: account.id }, abort.signal, undefined, cutoff).then(result => {
-      if (!abort.signal.aborted) { setFound(result); setChecking(false); }
-    }).catch(() => { if (!abort.signal.aborted) { setFound({ rows: [], complete: false }); setChecking(false); } });
-    return () => abort.abort();
-  }, [account.id, message.sender.email, cutoff]);
-  const count = found?.rows.length || 0;
+  const heading = useRef<HTMLHeadingElement>(null);
+  const cutoffDate = new Date(cutoff).toISOString();
+  const cleanup = useSenderCleanups(accounts.map(account => account.id));
+  const searches = useQueries({ queries: accounts.map(account => ({
+    queryKey: ["blocked-sender-mail", account.id, sender, cutoffDate, review],
+    queryFn: ({ signal }: { signal: AbortSignal }) => loadCleanupCandidates(account.id, sender, cutoff, after => api.senderCleanupMail(account.id, sender, cutoffDate, signal, after)),
+    retry: false, staleTime: Infinity, gcTime: 0,
+  })) });
+  const checking = searches.some(query => query.isPending);
+  const searchFailed = searches.some(query => query.isError);
+  const batches = accounts.flatMap((account, index) => {
+    const rows = searches[index].data?.rows.filter(row => jobIds[account.id] || !cleanup[index].unavailable.has(row.id));
+    return rows?.length ? [{ account, rows, start: cleanup[index].start }] : [];
+  });
+  const rows = batches.flatMap(batch => batch.rows.map(row => ({ row, account: batch.account })))
+    .sort((a, b) => Date.parse(b.row.received_at) - Date.parse(a.row.received_at));
+  const count = rows.length;
   const noun = count === 1 ? "email" : "emails";
-  return <section className="blocked-cleanup-account" aria-label={`Older emails in ${account.display_name}`}>
-    <h3>{account.display_name}</h3><p className="muted">{account.email}</p>
-    {checking ? <p role="status">Checking older emails…</p> : <>
-      <p>{count} {noun}{!found?.complete && " found so far"}</p>
-      {!found?.complete && <p role="status">Search incomplete. Other emails may remain.</p>}
-      {!!found?.rows.length && <details><summary>Review emails</summary><ul className="blocked-review-list">{found.rows.map(row => <li key={row.id}>{row.subject || "(no subject)"}<small>{row.received_at.slice(0, 10)}</small></li>)}</ul></details>}
-      {!jobId && !job && !intent && <button type="button" disabled={!found?.rows.length} onClick={() => {
-        if (locked.current || !found?.rows.length) return;
-        const id = cleanup.start(found.rows[0], found.rows, found.complete);
-        if (id) { locked.current = true; setJobId(id); }
-        // Keep this review open so outcomes remain visible. The ordinary app
-        // projection removes frozen targets without unmounting the dialog.
-      }}>Move {count} {noun} to Trash</button>}
-    </>}
-    {(jobId || job || intent) && <p role="status">{intent?.error ? intent.rejected ? "Cleanup was rejected. No move was accepted." : "Cleanup status is unknown. Check again before trying another cleanup." : job ? `${job.pending} pending · ${job.applied} moved · ${job.failed} failed` : "Submitting cleanup…"}</p>}
-    {job && !job.pending && !job.failed && <button type="button" onClick={() => { onDone(); onCleanup?.(found?.rows || []); }}>Back to mail</button>}
-    <ErrorNotice error={cleanup.jobs.error} />
-  </section>;
+  const submitted = Object.keys(jobIds).length > 0;
+  const outcomes = accounts.flatMap((account, index) => {
+    const id = jobIds[account.id];
+    if (!id) return [];
+    return [{ account, job: cleanup[index].jobs.data?.find(job => job.request.id === id),
+      intent: cleanup[index].submissions.find(intent => intent.request.id === id) }];
+  });
+  const totals = { pending: 0, applied: 0, failed: 0 };
+  for (const { job } of outcomes) {
+    totals.pending += job?.pending ?? 0;
+    totals.applied += job?.applied ?? 0;
+    totals.failed += job?.failed ?? 0;
+  }
+  const waiting = outcomes.some(({ job, intent }) => !job && !intent?.error);
+  const uncertain = outcomes.some(({ job, intent }) => !job && intent?.error && !intent.rejected);
+  const rejected = outcomes.filter(({ job, intent }) => !job && intent?.rejected);
+  const canRefresh = (!submitted && !checking && searchFailed) || (rejected.length > 0 && !waiting && !uncertain);
+  const completed = outcomes.length > 0 && outcomes.every(({ job }) => job && !job.pending && !job.failed);
+  const pageSize = 20;
+  const pages = Math.ceil(count / pageSize);
+  const visiblePage = Math.min(listPage, Math.max(0, pages - 1));
+
+  function refreshReview() {
+    heading.current?.focus();
+    locked.current = false;
+    setJobIds({});
+    setListPage(0);
+    setReview(value => value + 1);
+  }
+
+  return <>
+    <h3 ref={heading} tabIndex={-1}>Older emails</h3>
+    <p role="status">{count ? `${count} synced ${noun} available to move` : checking ? "Checking synced emails…" : "No synced emails available to move."}</p>
+    {count > 0 && checking && <p role="status">Checking remaining mailboxes…</p>}
+    {searchFailed && <p role="status">Some mailboxes couldn’t be checked.</p>}
+    {searches.some(query => query.data?.limited) && <p role="status">Review is limited to 10,000 emails per mailbox at a time.</p>}
+    {count > 0 && <details>
+      <summary>Review emails</summary>
+      <ul className="blocked-review-list" tabIndex={0} aria-label="Matching emails">{rows.slice(visiblePage * pageSize, (visiblePage + 1) * pageSize).map(({ row, account }) =>
+        <li key={`${account.id}/${row.id}`}>{row.subject || "(no subject)"}<small>{account.display_name} · {row.received_at.slice(0, 10)}</small></li>)}</ul>
+      {pages > 1 && <div className="form-actions">
+        <button type="button" disabled={!visiblePage} onClick={() => setListPage(visiblePage - 1)}>Previous page</button>
+        <span>Page {visiblePage + 1} of {pages}</span>
+        <button type="button" disabled={visiblePage + 1 >= pages} onClick={() => setListPage(visiblePage + 1)}>Next page</button>
+      </div>}
+    </details>}
+    {!submitted && count > 0 && <button type="button" disabled={checking} onClick={() => {
+      if (locked.current) return;
+      const started = Object.fromEntries(batches.flatMap(({ account, rows, start }) => {
+        const id = start(rows[0], rows, false);
+        return id ? [[account.id, id]] : [];
+      }));
+      if (!Object.keys(started).length) return;
+      locked.current = true;
+      heading.current?.focus();
+      setJobIds(started);
+    }}>Move {count} {noun} to Trash</button>}
+    {waiting && <p role="status">Submitting cleanup…</p>}
+    {outcomes.some(({ job }) => job) && <p role="status">{totals.pending} pending · {totals.applied} moved · {totals.failed} failed</p>}
+    {uncertain && <p role="status">Cleanup status is unknown for some mailboxes. Check the mailbox before trying again.</p>}
+    {rejected.map(({ account, intent }) => <p role="status" key={account.id}>{account.display_name}: {intent?.error === "cleanup_move_unverified"
+      ? "An earlier move is unresolved. Review available emails again."
+      : intent?.error === "revision_conflict" || intent?.error === "not_found"
+        ? "Emails changed before they could be moved. Review available emails again."
+        : "The move was rejected. Review available emails again."}</p>)}
+    {canRefresh && <button type="button" onClick={refreshReview}>Review again</button>}
+    {completed && <button type="button" onClick={() => { onDone(); onCleanup?.(rows.map(({ row }) => row)); }}>Back to mail</button>}
+    <ErrorNotice error={cleanup.find(entry => entry.jobs.error)?.jobs.error} />
+  </>;
 }
 
 export function BlockedSenders({ accounts }: { accounts: Account[] }) {

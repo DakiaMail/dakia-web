@@ -3,14 +3,13 @@
 .blocked-senders-list > li { display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--color-border); padding: 14px 0; }
 .blocked-senders-list > li > div { min-width: 0; }
 .blocked-senders-list small { display: block; margin-top: 6px; color: var(--color-secondary); }
-.blocked-cleanup-groups { display: grid; gap: 16px; margin-top: 16px; }
-.blocked-cleanup-account { border-top: 1px solid var(--color-border); padding-top: 12px; }
-.blocked-cleanup-account h3, .blocked-cleanup-account p { margin: 0 0 10px; }
+.blocked-cleanup { margin-top: 16px; border-top: 1px solid var(--color-border); padding-top: 12px; }
+.blocked-cleanup h3, .blocked-cleanup p { margin: 0 0 10px; }
 .blocked-review-list { max-height: 220px; overflow: auto; }
 .blocked-review-list li { padding: 8px 0; overflow-wrap: anywhere; }
 .blocked-review-list small { display: block; color: var(--color-secondary); }
-.blocked-cleanup-account details { margin-bottom: 12px; }
-.blocked-cleanup-account summary { cursor: pointer; padding: 6px 0; }
+.blocked-cleanup details { margin-bottom: 12px; }
+.blocked-cleanup summary { cursor: pointer; padding: 6px 0; }
 
 .rules-dialog-content { padding: 22px; line-height: 1.6; }
 .rules-dialog-content .form-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 24px; }

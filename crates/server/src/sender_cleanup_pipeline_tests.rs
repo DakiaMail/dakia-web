@@ -234,3 +234,117 @@ async fn ordinary_bulk_actions_drain_together_without_replay() {
     crate::mutations::drain(&app, &a).await.unwrap();
     assert_eq!(provider.mutations.lock().await.len(), 2);
 }
+
+#[tokio::test]
+async fn blocked_sender_review_uses_local_move_eligible_messages() {
+    use axum::{body::Body, http::Request};
+    use sha2::{Digest, Sha256};
+    use tower::ServiceExt;
+
+    let (_dir, app, user, a, provider) = controlled().await;
+    let rows = app
+        .mail
+        .snapshot_page(&app.store, &a, "INBOX", None)
+        .await
+        .unwrap()
+        .rows;
+    assert_eq!(rows.len(), 2);
+    app.store
+        .operation(
+            &a,
+            Operation {
+                id: "blocked-sender-unresolved-move".into(),
+                account_id: a.id().into(),
+                target_id: rows[0].id.clone(),
+                expected_revision: rows[0].revision,
+                change: Change::Archive,
+                status: OperationStatus::Pending,
+                revision: 0,
+            },
+        )
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO sessions(token_hash,user_id,csrf,expires_at) VALUES(?,?,?,?)")
+        .bind(URL_SAFE_NO_PAD.encode(Sha256::digest(b"sender-review-fixture")))
+        .bind(&user)
+        .bind("fixture")
+        .bind(4102444800_i64)
+        .execute(app.store.sqlite_control_for_test())
+        .await
+        .unwrap();
+
+    let query: String = url::form_urlencoded::Serializer::new(String::new())
+        .append_pair("sender", &rows[1].sender.email.to_uppercase())
+        .append_pair("cutoff", &chrono::Utc::now().to_rfc3339())
+        .finish();
+    let scans = provider.base.scans.load(Ordering::SeqCst);
+    let router = crate::router(app.clone());
+    let catalogue = format!("/api/accounts/{}/sender-mail?{query}", a.id());
+    let unsubscribe_catalogue = format!(
+        "/api/accounts/{}/messages/{}/sender-mail",
+        a.id(),
+        rows[1].id
+    );
+    let mut reviewed = rows[1].clone();
+    for url in [catalogue, unsubscribe_catalogue] {
+        let response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(url)
+                    .header("cookie", "__Host-dakia=sender-review-fixture")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body: serde_json::Value = serde_json::from_slice(
+            &axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(body["count"], 1);
+        reviewed = serde_json::from_value(body["rows"][0].clone()).unwrap();
+        assert_eq!(reviewed.id, rows[1].id);
+    }
+    assert_eq!(provider.base.scans.load(Ordering::SeqCst), scans);
+
+    let response = router
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(format!("/api/accounts/{}/sender-cleanups", a.id()))
+                .header("cookie", "__Host-dakia=sender-review-fixture")
+                .header("x-csrf-token", "fixture")
+                .header("origin", app.config.origin.as_str())
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&CleanupRequest {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        source_id: reviewed.id.clone(),
+                        search_complete: false,
+                        targets: vec![CleanupTarget {
+                            id: reviewed.id,
+                            expected_revision: reviewed.revision,
+                            expected_location: Some(dakia_storage::CleanupLocation {
+                                provider_id: reviewed.provider_id,
+                                folder_ids: reviewed.folder_ids,
+                                sender_email: reviewed.sender.email,
+                            }),
+                        }],
+                    })
+                    .unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        app.store.sender_cleanup_jobs(&a).await.unwrap()[0].pending,
+        1
+    );
+    assert!(provider.mutations.lock().await.is_empty());
+}

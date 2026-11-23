@@ -278,6 +278,7 @@ pub fn router_with_shutdown(app: App, shutdown: tokio::sync::watch::Sender<bool>
             axum::routing::put(reconnect).delete(remove_account),
         )
         .route("/search", get(search::search))
+        .route("/accounts/{account}/sender-mail", get(sender_mail::cleanup))
         .route(
             "/accounts/{account}/messages/{message}/sender-mail",
             get(sender_mail::cached),

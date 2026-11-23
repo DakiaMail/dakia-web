@@ -32,7 +32,7 @@ for (const theme of ["light", "dark"]) for (const size of [{ width: 1480, height
     await expect(dialog.getByRole("heading", { name: "Sender blocked", exact: true })).toBeVisible();
     const review = dialog.getByRole("button", { name: "Review older emails", exact: true });
     await expect(review).toBeFocused(); await page.keyboard.press("Enter");
-    await expect(dialog.getByText("Checking older emails…")).toHaveCount(0);
+    await expect(dialog.getByText("Checking synced emails…")).toHaveCount(0);
     await expect(dialog.getByRole("button", { name: /Move \d+ emails? to Trash/ })).toBeVisible();
     await dialog.screenshot({ animations: "disabled", path: info.outputPath("older-mail-review.png") });
     await page.keyboard.press("Escape"); await expect(dialog).toHaveCount(0);

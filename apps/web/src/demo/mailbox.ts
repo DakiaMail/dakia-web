@@ -216,6 +216,7 @@ export class DemoMailbox {
     const parts = (match[2] || "").split("/").map(decodeURIComponent);
     const [resource, id, action] = parts;
     const key = identity(account, id);
+    if (resource === "sender-mail" && get) return json(this.senderMail(url, account, url.searchParams.get("sender") ?? ""));
     if (resource === "thread-counts" && get) {
       const ids = (url.searchParams.get("messages") || "").split(",");
       if (ids.length > 50 || ids.some(id => !id || id.length > 256)) return fail(400, "Invalid message list.");
@@ -261,11 +262,7 @@ export class DemoMailbox {
       const c = s.contents[key]; if (!c) return missing();
       if (!action && get) return json(c);
       if (action === "conversation" && get) return json({ rows: Object.values(s.contents).filter(item => item.message.account_id === account && item.message.thread_id === c.message.thread_id).map(item => item.message).sort((a, b) => a.received_at.localeCompare(b.received_at)), continuation: null, complete: true });
-      if (action === "sender-mail" && get) {
-        const cutoff = url.searchParams.get("cutoff") || new Date(this.now()).toISOString();
-        const rows = Object.values(s.contents).map(item => item.message).filter(m => m.account_id === account && m.sender.email === c.message.sender.email && !m.folder_ids.includes("Trash") && Date.parse(m.received_at) <= Date.parse(cutoff));
-        return json({ rows, count: rows.length, cutoff, after: null });
-      }
+      if (action === "sender-mail" && get) return json(this.senderMail(url, account, c.message.sender.email));
       if (action === "translation") {
         if (c.detected_language !== "fr") return unsupported();
         if (get) return json({ ...c, text: frenchTranslation, html: paragraphs(frenchTranslation), detected_language: "en" });
@@ -353,10 +350,10 @@ export class DemoMailbox {
         const projected: Message[] = [], failed: string[] = [];
         for (const target of input.targets) {
           const content = s.contents[identity(account, target.id)];
-          if (!content || content.message.revision !== target.expected_revision || content.message.sender.email !== source.message.sender.email) { failed.push(target.id); continue; }
+          if (!content || content.message.revision !== target.expected_revision || content.message.sender.email.trim().toLowerCase() !== source.message.sender.email.trim().toLowerCase()) { failed.push(target.id); continue; }
           content.message = apply(content.message, { kind: "trash" }, s); projected.push(content.message);
         }
-        const job: CleanupJob = { request: input, account_id: account, sender: source.message.sender.email, created_at: new Date(this.now()).toISOString(), dismissed: false, applied: projected.length, failed: failed.length, pending: 0, failed_targets: failed, projected_rows: projected };
+        const job: CleanupJob = { request: input, account_id: account, sender: source.message.sender.email, created_at: new Date(this.now()).toISOString(), dismissed: false, applied: projected.length, failed: failed.length, pending: 0, failed_targets: failed };
         s.cleanups.push(job); return commit(job);
       }
       if (method === "POST" && id && action === "dismiss") {
@@ -365,6 +362,16 @@ export class DemoMailbox {
       }
     }
     return unsupported();
+  }
+  private senderMail(url: URL, account: string, sender: string) {
+    const cutoff = url.searchParams.get("cutoff") || new Date(this.now()).toISOString();
+    const after = url.searchParams.get("after") || "";
+    const excluded = new Set(["trash", "spam", "junk", this.state.settings[account]?.trash_folder?.toLowerCase()]);
+    const matches = Object.values(this.state.contents).map(item => item.message).filter(row => row.account_id === account
+      && row.sender.email.trim().toLowerCase() === sender.trim().toLowerCase() && Date.parse(row.received_at) <= Date.parse(cutoff)
+      && row.folder_ids.length && !row.folder_ids.some(folder => excluded.has(folder.toLowerCase())));
+    const rows = matches.filter(row => row.id > after).sort((a, b) => a.id < b.id ? -1 : 1).slice(0, 101);
+    return { rows: rows.slice(0, 100), count: matches.length, cutoff, after: rows.length > 100 ? rows[99].id : null };
   }
   private page(url: URL, account?: string): SearchPage {
     const params = url.searchParams;

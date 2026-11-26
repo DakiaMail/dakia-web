@@ -225,7 +225,13 @@ async fn file(
         };
         let status = match provider.reconcile_sent(&mime.message_id, &mime.raw).await {
             Ok(p::SentOutcome::ProviderManaged) => FilingStatus::NotRequired,
-            Ok(p::SentOutcome::AlreadyPresent | p::SentOutcome::Appended) => FilingStatus::Filed,
+            Ok(p::SentOutcome::AlreadyPresent(folder) | p::SentOutcome::Appended(folder)) => {
+                // Wake the next metadata turn even if Sent was just checked.
+                store
+                    .put_provider_document(a, &format!("sync:head-at:{folder}"), "0")
+                    .await?;
+                FilingStatus::Filed
+            }
             // A lost APPEND acknowledgment must be reconciled by Message-ID, never resubmitted.
             Ok(p::SentOutcome::FilingUnknown) | Err(_) => FilingStatus::Failed,
         };

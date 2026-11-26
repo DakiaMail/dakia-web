@@ -60,7 +60,7 @@ impl MailProvider for Sending {
         let mail = mail_parser::MessageParser::default().parse(raw).unwrap();
         assert!(mail.message_id().is_some());
         self.filings.fetch_add(1, Ordering::SeqCst);
-        Ok(p::SentOutcome::Appended)
+        Ok(p::SentOutcome::Appended("Sent".into()))
     }
 }
 async fn sending() -> (

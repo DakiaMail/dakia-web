@@ -42,7 +42,7 @@ async fn ambiguous_sent_reconciles_other_view_without_append() {
         p.reconcile_sent("<stable@example.test>", RAW)
             .await
             .unwrap(),
-        SentOutcome::AlreadyPresent
+        SentOutcome::AlreadyPresent("Sent Messages".into())
     );
     drop(p);
     server.await.unwrap();
@@ -110,7 +110,7 @@ async fn append_uses_evidence_fallback_and_explicit_preference() {
             p.reconcile_sent("<stable@example.test>", RAW)
                 .await
                 .unwrap(),
-            SentOutcome::Appended
+            SentOutcome::Appended(expected.into())
         );
         server.await.unwrap();
     }

@@ -901,7 +901,7 @@ impl ImapProvider {
                                 == Some(expected)
                             {
                                 s.recycle();
-                                return Ok(SentOutcome::AlreadyPresent);
+                                return Ok(SentOutcome::AlreadyPresent(sent.clone()));
                             }
                         }
                     }
@@ -911,7 +911,7 @@ impl ImapProvider {
             match s.append(&sent, Some("(\\Seen)"), None, raw).await {
                 Ok(()) => {
                     s.recycle();
-                    Ok(SentOutcome::Appended)
+                    Ok(SentOutcome::Appended(sent))
                 }
                 Err(_) => Ok(SentOutcome::FilingUnknown),
             }
@@ -930,10 +930,15 @@ impl ImapProvider {
     }
 }
 // Roles outrank conventional names. Never CREATE or choose an arbitrary folder.
-fn sent_candidates(names: &[Folder], explicit: Option<&str>) -> Result<Vec<String>> {
+pub fn sent_candidates(names: &[Folder], explicit: Option<&str>) -> Result<Vec<String>> {
     let mut candidates: Vec<String> = names
         .iter()
-        .filter(|f| f.selectable && has(&f.attributes, "Sent"))
+        .filter(|f| {
+            f.selectable
+                && f.attributes
+                    .iter()
+                    .any(|role| role.trim_start_matches('\\').eq_ignore_ascii_case("Sent"))
+        })
         .map(|f| f.name.clone())
         .collect();
     if candidates.is_empty() {

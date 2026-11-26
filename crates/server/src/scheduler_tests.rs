@@ -171,8 +171,8 @@ async fn executor_stalled_account_does_not_block_other_account_or_request_head()
     app.mail.probe(&app.store, &second).await.unwrap();
     let job = tokio::spawn(crate::executor::run(app.clone()));
     wait_pages(&slow, 1, 3).await;
-    wait_pages(&fast, 3, 3).await; // fourth turn is the independent INBOX head
-    assert_eq!(fast.head_calls.load(Ordering::SeqCst), 1);
+    wait_pages(&fast, 3, 3).await; // Sent and INBOX each receive a head turn.
+    assert_eq!(fast.head_calls.load(Ordering::SeqCst), 2);
     assert_eq!(slow.visited.lock().await.len(), 1);
     assert_eq!(fast.maximum.load(Ordering::SeqCst), 1);
     let lane = app.mail.sync_lane(&second).await;

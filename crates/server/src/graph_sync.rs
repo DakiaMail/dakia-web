@@ -154,6 +154,7 @@ pub(crate) async fn tick(
         .map_err(Error::from)?
         .unwrap_or_default();
     let wake = crate::graph_push::wake_version(&app.store, a).await?;
+    let settings = app.mail.settings(&app.store, a).await?;
     for offset in 0..folders.len() {
         let index = (schedule.index + offset) % folders.len();
         let folder = &folders[index];
@@ -164,10 +165,26 @@ pub(crate) async fn tick(
             .map(serde_json::from_str)
             .transpose()
             .map_err(Error::from)?;
-        if state.as_ref().is_some_and(|s| {
-            !s.cursor.next && s.at > Utc::now().timestamp() - 300 && s.wake >= wake
-        }) {
+        let sent = settings.sent_folder.as_deref() == Some(&folder.name)
+            || folder
+                .attributes
+                .iter()
+                .any(|role| role.eq_ignore_ascii_case("Sent"));
+        let request = format!("sync:head-at:{}", folder.name);
+        let requested =
+            sent && app.store.provider_document(a, &request).await?.as_deref() == Some("0");
+        if !requested
+            && state.as_ref().is_some_and(|s| {
+                let interval = if sent { 60 } else { 300 };
+                !s.cursor.next && s.at > Utc::now().timestamp() - interval && s.wake >= wake
+            })
+        {
             continue;
+        }
+        if requested {
+            app.store
+                .put_provider_document(a, &request, &Utc::now().timestamp().to_string())
+                .await?;
         }
         let lane = app.mail.reconciliation_lane(a).await;
         let _guard = lane.lock().await;

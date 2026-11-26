@@ -227,9 +227,9 @@ async fn catalogue(a: &AccountRepository, b: &AccountRepository) {
     ] {
         let mut row = message(&a.account, id);
         row.sender.email = if id == "catalogue-b" {
-            "Catalogue@example.invalid"
+            " Équipe@example.invalid "
         } else {
-            "catalogue@example.invalid"
+            "équipe@example.invalid"
         }
         .into();
         row.received_at = date.into();
@@ -237,13 +237,37 @@ async fn catalogue(a: &AccountRepository, b: &AccountRepository) {
         rows.push(row);
     }
     a.ingest_messages(rows, &[], &[], None).await.unwrap();
+    // Simulate an existing row whose original address predates the sender key.
+    match &a.backend {
+        Backend::Sqlite(db) => {
+            sqlx::query("UPDATE messages SET sender_key=NULL WHERE id='catalogue-b'")
+                .execute(db)
+                .await
+                .unwrap();
+            crate::sender_key::backfill_sqlite(db).await.unwrap();
+        }
+        Backend::Postgres(db) => {
+            let mut tx = db.begin().await.unwrap();
+            sqlx::query(
+                "UPDATE messages SET sender_key=NULL WHERE account_id=$1 AND id='catalogue-b'",
+            )
+            .bind(&a.account)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+            crate::sender_key::backfill_postgres(&mut tx, None)
+                .await
+                .unwrap();
+            tx.commit().await.unwrap();
+        }
+    }
     let pending = a.message("catalogue-pending").await.unwrap();
     a.operation(mutation(&pending, "catalogue-move", Change::Trash))
         .await
         .unwrap();
     let (count, rows) = a
         .cached_sender_mail(
-            "catalogue@example.invalid",
+            "équipe@example.invalid",
             "2030-11-10T00:00:00Z",
             None,
             &["Deleted Items".into()],
@@ -257,7 +281,7 @@ async fn catalogue(a: &AccountRepository, b: &AccountRepository) {
     );
     let (count, rows) = a
         .cached_sender_mail(
-            "catalogue@example.invalid",
+            "équipe@example.invalid",
             "2030-11-10T00:00:00Z",
             Some("catalogue-a"),
             &["Deleted Items".into()],
@@ -268,39 +292,24 @@ async fn catalogue(a: &AccountRepository, b: &AccountRepository) {
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].id, "catalogue-b");
     assert_eq!(
-        a.cached_sender_mail(
-            "CATALOGUE@example.invalid",
-            "2030-11-10T00:00:00Z",
-            None,
-            &[],
-        )
-        .await
-        .unwrap()
-        .0,
+        a.cached_sender_mail("ÉQUIPE@example.invalid", "2030-11-10T00:00:00Z", None, &[],)
+            .await
+            .unwrap()
+            .0,
         3
     );
     assert_eq!(
-        a.cached_sender_mail(
-            "catalogue@example.invalid",
-            "invalid-cutoff",
-            None,
-            &[],
-        )
-        .await
-        .unwrap()
-        .0,
+        a.cached_sender_mail("équipe@example.invalid", "invalid-cutoff", None, &[],)
+            .await
+            .unwrap()
+            .0,
         0
     );
     assert_eq!(
-        b.cached_sender_mail(
-            "catalogue@example.invalid",
-            "2030-11-10T00:00:00Z",
-            None,
-            &[],
-        )
-        .await
-        .unwrap()
-        .0,
+        b.cached_sender_mail("équipe@example.invalid", "2030-11-10T00:00:00Z", None, &[],)
+            .await
+            .unwrap()
+            .0,
         0
     );
 }

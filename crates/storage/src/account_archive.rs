@@ -183,6 +183,7 @@ impl AccountRepository {
         }
         // Derived search text is never retained in a portable account archive.
         let archive = crate::pool(path).await?;
+        crate::sender_key::backfill_sqlite(&archive).await?;
         crate::search_legacy::prepare(&archive, true).await?;
         crate::search_legacy::configure(&archive, true).await?;
         sqlx::query("DELETE FROM provider_documents WHERE key='search:database'")
@@ -239,6 +240,7 @@ impl AccountRepository {
             )
             .await?;
         }
+        crate::sender_key::backfill_postgres(&mut tx, Some(&self.account)).await?;
         let cursor: Option<i64> =
             sqlx::query_scalar("SELECT seq FROM sqlite_sequence WHERE name='events'")
                 .fetch_optional(&archive)

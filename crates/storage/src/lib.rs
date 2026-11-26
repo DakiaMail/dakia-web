@@ -41,6 +41,7 @@ pub use full_text::{normalize_search, SearchContent, TextCoverage};
 /// Bounded federated account work and matching per-component read capacity.
 pub const SEARCH_ACCOUNT_CONCURRENCY: usize = 8;
 
+mod sender_key;
 mod sender_mail;
 mod sync;
 mod thread_graph;
@@ -372,6 +373,7 @@ impl Store {
                     tracing::warn!(target: "dakia_server::diagnostics", operation = "account_migration", error = ?error, "account migration failed");
                     error
                 })?;
+            sender_key::backfill_sqlite(&db).await?;
             search_legacy::configure(&db, store.search_database.is_some()).await?;
             let retained = account_repository::AccountRepository::sqlite(db.clone(), &a)
                 .cache_blobs()

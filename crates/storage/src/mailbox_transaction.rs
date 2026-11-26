@@ -75,7 +75,8 @@ impl<'a> MailboxTransaction<'a> {
             return Err(Error::Invalid);
         }
         let raw = serde_json::to_string(message)?;
-        write!(self,"INSERT INTO messages(id,revision,document) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,document=excluded.document",[&message.id,i64::from(message.revision),&raw],"INSERT INTO messages(account_id,id,revision,document) VALUES($1,$2,$3,$4) ON CONFLICT(account_id,id) DO UPDATE SET revision=excluded.revision,document=excluded.document",[&self.account,&message.id,i64::from(message.revision),&raw]);
+        let sender_key = crate::sender_key::normalize(&message.sender.email);
+        write!(self,"INSERT INTO messages(id,revision,document,sender_key) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,document=excluded.document,sender_key=excluded.sender_key",[&message.id,i64::from(message.revision),&raw,&sender_key],"INSERT INTO messages(account_id,id,revision,document,sender_key) VALUES($1,$2,$3,$4,$5) ON CONFLICT(account_id,id) DO UPDATE SET revision=excluded.revision,document=excluded.document,sender_key=excluded.sender_key",[&self.account,&message.id,i64::from(message.revision),&raw,&sender_key]);
         Ok(())
     }
     pub(crate) async fn upsert_message(&mut self, mut message: Message) -> Result<Message> {

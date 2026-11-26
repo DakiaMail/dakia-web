@@ -46,11 +46,11 @@ impl MailboxTransaction<'_> {
             "SELECT EXISTS(SELECT 1 FROM operations WHERE account_id=$1 AND target_id=$2 AND {PG_UNVERIFIED_MOVE})"
         );
         let source = self.message(&request.source_id).await?;
+        let sender_key = crate::sender_key::normalize(&source.sender.email);
         for (n, target) in request.targets.iter().enumerate() {
             let message = self.message(&target.id).await?;
             if message.account_id != self.account
-                || message.sender.email.trim().to_lowercase()
-                    != source.sender.email.trim().to_lowercase()
+                || crate::sender_key::normalize(&message.sender.email) != sender_key
             {
                 return Err(Error::Invalid);
             }
@@ -219,11 +219,11 @@ impl AccountRepository {
         after: Option<&str>,
         trash: &[String],
     ) -> Result<(i64, Vec<Message>)> {
-        let sender = sender.trim().to_lowercase();
+        let sender = crate::sender_key::normalize(sender);
         let trash: Vec<_> = trash.iter().map(|folder| folder.to_lowercase()).collect();
         let excluded = serde_json::to_string(&trash)?;
-        let mut sqlite = r"lower(trim(json_extract(m.document,'$.sender.email')))=? AND julianday(json_extract(m.document,'$.received_at'))<=julianday(?) AND NOT EXISTS (SELECT 1 FROM json_each(m.document,'$.folder_ids') f WHERE lower(f.value) IN (SELECT value FROM json_each(?)) OR lower(ltrim(f.value,'\'))='trash')".to_owned();
-        let mut pg = r"m.account_id=$1 AND lower(trim(m.document::jsonb#>>'{sender,email}'))=$2 AND mail_julianday(m.received_at)<=mail_julianday($3) AND NOT EXISTS(SELECT 1 FROM unnest(m.folder_ids) f WHERE lower(f)=ANY($4::TEXT[]) OR lower(ltrim(f,'\'))='trash')".to_owned();
+        let mut sqlite = r"m.sender_key=? AND julianday(json_extract(m.document,'$.received_at'))<=julianday(?) AND NOT EXISTS (SELECT 1 FROM json_each(m.document,'$.folder_ids') f WHERE lower(f.value) IN (SELECT value FROM json_each(?)) OR lower(ltrim(f.value,'\'))='trash')".to_owned();
+        let mut pg = r"m.account_id=$1 AND m.sender_key=$2 AND mail_julianday(m.received_at)<=mail_julianday($3) AND NOT EXISTS(SELECT 1 FROM unnest(m.folder_ids) f WHERE lower(f)=ANY($4::TEXT[]) OR lower(ltrim(f,'\'))='trash')".to_owned();
         sqlite.push_str(&format!(" AND json_array_length(m.document,'$.folder_ids')>0 AND NOT EXISTS (SELECT 1 FROM operations WHERE json_extract(document,'$.target_id')=m.id AND {SQLITE_UNVERIFIED_MOVE})"));
         pg.push_str(&format!(" AND cardinality(m.folder_ids)>0 AND NOT EXISTS (SELECT 1 FROM operations WHERE account_id=$1 AND target_id=m.id AND {PG_UNVERIFIED_MOVE})"));
         let rows: Vec<String>;

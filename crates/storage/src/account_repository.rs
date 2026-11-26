@@ -827,6 +827,9 @@ impl ApplicationDatabase {
         sqlx::migrate!("./migrations/account_postgres")
             .run(&db)
             .await?;
+        let mut tx = db.begin().await?;
+        sender_key::backfill_postgres(&mut tx, None).await?;
+        tx.commit().await?;
         Ok(Self { db, _lease: lease })
     }
     fn repository(&self, a: &AuthorizedAccount) -> AccountRepository {

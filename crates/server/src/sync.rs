@@ -43,7 +43,9 @@ pub(crate) async fn tick(app: &App, a: &AuthorizedAccount) -> crate::Result<bool
     let lane = app.mail.sync_lane(a).await;
     let _guard = lane.lock().await;
     let provider = app.mail.provider(&app.store, a).await?;
-    if let Some(graph) = provider.graph() { return crate::graph_sync::tick(app, a, graph).await; }
+    if let Some(graph) = provider.graph() {
+        return crate::graph_sync::tick(app, a, graph).await;
+    }
     let mut state: State = app
         .store
         .provider_document(a, "sync:folders")
@@ -69,6 +71,32 @@ pub(crate) async fn tick(app: &App, a: &AuthorizedAccount) -> crate::Result<bool
     }
     if state.folders.is_empty() {
         return Ok(false);
+    }
+    // Check Sent arrivals independently of the historical scan and its cooldown.
+    if provider.supports_head() {
+        let settings = app.mail.settings(&app.store, a).await?;
+        let configured = settings.sent_folder.as_deref().filter(|name| {
+            state
+                .folders
+                .iter()
+                .any(|f| f.selectable && f.name == *name)
+        });
+        let sent = p::imap::sent_candidates(&state.folders, configured).unwrap_or_default();
+        for folder in sent {
+            match app.mail.poll_head(&app.store, a, &folder).await {
+                Ok(false) => continue,
+                Ok(true) => {
+                    save_state(app, a, &state).await?;
+                    return Ok(true);
+                }
+                Err(error) => {
+                    app.store
+                        .put_provider_document(a, "sync:error", error.1)
+                        .await?;
+                    break;
+                }
+            }
+        }
     }
     // Do not restart already traversed folders while another folder has not
     // reached its end. scan_state rolls expired generations forward, so this
@@ -186,14 +214,19 @@ pub(crate) async fn tick(app: &App, a: &AuthorizedAccount) -> crate::Result<bool
         }
         break;
     }
+    save_state(app, a, &state).await?;
+    Ok(progressed)
+}
+
+async fn save_state(app: &App, a: &AuthorizedAccount, state: &State) -> crate::Result<()> {
     app.store
         .put_provider_document(
             a,
             "sync:folders",
-            &serde_json::to_string(&state).map_err(dakia_storage::Error::from)?,
+            &serde_json::to_string(state).map_err(dakia_storage::Error::from)?,
         )
         .await?;
-    Ok(progressed)
+    Ok(())
 }
 
 #[cfg(test)]

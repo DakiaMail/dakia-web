@@ -75,7 +75,7 @@ impl MailProvider for Provider {
         Ok(if self.filings.fetch_add(1, Ordering::SeqCst) == 0 {
             p::SentOutcome::FilingUnknown
         } else {
-            p::SentOutcome::AlreadyPresent
+            p::SentOutcome::AlreadyPresent("Sent Items".into())
         })
     }
 }
@@ -178,6 +178,11 @@ async fn smtp_outcomes_are_durable_and_filing_never_resends() {
             2
         );
         file(&store, &a, &provider).await.unwrap();
+        assert!(store
+            .provider_document(&a, "sync:head-at:Sent Items")
+            .await
+            .unwrap()
+            .is_none());
         file(&store, &a, &provider).await.unwrap();
         assert_eq!(provider.sends.load(Ordering::SeqCst), 1);
         if expected == SubmissionState::Accepted {
@@ -186,6 +191,14 @@ async fn smtp_outcomes_are_durable_and_filing_never_resends() {
                 FilingStatus::Filed
             );
             assert_eq!(provider.filings.load(Ordering::SeqCst), 2);
+            assert_eq!(
+                store
+                    .provider_document(&a, "sync:head-at:Sent Items")
+                    .await
+                    .unwrap()
+                    .as_deref(),
+                Some("0")
+            );
         } else {
             assert_eq!(provider.filings.load(Ordering::SeqCst), 0);
         }

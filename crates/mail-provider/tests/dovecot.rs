@@ -339,11 +339,11 @@ async fn dovecot_tls_starttls_search_mutations_and_sent() {
     let raw=format!("From: fixture@example.test\r\nTo: fixture@example.test\r\nMessage-ID: {id}\r\nSubject: fixture Sent\r\n\r\nsynthetic only\r\n");
     assert_eq!(
         provider.reconcile_sent(&id, raw.as_bytes()).await.unwrap(),
-        SentOutcome::Appended
+        SentOutcome::Appended("Sent".into())
     );
     assert_eq!(
         provider.reconcile_sent(&id, raw.as_bytes()).await.unwrap(),
-        SentOutcome::AlreadyPresent
+        SentOutcome::AlreadyPresent("Sent".into())
     );
     // No cleanup EXPUNGE: only disposable fixture volumes contain these messages.
 }

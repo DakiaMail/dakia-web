@@ -226,8 +226,8 @@ pub enum SubmissionOutcome {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum SentOutcome {
     ProviderManaged,
-    AlreadyPresent,
-    Appended,
+    AlreadyPresent(String),
+    Appended(String),
     FilingUnknown,
 }
 

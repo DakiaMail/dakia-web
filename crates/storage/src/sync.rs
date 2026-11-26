@@ -1,5 +1,16 @@
 use super::*;
 impl Store {
+    pub async fn folder_rows(
+        &self,
+        a: &AuthorizedAccount,
+        folders: &[String],
+        before: Option<(&str, &str)>,
+    ) -> Result<Vec<Message>> {
+        self.account_repository(a)
+            .await?
+            .folder_rows(folders, before)
+            .await
+    }
     /// Revoke a contradicted snapshot only while its exact reference is current.
     pub async fn invalidate_stale_reference(
         &self,
@@ -29,6 +40,17 @@ impl Store {
         self.account_repository(a)
             .await?
             .terminal_scan_folders()
+            .await
+    }
+    /// Terminal folders and whether their provider coverage was limited.
+    pub async fn terminal_scan_coverage(
+        &self,
+        a: &AuthorizedAccount,
+    ) -> Result<Vec<(String, bool)>> {
+        let _guard = self.gate.read().await;
+        self.account_repository(a)
+            .await?
+            .terminal_scan_coverage()
             .await
     }
     pub async fn completed_scan_due(

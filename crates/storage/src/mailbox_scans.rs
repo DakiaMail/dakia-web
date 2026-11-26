@@ -219,6 +219,39 @@ impl MailboxTransaction<'_> {
 }
 
 impl AccountRepository {
+    pub(crate) async fn folder_rows(
+        &self,
+        folders: &[String],
+        before: Option<(&str, &str)>,
+    ) -> Result<Vec<Message>> {
+        if folders.is_empty() {
+            return Ok(vec![]);
+        }
+        let (date, id) = before.unzip();
+        let folders_json = serde_json::to_string(folders)?;
+        transaction!(self, tx, local, false, {
+            let rows: Vec<String> = scalar!(local, tx,
+                "SELECT m.document FROM messages m
+                 WHERE EXISTS (SELECT 1 FROM json_each(m.document,'$.folder_ids') f WHERE f.value IN (SELECT value FROM json_each(?)))
+                 AND CASE WHEN json_valid(json_extract(m.document,'$.provider_id')) THEN NOT EXISTS(
+                     SELECT 1 FROM provider_documents v WHERE v.key='thread:epoch:'||json_extract(json_extract(m.document,'$.provider_id'),'$.folder')
+                     AND CAST(v.document AS INTEGER)<>json_extract(json_extract(m.document,'$.provider_id'),'$.uidvalidity')) ELSE 1 END
+                 AND (? IS NULL OR (json_extract(m.document,'$.received_at'), m.id)<(?,?))
+                 ORDER BY json_extract(m.document,'$.received_at') DESC, m.id DESC LIMIT 51",
+                [&folders_json,date,date,id],
+                "SELECT m.document FROM messages m
+                 WHERE m.account_id=$1 AND m.folder_ids && ARRAY(SELECT jsonb_array_elements_text($2::jsonb))
+                 AND NOT EXISTS (SELECT 1 FROM provider_documents v WHERE v.account_id=m.account_id
+                     AND v.key='thread:epoch:'||m.provider_folder AND v.document::BIGINT<>m.provider_epoch)
+                 AND ($3::TEXT IS NULL OR (m.received_at,m.id COLLATE \"C\")<($3,$4))
+                 ORDER BY m.received_at DESC, m.id COLLATE \"C\" DESC LIMIT 51",
+                [&self.account,&folders_json,date,id], fetch_all);
+            rows.into_iter()
+                .map(|raw| Ok(serde_json::from_str(&raw)?))
+                .collect()
+        })
+    }
+
     pub(crate) async fn inbox_rows(
         &self,
         before: Option<(&str, &str)>,
@@ -477,8 +510,23 @@ impl AccountRepository {
         })
     }
     pub(crate) async fn terminal_scan_folders(&self) -> Result<Vec<String>> {
+        Ok(self
+            .terminal_scan_coverage()
+            .await?
+            .into_iter()
+            .map(|(folder, _)| folder)
+            .collect())
+    }
+    pub(crate) async fn terminal_scan_coverage(&self) -> Result<Vec<(String, bool)>> {
         transaction!(self, tx, local, false, {
-            Ok(scalar!(local,tx,"SELECT f.folder FROM folder_scans f LEFT JOIN provider_documents e ON e.key='thread:epoch:'||f.folder WHERE f.continuation IS NULL AND (f.completed_at IS NOT NULL OR f.coverage_limited=1) AND f.uidvalidity IS CAST(e.document AS INTEGER)",[],"SELECT f.folder FROM folder_scans f LEFT JOIN provider_documents e ON e.account_id=f.account_id AND e.key='thread:epoch:'||f.folder WHERE f.account_id=$1 AND f.continuation IS NULL AND (f.completed_at IS NOT NULL OR f.coverage_limited) AND f.uidvalidity IS NOT DISTINCT FROM e.document::BIGINT",[&self.account],fetch_all))
+            let rows = if local {
+                sqlx::query_as("SELECT f.folder,f.coverage_limited FROM folder_scans f LEFT JOIN provider_documents e ON e.key='thread:epoch:'||f.folder WHERE f.continuation IS NULL AND (f.completed_at IS NOT NULL OR f.coverage_limited=1) AND f.uidvalidity IS CAST(e.document AS INTEGER)")
+                    .fetch_all(&mut *tx).await?
+            } else {
+                sqlx::query_as("SELECT f.folder,f.coverage_limited FROM folder_scans f LEFT JOIN provider_documents e ON e.account_id=f.account_id AND e.key='thread:epoch:'||f.folder WHERE f.account_id=$1 AND f.continuation IS NULL AND (f.completed_at IS NOT NULL OR f.coverage_limited) AND f.uidvalidity IS NOT DISTINCT FROM e.document::BIGINT")
+                    .bind(&self.account).fetch_all(&mut *tx).await?
+            };
+            Ok(rows)
         })
     }
     pub(crate) async fn verified_snapshot_current(&self, folder: &str) -> Result<bool> {

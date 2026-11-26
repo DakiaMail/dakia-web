@@ -21,7 +21,12 @@ impl MailRuntime {
         a: &AuthorizedAccount,
         folder: &str,
     ) -> Result<bool> {
-        self.check_head_due(store, a, folder, 60).await
+        let interval = if folder.eq_ignore_ascii_case("INBOX") {
+            60
+        } else {
+            15
+        };
+        self.check_head_due(store, a, folder, interval).await
     }
 
     async fn check_head_due(

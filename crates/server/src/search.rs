@@ -209,6 +209,8 @@ struct Cursor {
     #[serde(default)]
     local_inbox: bool,
     #[serde(default)]
+    local_sent: bool,
+    #[serde(default)]
     local_starred: bool,
     #[serde(default)]
     local_snoozed: bool,
@@ -363,6 +365,15 @@ pub(super) async fn search(
         && (r.continuation.is_none() || cursor.local_inbox)
     {
         cursor.local_inbox = true;
+        return inbox(app, user, r, scopes, cursor).await;
+    }
+    if r.q.trim().eq_ignore_ascii_case("folder:Sent")
+        && !r.exclude_trash
+        && r.category.is_none()
+        && r.classification() == ClassificationFilter::default()
+        && (r.continuation.is_none() || cursor.local_sent)
+    {
+        cursor.local_sent = true;
         return inbox(app, user, r, scopes, cursor).await;
     }
     if r.q.trim().eq_ignore_ascii_case("is:starred")
@@ -637,6 +648,67 @@ pub(super) async fn search(
     }))
 }
 
+async fn sent_coverage(
+    app: &App,
+    a: &dakia_storage::AuthorizedAccount,
+    refresh: bool,
+) -> Result<AccountCoverage> {
+    let settings = app.mail.settings(&app.store, a).await?;
+    let probe: Option<dakia_mail_provider::Probe> = app
+        .store
+        .provider_document(a, "probe")
+        .await?
+        .and_then(|raw| serde_json::from_str(&raw).ok());
+    let state: Option<crate::sync::State> = app
+        .store
+        .provider_document(a, "sync:folders")
+        .await?
+        .and_then(|raw| serde_json::from_str(&raw).ok());
+    let discovered = probe
+        .as_ref()
+        .map(|p| p.folders.as_slice())
+        .or_else(|| state.as_ref().map(|s| s.folders.as_slice()));
+    let mapping_missing = settings.sent_folder.as_ref().is_some_and(|name| {
+        discovered.is_some_and(|folders| !folders.iter().any(|f| f.selectable && f.name == *name))
+    });
+    let folder_ids = match (settings.sent_folder, discovered) {
+        (Some(folder), _) => vec![folder],
+        (None, Some(folders)) => {
+            dakia_mail_provider::imap::sent_candidates(folders, None).unwrap_or_default()
+        }
+        (None, None) => vec![],
+    };
+    if refresh {
+        for folder in &folder_ids {
+            app.store
+                .put_provider_document(a, &format!("sync:head-at:{folder}"), "0")
+                .await?;
+        }
+    }
+    let terminal: BTreeMap<_, _> = app
+        .store
+        .terminal_scan_coverage(a)
+        .await?
+        .into_iter()
+        .collect();
+    let (state, error) = if mapping_missing || folder_ids.is_empty() && discovered.is_some() {
+        (CoverageState::Error, Some("folder_mapping_required".into()))
+    } else if folder_ids.is_empty() || folder_ids.iter().any(|f| !terminal.contains_key(f)) {
+        (CoverageState::Pending, None)
+    } else if folder_ids.iter().any(|f| terminal[f]) {
+        (CoverageState::Partial, None)
+    } else {
+        (CoverageState::Complete, None)
+    };
+    Ok(AccountCoverage {
+        account_id: a.id().into(),
+        folder_ids,
+        state,
+        error,
+        inbox: None,
+    })
+}
+
 async fn inbox(
     app: App,
     user: Identity,
@@ -648,6 +720,11 @@ async fn inbox(
     let mut coverage = vec![];
     let mut more = false;
     for a in scopes {
+        let sent = if cursor.local_sent {
+            Some(sent_coverage(&app, &a, r.refresh && r.continuation.is_none()).await?)
+        } else {
+            None
+        };
         if !cursor.positions.contains_key(a.id()) {
             let before: Option<(String, String)> = cursor
                 .pages
@@ -657,7 +734,9 @@ async fn inbox(
             let before = before
                 .as_ref()
                 .map(|(date, id)| (date.as_str(), id.as_str()));
-            let mut page = if cursor.local_starred {
+            let mut page = if let Some(sent) = &sent {
+                app.store.folder_rows(&a, &sent.folder_ids, before).await?
+            } else if cursor.local_starred {
                 app.store
                     .starred_rows_filtered(&a, before, r.category.as_deref(), &r.classification())
                     .await?
@@ -685,7 +764,9 @@ async fn inbox(
             }
             rows.extend(page);
         }
-        if cursor.local_starred {
+        if let Some(sent) = sent {
+            coverage.push(sent);
+        } else if cursor.local_starred {
             coverage.push(crate::sync::starred::coverage(&app, &a).await?);
         } else if cursor.local_snoozed {
             coverage.push(AccountCoverage {

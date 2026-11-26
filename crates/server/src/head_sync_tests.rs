@@ -124,11 +124,12 @@ async fn independent_heads_arrive_during_history_and_continue_after_limited_cool
 ) {
     let (_dir, app, user, a, provider) = paged(true).await;
     provider.heads.store(true, Ordering::SeqCst);
+    crate::sync::tick(&app, &a).await.unwrap(); // Sent head
     crate::sync::tick(&app, &a).await.unwrap(); // historical INBOX
     let before = app.store.scan_state(&a, "INBOX").await.unwrap();
     crate::sync::tick(&app, &a).await.unwrap(); // Archive
     crate::sync::tick(&app, &a).await.unwrap(); // independent INBOX head
-    assert_eq!(provider.head_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(provider.head_calls.load(Ordering::SeqCst), 2);
     assert_eq!(app.store.scan_state(&a, "INBOX").await.unwrap(), before);
     assert_eq!(app.store.inbox_rows(&a, None, None).await.unwrap().len(), 1);
     let req = serde_json::json!({"q":"folder:INBOX","accounts":a.id()});
@@ -169,6 +170,7 @@ async fn request_heads_serialize_preserve_history_and_failures_never_advance_che
     let (_dir, app, user, a, provider) = paged(true).await;
     provider.heads.store(true, Ordering::SeqCst);
     crate::sync::tick(&app, &a).await.unwrap();
+    crate::sync::tick(&app, &a).await.unwrap();
     let before = app.store.scan_state(&a, "INBOX").await.unwrap();
     let req = serde_json::json!({"q":"folder:INBOX","accounts":a.id()});
     let left = search(&app, &user, req.clone());
@@ -177,7 +179,7 @@ async fn request_heads_serialize_preserve_history_and_failures_never_advance_che
     assert!(l.is_ok() && r.is_ok());
     wait_refresh(&app, &a).await;
     assert_eq!(app.store.scan_state(&a, "INBOX").await.unwrap(), before);
-    assert_eq!(provider.head_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(provider.head_calls.load(Ordering::SeqCst), 2);
     let checkpoint = app
         .store
         .provider_document(&a, "sync:head:INBOX")
@@ -225,4 +227,48 @@ async fn historical_200_page_is_ingested_end_to_end_without_changing_ui_page_siz
         .unwrap();
     assert_eq!(page.rows.len(), 200);
     assert_eq!(app.store.catalogue(&a).await.unwrap().len(), 200);
+}
+
+#[tokio::test]
+async fn sent_is_read_locally_and_new_arrivals_do_not_wait_for_history() {
+    let (_dir, app, user, a, provider) = paged(false).await;
+    provider.heads.store(true, Ordering::SeqCst);
+    let req = serde_json::json!({"q":"folder:Sent","accounts":a.id(),"cache_first":true});
+
+    assert!(crate::sync::tick(&app, &a).await.unwrap());
+    assert!(
+        provider.visited.lock().await.is_empty(),
+        "Sent is seeded before any historical page"
+    );
+    let first = search(&app, &user, req.clone()).await.unwrap();
+    assert_eq!(first.rows.len(), 1);
+    assert!(first.pending);
+    assert!(first.cache_preview.is_none());
+    assert_eq!(provider.head_calls.load(Ordering::SeqCst), 1);
+
+    crate::sync::tick(&app, &a).await.unwrap(); // INBOX history
+    crate::sync::tick(&app, &a).await.unwrap(); // Archive history
+    crate::sync::tick(&app, &a).await.unwrap(); // INBOX head
+    crate::sync::tick(&app, &a).await.unwrap(); // Sent history
+    let history = app.store.scan_state(&a, "Sent").await.unwrap().unwrap();
+    assert!(history.1.is_some());
+
+    // The same wake-up the filing executor records after APPEND.
+    provider.arrival_uid.store(1, Ordering::SeqCst);
+    app.store
+        .put_provider_document(&a, "sync:head-at:Sent", "0")
+        .await
+        .unwrap();
+    assert!(crate::sync::tick(&app, &a).await.unwrap());
+    assert_eq!(
+        app.store.scan_state(&a, "Sent").await.unwrap(),
+        Some(history)
+    );
+
+    provider.base.fail.store(true, Ordering::SeqCst);
+    let saved = search(&app, &user, req).await.unwrap();
+    assert_eq!(saved.rows.len(), 2);
+    assert_ne!(saved.rows[0].id, first.rows[0].id);
+    assert_eq!(saved.rows[1].id, first.rows[0].id);
+    assert_eq!(provider.head_calls.load(Ordering::SeqCst), 3);
 }
